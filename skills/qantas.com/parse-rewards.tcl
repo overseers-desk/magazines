@@ -1,17 +1,27 @@
 #!/usr/bin/env tclsh
-# Parse Qantas Flight Reward Finder HTML — extract Classic Reward flight availability.
-#
-# Usage:
-#     tclsh parse-rewards.tcl /tmp/qantas-frf.html
+# Qantas Flight Reward Finder — extract Classic Reward flight availability.
 #
 # The Flight Reward Finder is a server-rendered Next.js page; the flight data
 # lives in `__next_f.push([...])` chunks in the HTML. This extracts those chunks,
 # reassembles the streamed payload, finds the per-flight availability records,
-# and prints a per-cabin point/tax/seat summary.
+# and renders a per-cabin point/tax/seat summary.
+#
+# Two entry paths share the same parser and renderer (byte-identical output):
+#   - Serialiser surface (the policed path the harness drives):
+#         browser-serialiser qantas.com/parse-rewards <origin> <dest> <date> [stops]
+#     serialiser_run builds the Flight Reward Finder URL, `nav`s, `dump`s the
+#     rendered HTML, parses it, and `emit`s the summary.
+#   - Direct tclsh, file-fed (legacy / fixtures):
+#         tclsh parse-rewards.tcl /tmp/qantas-frf.html
 
 package require json
 
 namespace eval qf {}
+
+# The public Flight Reward Finder is login-free, so no view-before-fetch entry is
+# needed: serialiser_run reaches the data with `nav`+`dump` (page HTML), never the
+# private `api` verb.
+set qf::FRF_BASE "https://flightrewardfinder.qantas.com/"
 
 # Reassemble the __next_f.push streamed payload: each chunk is `[<n>,"<str>"]`;
 # concatenate the second (string) element of every well-formed chunk.
@@ -137,13 +147,18 @@ proc qf::parse_iso {s} {
     return [dict create ok 1 hhmm "$h:$mi" date $date]
 }
 
-# Parse the HTML at $path into a list of flight dicts.
+# Parse the HTML at $path into a list of flight dicts (file-fed legacy path).
 proc qf::parse {html_path} {
     set f [open $html_path r]
     fconfigure $f -encoding utf-8
     set html [read $f]
     close $f
+    return [qf::parse_html $html]
+}
 
+# Parse a rendered Flight Reward Finder HTML string into a list of flight dicts.
+# This is the byte-faithful parser both the file path and the serialiser path run.
+proc qf::parse_html {html} {
     set payload [qf::extract_payload $html]
     if {$payload eq ""} { return {} }
 
@@ -228,20 +243,16 @@ proc qf::parse {html_path} {
     return $flights
 }
 
-proc qf::main {} {
-    global argv
-    if {[llength $argv] < 1} {
-        puts stderr "Usage: parse-rewards.tcl <html-file>"
-        exit 1
-    }
-    set flights [qf::parse [lindex $argv 0]]
+# Render a flight list to the human-readable summary text. The string is the
+# exact concatenation of the lines the file path prints (each ending in "\n"), so
+# `puts -nonewline` of it (file path) and `emit` of it (serialiser path, the
+# harness adds the one trailing newline) both reproduce the legacy bytes.
+proc qf::format_flights {flights} {
     if {![llength $flights]} {
-        puts "No Classic Reward flights found in this page."
-        return
+        return "No Classic Reward flights found in this page.\n"
     }
-
-    puts "Classic Flight Reward availability (flightrewardfinder.qantas.com):"
-    puts ""
+    set out "Classic Flight Reward availability (flightrewardfinder.qantas.com):\n"
+    append out "\n"
     foreach f $flights {
         if {[dict get $f stopovers] == 0} {
             set stops "nonstop"
@@ -252,12 +263,59 @@ proc qf::main {} {
         if {[dict get $f aircraft] ne ""} {
             set aircraft "  [dict get $f aircraft]"
         }
-        puts "[dict get $f flight]  [dict get $f date]  [dict get $f route]  [dict get $f departs] → [dict get $f arrives]  [dict get $f duration]  $stops$aircraft"
+        append out "[dict get $f flight]  [dict get $f date]  [dict get $f route]  [dict get $f departs] → [dict get $f arrives]  [dict get $f duration]  $stops$aircraft\n"
         foreach line [dict get $f cabin_lines] {
-            puts $line
+            append out "$line\n"
         }
-        puts ""
+        append out "\n"
     }
+    return $out
+}
+
+# Build the Flight Reward Finder URL from the search arguments, mirroring the
+# endpoint the SKILL.md documents (a single date repeats in the date range).
+proc qf::frf_url {origin dest date stops passengers} {
+    return "$qf::FRF_BASE?o=$origin&d=$dest&dr=${date}_${date}&st=$stops&p=$passengers"
+}
+
+proc qf::main {} {
+    global argv
+    if {[llength $argv] < 1} {
+        puts stderr "Usage: parse-rewards.tcl <html-file>"
+        exit 1
+    }
+    set flights [qf::parse [lindex $argv 0]]
+    puts -nonewline [qf::format_flights $flights]
+}
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: the policed-surface path. The harness sources this file into
+# a safe interp and calls serialiser_run with the search args; the flow navigates
+# to the Flight Reward Finder, dumps the rendered HTML, and runs the identical
+# qf::parse_html / qf::format_flights, so the emitted bytes match the file path.
+# ---------------------------------------------------------------------------
+
+proc serialiser_run {skillArgs} {
+    if {[llength $skillArgs] < 3} {
+        emit "Usage: qantas.com/parse-rewards <origin> <dest> <date YYYY-MM-DD> \[stops]"
+        return
+    }
+    lassign $skillArgs origin dest date stops
+    if {$stops eq ""} { set stops "direct" }
+    set url [qf::frf_url $origin $dest $date $stops 1]
+
+    nav $url --wait 6
+    if {[dict get [state] terminal] ne ""} {
+        emit "No Classic Reward flights found in this page.\n"
+        return
+    }
+    set html [dump]
+    set flights [qf::parse_html $html]
+    # format_flights ends in "\n"; drop exactly one so the harness's own trailing
+    # newline (it `puts` the emit) restores the file-path byte count, not two.
+    set text [qf::format_flights $flights]
+    if {[string index $text end] eq "\n"} { set text [string range $text 0 end-1] }
+    emit $text
 }
 
 if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {

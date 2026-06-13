@@ -1,22 +1,29 @@
 #!/usr/bin/env tclsh
-# Log into Qantas Frequent Flyer via CDP and print account state.
+# Log into Qantas Frequent Flyer and print account state.
 #
-# Reads credentials from ~/.claude/skills/config.ini, drives the sign-in form on
-# www.qantas.com, navigates to my-account, and extracts {first_name, tier,
-# member_id, points, status_credits}.
+# Drives the sign-in form on www.qantas.com, navigates to my-account, and
+# extracts {first_name, tier, member_id, points, status_credits}. Login + balance
+# happen in one session (cookies do not persist between invocations).
 #
-# not-google-chrome owns the browser lifecycle and exports CDP_WS_URL; this
-# script is a pure CDP client and exits if run without it. Login + balance
-# happen in one CDP session.
-#
-# Usage:
-#     not-google-chrome --cdp -- tclsh login.tcl            # human-readable
-#     not-google-chrome --cdp -- tclsh login.tcl --json     # JSON
-#     not-google-chrome --cdp -- tclsh login.tcl --check    # open login page, do not submit
+# Two entry paths share the same form-fill, parse and render logic:
+#   - Serialiser surface (the policed path the harness drives):
+#         browser-serialiser qantas.com/login <member_id> <last_name> <pin> [--json]
+#         browser-serialiser qantas.com/login --check        # open the form, do not submit
+#     serialiser_run navigates the sign-in page, detects the form, types the
+#     credentials, clicks submit, then reads and parses the account page.
+#   - Direct tclsh (legacy), credentials from ~/.claude/skills/config.ini:
+#         not-google-chrome --cdp -- tclsh login.tcl [--json|--check]
 
 package require json
 
-source [file dirname [info script]]/../lib/cdp-client.tcl
+# Legacy CDP engine, kept for the direct-tclsh path (qf::run / qf::main, which
+# call cdp::connect when run as `tclsh login.tcl ...` outside the serialiser).
+# Sourced only when not already present, so loading this file under the
+# serialiser harness (where the policed verbs replace raw CDP) is a no-op rather
+# than a re-definition. The harness path uses serialiser_run.
+if {![namespace exists cdp]} {
+    catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
+}
 
 namespace eval qf {}
 
@@ -300,6 +307,159 @@ proc qf::render_json {data} {
     return "{\n[join $parts ",\n"]\n}"
 }
 
+# Render the parsed account dict as the one-line human summary (the exact text
+# the legacy stdout path prints). Shared by qf::main and serialiser_run so the
+# rendered bytes are identical on both paths.
+proc qf::render_human {data} {
+    set name [qf::dget $data first_name "?"]
+    set tier [qf::dget $data tier "?"]
+    set mid [qf::dget $data member_id "?"]
+    set pts [qf::dget $data points ""]
+    set sc [qf::dget $data status_credits ""]
+    set pts_str [expr {[string is integer -strict $pts] ? [qf::comma $pts] : "?"}]
+    set sc_str [expr {[string is integer -strict $sc] ? [qf::comma $sc] : "?"}]
+    return "$name ($tier, $mid): $pts_str pts, $sc_str status credits"
+}
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: the policed-surface path. The harness sources this file into
+# a safe interp and calls serialiser_run with the skill args; the flow drives the
+# policed verbs (nav/eval/state/type/click/dump) instead of cdp::connect. The
+# form-fill, account parse (qf::parse_account_body) and rendering (render_json /
+# render_human) are the identical procs the legacy path uses, so the emitted
+# bytes match.
+#
+# The safe interp cannot read config.ini, so the credentials arrive as skill
+# args; the SKILL.md instructs the caller to read ~/.claude/skills/config.ini and
+# pass them. --check needs no credentials (it stops before the submit click).
+#
+#   browser-serialiser qantas.com/login <member_id> <last_name> <pin> [--json]
+#   browser-serialiser qantas.com/login --check
+# ---------------------------------------------------------------------------
+
+# Poll in-page (via the eval verb) for a CSS selector to exist, up to $timeout
+# seconds, using dwell for the harness-owned pause between polls.
+proc qf::sv_wait_for {selector {timeout 12}} {
+    set expr "!!document.querySelector([qf::jsonstr $selector])"
+    for {set waited 0} {$waited < $timeout} {incr waited} {
+        set v [eval $expr]
+        if {$v eq "true" || $v == 1} { return 1 }
+        dwell 1
+    }
+    return 0
+}
+
+# Fill one form field over the policed surface: focus+clear it in-page (eval),
+# then type the value (the type verb is Input.insertText, paced by the harness).
+proc qf::sv_fill_field {fid val} {
+    eval "document.querySelector(\"#$fid\").focus();document.querySelector(\"#$fid\").value = \"\";document.querySelector(\"#$fid\").dispatchEvent(new Event(\"input\",{bubbles:true}));"
+    type $val
+}
+
+# Click the sign-in submit. Prefer the policed click verb on the submit button;
+# fall back to the text-matched button the legacy path found (some Qantas form
+# revisions render the submit without type=submit). Returns 1 if a click landed.
+proc qf::sv_click_submit {} {
+    if {[click "button\[type=submit\]"] == 1} { return 1 }
+    set clicked [eval {(function(){
+        var btns = Array.from(document.querySelectorAll("button"));
+        var b = btns.find(function(x){
+            var t = (x.textContent || "").trim().toLowerCase();
+            return x.type === "submit" || t === "log in" || t === "login";
+        });
+        if (b) { b.click(); return true; }
+        return false;
+    })()}]
+    return [expr {$clicked eq "true" || $clicked == 1 ? 1 : 0}]
+}
+
+proc serialiser_run {skillArgs} {
+    set check 0
+    set json_out 0
+    set positional {}
+    foreach a $skillArgs {
+        switch -- $a {
+            --check { set check 1 }
+            --json  { set json_out 1 }
+            default { lappend positional $a }
+        }
+    }
+
+    nav $qf::LOGIN_URL --wait 5
+    if {[dict get [state] terminal] ne ""} {
+        emit [qf::sv_error $json_out "sign-in page redirected to a wall ([dict get [state] terminal])"]
+        return
+    }
+
+    if {![qf::sv_wait_for "#pin" 12]} {
+        emit [qf::sv_error $json_out "PIN field did not appear on the sign-in page"]
+        return
+    }
+
+    if {$check} {
+        emit "Check only - login form ready, not submitting."
+        return
+    }
+
+    if {[llength $positional] < 3} {
+        emit [qf::sv_error $json_out "Usage: qantas.com/login <member_id> <last_name> <pin> \[--json] | --check"]
+        return
+    }
+    lassign $positional member_id last_name pin
+
+    foreach {fid val} [list memberId $member_id lastName $last_name pin $pin] {
+        qf::sv_fill_field $fid $val
+    }
+
+    if {[qf::sv_click_submit] != 1} {
+        emit [qf::sv_error $json_out "LOG IN button not found"]
+        return
+    }
+
+    # Settle the login redirect, then ensure we are on my-account.
+    dwell 3
+    set u [eval "window.location.href"]
+    set title [eval "document.title"]
+    if {[string first "sign-in" $u] >= 0 || [string first "Login" $title] >= 0} {
+        set err [eval {(function(){var e=document.querySelector("[role=\"alert\"], .error, [data-testid*=\"error\"]");return e ? e.textContent.trim() : null;})()}]
+        set msg "login did not complete (URL=$u, title=$title)"
+        if {$err ne "" && $err ne "null"} { append msg "; page error: $err" }
+        emit [qf::sv_error $json_out $msg]
+        return
+    }
+    if {[string first "/my-account" $u] < 0} {
+        nav $qf::ACCOUNT_URL --wait 6
+    }
+
+    # Wait for points to hydrate (SPA renders after navigation).
+    set body ""
+    for {set waited 0} {$waited < 15} {incr waited} {
+        dwell 1
+        set body [eval "document.body.innerText"]
+        if {[string first "Qantas Points" $body] >= 0 && [regexp {\d{1,3}(?:,\d{3})} $body]} {
+            break
+        }
+    }
+
+    set data [qf::parse_account_body $body]
+    if {$json_out} {
+        emit [qf::render_json $data]
+    } elseif {[dict size $data]} {
+        emit [qf::render_human $data]
+    } else {
+        emit [qf::sv_error 0 "account page parsed no fields (URL=$u)"]
+    }
+}
+
+# Shape an error the same way each output mode expects: a JSON object for --json,
+# a plain ERROR line otherwise.
+proc qf::sv_error {json_out msg} {
+    if {$json_out} {
+        return "\{\n  [json::write string error]: [json::write string $msg]\n\}"
+    }
+    return "ERROR: $msg"
+}
+
 # ---------------------------------------------------------------------------
 # Main.
 # ---------------------------------------------------------------------------
@@ -326,14 +486,7 @@ proc qf::main {} {
     if {$json_out} {
         puts [qf::render_json $data]
     } elseif {$code == 0 && [dict size $data]} {
-        set name [qf::dget $data first_name "?"]
-        set tier [qf::dget $data tier "?"]
-        set mid [qf::dget $data member_id "?"]
-        set pts [qf::dget $data points ""]
-        set sc [qf::dget $data status_credits ""]
-        set pts_str [expr {[string is integer -strict $pts] ? [qf::comma $pts] : "?"}]
-        set sc_str [expr {[string is integer -strict $sc] ? [qf::comma $sc] : "?"}]
-        puts "$name ($tier, $mid): $pts_str pts, $sc_str status credits"
+        puts [qf::render_human $data]
     } elseif {$code != 0 && [qf::dget $data error ""] ne ""} {
         puts stderr "ERROR: [dict get $data error]"
     }

@@ -37,29 +37,32 @@ Parameters:
 - `st` - stops filter: `direct`, `1`, `2`, `3+`. Use `direct` for nonstop only.
 - `p` - passenger count.
 
-Server-rendered Next.js - flight data lives in `__next_f.push(...)` chunks in the HTML. No authentication, no API key, no headed browser needed.
+Server-rendered Next.js - flight data lives in `__next_f.push(...)` chunks in the HTML. No authentication, no API key needed.
 
-Steps:
-
-1. Fetch the URL with `not-google-chrome URL > /tmp/qantas-frf.html`.
-2. Run the parser:
+Run the skill through `browser-serialiser`: it loads the skill into a policed safe interpreter and drives the browser through the command surface (no raw CDP, anti-ban pacing enforced). The skill navigates to the Flight Reward Finder, dumps the rendered HTML, and parses it in one call. See the serialised-browsing skill for the command surface.
 
 ```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/qantas.com/parse-rewards.tcl /tmp/qantas-frf.html
+browser-serialiser qantas.com/parse-rewards <origin> <dest> <date YYYY-MM-DD> [stops]
+browser-serialiser qantas.com/parse-rewards SIN BNE 2026-08-01 direct
 ```
+
+The first three arguments are required; `stops` defaults to `direct`. The arguments map to the endpoint parameters above (`o`/`d`/`dr`/`st`); the single date repeats to form the `dr` range, and passenger count is 1.
 
 Date handling: the Flight Reward Finder only holds live and future availability - past dates return zero records, not an error. If the user asks about a date in the past, state today's date and confirm before fetching. Even when `dr` specifies a single day, the endpoint returns the full forward availability list (observed spanning ~12 months), not a filtered window, so filter to the requested date in the consumer.
 
 ## Feature 2: Read Frequent Flyer points balance (login required)
 
-Returns first name, tier, member ID, points, and status credits. Login + read happen in one CDP session because cookies do not persist across invocations while the snap chromium browser is open (it locks the user-data-dir).
+Returns first name, tier, member ID, points, and status credits. Login + read happen in one session because cookies do not persist across invocations while the snap chromium browser is open (it locks the user-data-dir).
+
+The skill runs under the policed surface: `serialiser_run` navigates the sign-in page, detects the form, types the credentials, clicks submit, then reads and parses the account page. The safe interpreter cannot read `config.ini`, so read the credentials from `$HOME/.claude/skills/config.ini` (`[qantas.com]` member_id, last_name, pin — see Prerequisites) and pass them as arguments:
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/qantas.com/login.tcl            # human-readable
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/qantas.com/login.tcl --json     # JSON
+browser-serialiser qantas.com/login <member_id> <last_name> <pin>            # human-readable
+browser-serialiser qantas.com/login <member_id> <last_name> <pin> --json     # JSON
+browser-serialiser qantas.com/login --check                                  # open the form, do not submit
 ```
 
-Credentials are read from `$HOME/.claude/skills/config.ini` (`[qantas.com]` member_id, last_name, pin). See Prerequisites above.
+`--check` opens the sign-in form and reports it ready without submitting; it needs no credentials. The submit is supervised — this skill types and clicks once, and a live run sends the real credentials.
 
 This feature is independent of Feature 1. Run it only when the user asks about points balance, status credits, or tier. Do not run it as a side effect of a flight search.
 
