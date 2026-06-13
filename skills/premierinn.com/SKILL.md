@@ -105,4 +105,4 @@ Verified result: a room takes at most 2 adults + 2 children. Any party with chil
 
 ## Fallback
 
-If the GraphQL endpoint starts rejecting non-browser clients, fall back to `not-google-chrome` on the hotel page; prices render into the booking panel and `__NEXT_DATA__` still carries the static hotel record.
+If the GraphQL endpoint starts rejecting non-browser clients, fall back to `browser-serialiser --dump` on the hotel page; prices render into the booking panel and `__NEXT_DATA__` still carries the static hotel record.

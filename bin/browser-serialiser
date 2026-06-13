@@ -315,6 +315,133 @@ proc browser_teardown {pid port userDataDir} {
 }
 
 # ---------------------------------------------------------------------------
+# Direct render modes (--dump / --pdf). These run in THIS trusted interpreter,
+# not a safe interp: they are the generic, non-CDP counterpart to the policed
+# skill-by-reference mode, the in-harness replacement for not-google-chrome's
+# dump-dom and --pdf. They reuse the same flock + launch + teardown, drive the
+# browser directly over cdp-client (no skill, no policing surface), and so may
+# write files (--pdf). Browser config (UA/lang) is read the same way the skill
+# path reads it, so the render presents the logged-in fingerprint.
+# ---------------------------------------------------------------------------
+
+# Resolve UA/lang from config (shared by both render modes). Dies on a missing
+# or HeadlessChrome UA, matching the skill path.
+proc render_browser_config {} {
+    set ua [config_get browser user_agent]
+    if {$ua eq ""} {
+        die 78 "[config_path]: [browser] user_agent missing (copy config.ini.example and fill it)"
+    }
+    if {[string match "*HeadlessChrome*" $ua]} {
+        die 78 "user_agent contains 'HeadlessChrome', the marker sites block on; use a real browser's UA"
+    }
+    set lang [config_get browser accept_lang]
+    if {$lang eq ""} { set lang "en-US,en;q=0.9" }
+    return [dict create ua $ua lang $lang]
+}
+
+# Navigate the connected CDP client to $url and wait for the page to finish
+# loading, up to $timeoutSecs. Page.enable is issued so Page.loadEventFired
+# arrives; drainEvents parks events while we watch for it. If the load event
+# never comes within budget we proceed anyway (a slow site may still have a
+# usable DOM), mirroring not-google-chrome's deadman-then-emit behaviour.
+proc render_navigate {cdp url timeoutSecs} {
+    $cdp cdp Page.enable
+    $cdp cdp Page.navigate [dict create url $url]
+    set deadline [expr {[clock milliseconds] + $timeoutSecs * 1000}]
+    while {[clock milliseconds] < $deadline} {
+        set remain [expr {$deadline - [clock milliseconds]}]
+        $cdp drainEvents [expr {($remain < 500 ? $remain : 500) / 1000.0}]
+        foreach ev [$cdp events] {
+            if {[dict exists $ev method] \
+                    && [dict get $ev method] eq "Page.loadEventFired"} {
+                $cdp clearEvents
+                return
+            }
+        }
+        $cdp clearEvents
+    }
+}
+
+# --dump: launch, navigate, print the rendered DOM to stdout, tear down. Reuses
+# the standalone lock/launch/teardown. Default timeout 15s.
+proc run_dump {url timeoutSecs} {
+    set cfg [render_browser_config]
+    return [render_session $timeoutSecs $cfg [list apply {{url timeoutSecs cdp} {
+        render_navigate $cdp $url $timeoutSecs
+        set html [$cdp evaluate {document.documentElement.outerHTML}]
+        puts $html
+    }} $url $timeoutSecs]]
+}
+
+# --pdf: launch, navigate, Page.printToPDF, decode the base64 and write it to
+# $outfile (this interpreter is trusted, so the harness writes the file). Reuses
+# the standalone lock/launch/teardown. Default timeout 30s.
+proc run_pdf {outfile url timeoutSecs} {
+    set cfg [render_browser_config]
+    return [render_session $timeoutSecs $cfg [list apply {{url timeoutSecs outfile cdp} {
+        render_navigate $cdp $url $timeoutSecs
+        set resp [$cdp cdp Page.printToPDF [dict create \
+            printBackground true preferCSSPageSize true]]
+        if {![dict exists $resp result data]} {
+            error "Page.printToPDF returned no data" {} {SERIALISER_ENV 1}
+        }
+        set bytes [base64::decode [dict get $resp result data]]
+        set f [open $outfile wb]
+        puts -nonewline $f $bytes
+        close $f
+    }} $url $timeoutSecs $outfile]]
+}
+
+# Shared body for the render modes: take the lock, launch Chromium on the real
+# profile, connect CDP, run $body (a command prefix invoked with the cdp client
+# appended), and tear the browser down on every exit path. Returns a process
+# exit code. Mirrors run_standalone's lock/launch/teardown and error mapping;
+# the only difference is it drives the browser directly instead of through the
+# safe-interp harness.
+proc render_session {timeoutSecs cfg body} {
+    set ua [dict get $cfg ua]
+    set lang [dict get $cfg lang]
+
+    set loc [browser_locate]
+    set binary [dict get $loc binary]
+    set udd [dict get $loc userDataDir]
+
+    set port [expr {10000 + int(rand()*40000)}]
+    set lockToken ""
+    set launched 0
+    set launchPid ""
+    set rc 0
+    if {[catch {
+        set lockToken [lock_acquire 30]
+        set br [browser_launch $binary $udd $ua $lang $port]
+        set launchPid [dict get $br pid]
+        set wsUrl [dict get $br wsurl]
+        set launched 1
+        set cdp [cdp::connect $wsUrl]
+        try {
+            {*}$body $cdp
+        } finally {
+            catch {$cdp close}
+        }
+    } err errOpts]} {
+        set code [dict get $errOpts -errorcode]
+        if {[lindex $code 0] eq "SERIALISER_LOCK"} {
+            puts stderr "browser-serialiser: $err"
+            set rc 75
+        } elseif {[lindex $code 0] eq "SERIALISER_ENV"} {
+            puts stderr "browser-serialiser: $err"
+            set rc 78
+        } else {
+            puts stderr "browser-serialiser: $err"
+            set rc 65
+        }
+    }
+    if {$launched} { browser_teardown $launchPid $port $udd }
+    lock_release $lockToken
+    return $rc
+}
+
+# ---------------------------------------------------------------------------
 # Overseer-delegation seam (Phase 3). Today: always decline -> standalone.
 # ---------------------------------------------------------------------------
 
@@ -398,15 +525,63 @@ proc die {code msg} {
 # Entry.
 # ---------------------------------------------------------------------------
 
+# Parse a leading `-t SECS` from a flag list, returning {secs <n|""> rest <list>}.
+proc render_parse_timeout {args} {
+    set secs ""
+    set rest {}
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        set a [lindex $args $i]
+        if {$a eq "-t"} {
+            incr i
+            set secs [lindex $args $i]
+            if {![string is integer -strict $secs]} {
+                die 64 "-t needs an integer seconds value"
+            }
+        } else {
+            lappend rest $a
+        }
+    }
+    return [dict create secs $secs rest $rest]
+}
+
+proc usage {} {
+    puts stderr "Usage:"
+    puts stderr "  browser-serialiser <skill-ref> \[skill args...\]"
+    puts stderr "      run a policed browser skill (e.g. instagram.com/fetch-recent-posts posts <handle>)"
+    puts stderr "  browser-serialiser --dump \[-t SECS\] <url>"
+    puts stderr "      render <url> and print its DOM to stdout (default -t 15)"
+    puts stderr "  browser-serialiser --pdf \[-t SECS\] <outfile> <url>"
+    puts stderr "      render <url> and write a PDF to <outfile> (default -t 30)"
+    exit 64
+}
+
 proc main {} {
     fconfigure stdout -encoding utf-8
     fconfigure stderr -encoding utf-8
     global argv
-    if {[llength $argv] < 1} {
-        puts stderr "Usage: browser-serialiser <skill-ref> \[skill args...\]"
-        puts stderr "  e.g. browser-serialiser instagram.com/fetch-recent-posts posts <handle> --limit 3"
-        exit 64
+    if {[llength $argv] < 1} { usage }
+
+    # Direct render modes (--dump / --pdf): no skill, no policing surface; run in
+    # this trusted interpreter. They share the standalone lock/launch/teardown.
+    switch -- [lindex $argv 0] {
+        --dump {
+            set p [render_parse_timeout {*}[lrange $argv 1 end]]
+            set rest [dict get $p rest]
+            if {[llength $rest] != 1} { usage }
+            set secs [dict get $p secs]
+            if {$secs eq ""} { set secs 15 }
+            exit [run_dump [lindex $rest 0] $secs]
+        }
+        --pdf {
+            set p [render_parse_timeout {*}[lrange $argv 1 end]]
+            set rest [dict get $p rest]
+            if {[llength $rest] != 2} { usage }
+            set secs [dict get $p secs]
+            if {$secs eq ""} { set secs 30 }
+            exit [run_pdf [lindex $rest 0] [lindex $rest 1] $secs]
+        }
     }
+
     set skillRef [lindex $argv 0]
     set skillArgs [lrange $argv 1 end]
 

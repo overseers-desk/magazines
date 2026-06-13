@@ -226,4 +226,4 @@ For "Marriott hotels in <place>":
 3. Call `phoenixLuxurySearchByGeoQueryList` with those coordinates. Iterate `data.search.properties.searchByGeolocation.edges` for the hotel list. `total` is the full count; only the first 30 come back in `edges`.
 4. If more than 30 hotels are needed and the `edges` limit is insufficient, the registered query does not expose pagination — capability is capped at 30 per geolocation query.
 
-The homepage GraphQL path handled ~20 back-to-back requests without throttling. A second or two between calls avoids tripping Akamai's adaptive rules. If the GraphQL endpoints start returning 403 consistently, fall back to `not-google-chrome`.
+The homepage GraphQL path handled ~20 back-to-back requests without throttling. A second or two between calls avoids tripping Akamai's adaptive rules. If the GraphQL endpoints start returning 403 consistently, fall back to `browser-serialiser --dump`.

@@ -30,16 +30,18 @@ Cloudflare protects the GraphQL endpoint. Direct curl without browser cookies re
 
 ### Step 1: Extract token and cookies via headless browser net log
 
-The wrapper passes through extra Chrome-compatible flags after the URL, so `--log-net-log` and `--net-log-capture-mode` are appended:
+A net log of the browser session carries the Firebase Bearer token and the Cloudflare cookies, so the session is dumped with `--log-net-log` and `--net-log-capture-mode=Everything`:
 
 ```bash
 NETLOG="$HOME/gyg-netlog.json"
 
-not-google-chrome -t 15 \
+browser-serialiser --dump -t 15 \
   "https://supplier.getyourguide.com/products/list" \
   --log-net-log="$NETLOG" --net-log-capture-mode=Everything \
   > /dev/null 2>&1
 ```
+
+Note: `browser-serialiser --dump` does not yet pass Chrome launch flags after the URL through to Chromium (it drives an already-launched browser over CDP), so the net log above is captured only once that passthrough is added; until then this step needs the net-log flags supplied at launch.
 
 ### Step 2: Parse token and cookies from the net log
 
