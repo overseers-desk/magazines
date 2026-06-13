@@ -1,7 +1,10 @@
 #!/usr/bin/env tclsh
 # Search a LinkedIn profile HTML for specific keywords and show context.
 #
-# Usage: tclsh keyword-search.tcl <html-file> keyword1 keyword2 ...
+# Serialiser path (see SKILL.md): browser-serialiser linkedin.com/keyword-search <slug> keyword1 keyword2 ...
+#   navigates to /in/<slug>/, dumps the rendered DOM, and runs the identical
+#   keyword scan over the in-memory HTML.
+# Direct path (legacy, file-fed): tclsh keyword-search.tcl <html-file> keyword1 keyword2 ...
 #
 # For each keyword found, prints the count and surrounding text (with HTML tags
 # stripped). Useful for quickly checking whether a profile mentions specific
@@ -80,21 +83,19 @@ proc strip_viewer_content {html} {
     return $html
 }
 
-proc keyword_search {html_path keywords} {
-    set f [open $html_path r]
-    fconfigure $f -encoding utf-8
-    set html [read $f]
-    close $f
-
+# Render the keyword-search report from an HTML string and a keyword list,
+# returning the report text (the same lines the legacy path printed).
+proc render_keyword_search {html keywords} {
     set html [strip_viewer_content $html]
 
     set title "NOT FOUND"
     if {[regexp {(?s)<title[^>]*>(.*?)</title>} $html -> t]} {
         set title [string trim $t]
     }
-    puts "Profile: $title"
-    puts "HTML size: [commafy [cp_length $html]] bytes"
-    puts ""
+    set out {}
+    lappend out "Profile: $title"
+    lappend out "HTML size: [commafy [cp_length $html]] bytes"
+    lappend out ""
 
     set found_any 0
     foreach kw $keywords {
@@ -108,12 +109,12 @@ proc keyword_search {html_path keywords} {
             set start [expr {$b+1}]
         }
         if {![llength $matches]} {
-            puts "  $kw: NOT FOUND"
+            lappend out "  $kw: NOT FOUND"
             continue
         }
 
         set found_any 1
-        puts "  $kw: [llength $matches] occurrences"
+        lappend out "  $kw: [llength $matches] occurrences"
 
         # Show up to 3 unique context snippets.
         set seen_contexts {}
@@ -140,21 +141,57 @@ proc keyword_search {html_path keywords} {
             if {[dict exists $seen_contexts $sig]} { continue }
             dict set seen_contexts $sig 1
 
-            puts "    ...[cp_range $clean 0 399]..."
+            lappend out "    ...[cp_range $clean 0 399]..."
             incr shown
         }
 
-        puts ""
+        lappend out ""
     }
 
     if {!$found_any} {
-        puts "None of the keywords were found in this profile."
+        lappend out "None of the keywords were found in this profile."
     }
+    return [join $out "\n"]
 }
 
-if {[llength $argv] < 2} {
-    puts "Usage: keyword-search.tcl <profile.html> keyword1 \[keyword2 ...\]"
-    exit 1
+# Direct path: read the file and print the report.
+proc keyword_search {html_path keywords} {
+    set f [open $html_path r]
+    fconfigure $f -encoding utf-8
+    set html [read $f]
+    close $f
+    puts [render_keyword_search $html $keywords]
 }
-fconfigure stdout -encoding utf-8
-keyword_search [lindex $argv 0] [lrange $argv 1 end]
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: navigate to the profile, dump the rendered DOM, and run the
+# identical keyword scan over the in-memory HTML (no file read; Plane 1 removes
+# file access). Emits the same report text.
+#
+#     browser-serialiser linkedin.com/keyword-search <slug> keyword1 keyword2 ...
+# ---------------------------------------------------------------------------
+proc serialiser_run {skillArgs} {
+    if {[llength $skillArgs] < 2} {
+        emit "Usage: linkedin.com/keyword-search <slug> keyword1 \[keyword2 ...\]"
+        return
+    }
+    set slug [string trim [lindex $skillArgs 0] /]
+    set keywords [lrange $skillArgs 1 end]
+    nav "https://www.linkedin.com/in/$slug/" --wait 5
+    if {[dict get [state] terminal] ne ""} {
+        emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
+        return
+    }
+    set html [dump]
+    emit [render_keyword_search $html $keywords]
+}
+
+# Direct-tclsh entry: an HTML path plus keywords. Skipped when sourced as a skill.
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    if {[llength $argv] < 2} {
+        puts "Usage: keyword-search.tcl <profile.html> keyword1 \[keyword2 ...\]"
+        exit 1
+    }
+    fconfigure stdout -encoding utf-8
+    keyword_search [lindex $argv 0] [lrange $argv 1 end]
+}

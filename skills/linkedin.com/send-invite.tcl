@@ -1,14 +1,21 @@
 #!/usr/bin/env tclsh
-# Send a LinkedIn connection invite with a personalised note via CDP.
+# Send a LinkedIn connection invite with a personalised note.
 #
-# The wrapper (not-google-chrome --cdp) owns the browser lifecycle and exports
-# CDP_WS_URL; this script is a pure CDP client and exits if run without it.
+# Serialiser path (see SKILL.md): browser-serialiser linkedin.com/send-invite VANITY_NAME "Note" [--dry-run]
+#   navigates to the custom-invite modal over the policed verbs, types the note,
+#   locates the send control, and clicks it. The send click is the IRREVERSIBLE
+#   outward action; --dry-run types but stops before it.
+# Direct path (legacy, CDP client): tclsh send-invite.tcl under not-google-chrome --cdp.
 #
 # Usage:
-#     not-google-chrome --cdp -- tclsh send-invite.tcl VANITY_NAME "Note text (<=300 chars)"
-#     not-google-chrome --cdp -- tclsh send-invite.tcl VANITY_NAME "Note text" --dry-run   # stop before clicking Send
+#     browser-serialiser linkedin.com/send-invite VANITY_NAME "Note text (<=300 chars)"
+#     browser-serialiser linkedin.com/send-invite VANITY_NAME "Note text" --dry-run   # stop before clicking Send
 
-source [file dirname [info script]]/../lib/cdp-client.tcl
+# Legacy CDP engine, sourced only for the direct-tclsh path; under the serialiser
+# harness the policed verbs replace raw CDP, so loading is a no-op there.
+if {![namespace exists cdp]} {
+    catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
+}
 package require json
 
 set MAX_NOTE_CHARS 300
@@ -410,6 +417,185 @@ proc main {} {
     }
 }
 
-fconfigure stdout -encoding utf-8
-fconfigure stderr -encoding utf-8
-main
+# ---------------------------------------------------------------------------
+# Serialiser path: the policed-surface flow. Mirrors run_flow over the verbs
+# (nav/eval/type/click/state/dwell) instead of cdp::connect. The send click is
+# the irreversible action; result_json renders the same status object the legacy
+# path prints, so the per-status output stays byte-identical.
+#
+#     browser-serialiser linkedin.com/send-invite VANITY_NAME "Note" [--dry-run]
+# ---------------------------------------------------------------------------
+
+# Evaluate a JS boolean over the policed `eval` verb. Returns 1/0.
+proc sv_js_bool {expr} {
+    return [expr {[eval $expr] eq "true" ? 1 : 0}]
+}
+
+# Wait up to ~$ticks*0.5s for a selector to exist, polling via eval + dwell.
+proc sv_wait_for {selector ticks} {
+    for {set i 0} {$i < $ticks} {incr i} {
+        if {[sv_js_bool "!!document.querySelector([json::write string $selector])"]} {
+            return 1
+        }
+        dwell 0.5
+    }
+    return 0
+}
+
+# Emit a result and stop. Centralised so every exit path renders via result_json.
+proc sv_emit_result {d} {
+    emit [result_json $d]
+}
+
+proc serialiser_run {skillArgs} {
+    global MAX_NOTE_CHARS
+    set dry_run 0
+    set positional {}
+    foreach a $skillArgs {
+        if {$a eq "--dry-run"} { set dry_run 1 } else { lappend positional $a }
+    }
+    if {[llength $positional] < 1} {
+        sv_emit_result [dict create status error reason "usage: send-invite VANITY_NAME \[note\] \[--dry-run\]"]
+        return
+    }
+    set vanity_name [lindex $positional 0]
+    set note [expr {[llength $positional] > 1 ? [lindex $positional 1] : ""}]
+
+    if {$note ne "" && [cp_length $note] > $MAX_NOTE_CHARS} {
+        sv_emit_result [dict create status error \
+            reason "note is [cp_length $note] chars; LinkedIn limit is $MAX_NOTE_CHARS"]
+        return
+    }
+
+    set page_url "https://www.linkedin.com/preload/custom-invite/?vanityName=$vanity_name"
+    log "Navigating to: $page_url"
+    nav $page_url --wait 4
+    if {[dict get [state] terminal] ne ""} {
+        sv_emit_result [dict create status error reason "session is not active ([dict get [state] terminal])"]
+        return
+    }
+
+    set title [eval {document.title}]
+    set tl [string tolower $title]
+    foreach bad {"sign in" "log in" "iniciar"} {
+        if {[string first $bad $tl] >= 0} {
+            sv_emit_result [dict create status error reason "got sign-in page - session is not active"]
+            return
+        }
+    }
+
+    if {![sv_wait_for {[aria-label="Add a note"]} 20]} {
+        set body [eval {document.body.innerText}]
+        set bl [string tolower $body]
+        if {[string first "already connected" $bl] >= 0 || \
+            [string first "ya estás conectado" $bl] >= 0} {
+            sv_emit_result [dict create status error reason "already connected to this person"]
+            return
+        }
+        set html [eval {document.body.innerHTML}]
+        if {[string first {type="email"} $html] >= 0} {
+            sv_emit_result [dict create status error reason "email verification required to connect (high-profile account)"]
+            return
+        }
+        sv_emit_result [dict create status error reason "invite modal not found"]
+        return
+    }
+
+    if {$note ne ""} {
+        log "Modal found. Clicking 'Add a note'..."
+        # Open the note editor. This click is non-destructive (UI expansion only).
+        eval {document.querySelector('[aria-label="Add a note"]').setAttribute('data-sv-addnote','1')}
+        click {[data-sv-addnote="1"]}
+
+        if {![sv_wait_for {#custom-message} 16]} {
+            sv_emit_result [dict create status error reason "textarea #custom-message did not appear after clicking 'Add a note'"]
+            return
+        }
+
+        log "Typing note ([cp_length $note] chars)..."
+        eval {document.querySelector('#custom-message').focus()}
+        dwell 0.3
+        type $note
+        dwell 0.5
+
+        set typed [eval {document.querySelector('#custom-message').value}]
+        if {$typed eq "null"} { set typed "" }
+        log "Verified in textarea ([cp_length $typed] chars)"
+
+        if {$dry_run} {
+            log "DRY RUN: stopping before send."
+            sv_emit_result [dict create status dry_run typed $typed]
+            return
+        }
+
+        # Locate the send control (label varies; "send" excluding "without").
+        set send_label [eval {(function() {
+                var b = Array.from(document.querySelectorAll("button")).find(function(b) {
+                    var l = (b.getAttribute("aria-label") || b.textContent || "").toLowerCase();
+                    return l.includes("send") && !l.includes("without");
+                });
+                if (b) { b.setAttribute("data-sv-send","1"); }
+                return b ? (b.getAttribute("aria-label") || b.textContent.trim()) : null;
+            })()}]
+        if {$send_label eq "null" || $send_label eq ""} {
+            sv_emit_result [dict create status error reason "send button not found after typing"]
+            return
+        }
+
+        # THE IRREVERSIBLE SEND. In the wiring test, this click is a stub that
+        # records but does nothing; live, it dispatches the invitation.
+        log "Clicking send button: '$send_label'"
+        click {[data-sv-send="1"]}
+    } else {
+        if {$dry_run} {
+            log "DRY RUN: modal found, would click 'Send without a note'."
+            sv_emit_result [dict create status dry_run typed ""]
+            return
+        }
+        # No-note path: tag and click "Send without a note". IRREVERSIBLE.
+        set tagged [sv_js_bool {(function() {
+                var b = Array.from(document.querySelectorAll("button")).find(function(b) {
+                    var l = (b.getAttribute("aria-label") || b.textContent || "").toLowerCase();
+                    return l.includes("send without");
+                });
+                if (b) { b.setAttribute("data-sv-send","1"); return true; }
+                return false;
+            })()}]
+        if {!$tagged} {
+            sv_emit_result [dict create status error reason "'Send without a note' button not found"]
+            return
+        }
+        log "No note. Clicking 'Send without a note'..."
+        click {[data-sv-send="1"]}
+    }
+
+    log "Waiting for server response..."
+    dwell 5
+
+    set toast [eval {document.querySelector(".artdeco-toast-item__message, [data-test-artdeco-toast-item]")?.textContent?.trim() || null}]
+    if {$toast eq "null"} { set toast "" }
+    set modal_gone [expr {![sv_js_bool {!!document.querySelector("#send-invite-modal")}]}]
+
+    # The post-send Voyager confirmation network call is not harvestable on this
+    # surface (the send is a click, not a capture), so success is read from the
+    # DOM signals the legacy path also accepts: a toast or the modal closing.
+    set inv_events {}
+    set server_message_echo ""
+
+    set api_ok 0
+    set api_failed 0
+    set success [expr {$api_ok || ($toast ne "" && !$api_failed) || ($modal_gone && !$api_failed)}]
+
+    sv_emit_result [dict create \
+        status [expr {$success ? "sent" : "uncertain"}] \
+        toast $toast modal_closed $modal_gone \
+        server_message_echo $server_message_echo \
+        api_responses [api_responses_list $inv_events]]
+}
+
+# Direct-tclsh entry: skipped when sourced as a serialiser skill (no argv0 match).
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    fconfigure stdout -encoding utf-8
+    fconfigure stderr -encoding utf-8
+    main
+}
