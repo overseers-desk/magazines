@@ -15,7 +15,7 @@ Multi-file deviations use `?file=N` URL parameters (e.g. `?file=2` through `?fil
 Strip any `?file=` from the user's URL to get the canonical base URL. Fetch `?file=2`:
 
 ```bash
-not-google-chrome -t 30 "BASE_URL?file=2" > /tmp/da_file.html
+browser-serialiser --dump -t 30 "BASE_URL?file=2" > /tmp/da_file.html
 grep -oE 'https://wixmp[^"'\'']+\.mp4[^"'\'']*' /tmp/da_file.html | sort -u
 ```
 
@@ -24,7 +24,7 @@ If this returns an MP4 URL that differs from the base URL's MP4, it is multi-fil
 ## Single-file download
 
 ```bash
-not-google-chrome -t 30 "BASE_URL" > /tmp/da_file.html
+browser-serialiser --dump -t 30 "BASE_URL" > /tmp/da_file.html
 MP4=$(grep -oE 'https://wixmp[^"'\'']+\.mp4[^"'\'']*' /tmp/da_file.html | sort -u | head -1)
 wget -q --show-progress -O "DEST/SLUG.mp4" "$MP4"
 ```
@@ -34,13 +34,11 @@ wget -q --show-progress -O "DEST/SLUG.mp4" "$MP4"
 Maintain a set of already-downloaded wixmp URLs. For each page, extract wixmp URLs (`https://wixmp...mp4`), find ones not yet seen, download them. Stop when a page yields no new URLs — that means we have gone past the last valid file.
 
 ```python
-import re, subprocess, os
-
-WRAPPER = os.path.expanduser("~/.claude/skills/headless-browser/not-google-chrome")
+import re, subprocess
 
 def dump_dom(url):
     return subprocess.run(
-        [WRAPPER, "-t", "30", url],
+        ["browser-serialiser", "--dump", "-t", "30", url],
         capture_output=True, check=True, text=True
     ).stdout
 
@@ -86,5 +84,5 @@ where SLUG is the last path segment of the deviation URL (e.g. `Interrogation-2-
 ## What this skill does NOT do
 
 - It does not handle image or literature deviations — only video.
-- It does not handle deviations behind a login wall. If the dump returns a login page, the user must be logged in via the user-data-dir that `not-google-chrome` targets.
+- It does not handle deviations behind a login wall. If the dump returns a login page, the user must be logged in via the user-data-dir that `browser-serialiser` targets.
 - It does not search DeviantArt or browse galleries.

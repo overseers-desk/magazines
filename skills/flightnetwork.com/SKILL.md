@@ -61,11 +61,11 @@ This endpoint is publicly accessible (the token is the auth). `curl` returns the
 
 ### 5. Render to PDF
 
-PDF generation uses the browser wrapper's `--pdf` mode. Timeout is 60s instead of the default 15s to allow PDF rendering. On Linux with a snap-confined chromium, the output path must be under `$HOME/snap/chromium/common/`:
+PDF generation uses `browser-serialiser --pdf`. Timeout is 60s instead of the default 30s to allow PDF rendering. On Linux with a snap-confined chromium, the output path must be under `$HOME/snap/chromium/common/`:
 
 ```bash
 OUT="$HOME/snap/chromium/common/fn-travel-doc.pdf"   # snap-confined; move afterwards
-not-google-chrome -t 60 --pdf "$OUT" "$URL" 2>/dev/null
+browser-serialiser --pdf -t 60 "$OUT" "$URL" 2>/dev/null
 ```
 
 Move to the caller's target path afterwards. The result is one page per flight segment.

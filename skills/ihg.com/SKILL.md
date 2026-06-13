@@ -12,7 +12,7 @@ allowed-tools: Bash, Read
 2. **Hotel availability with pricing** — given hotel mnemonic codes, dates, and guest count, returns rate plans with prices. Pure curl. Tested and working.
 3. **Price calendar** — given a hotel mnemonic and a date range, returns the lowest nightly rate for each night. Tested and working.
 4. **Destination resolution** — resolves a place name to coordinates. May return 403 on some IPs. Tested, works on some machines.
-5. **Hotel details (names, addresses, brand info)** — given one or more hotel mnemonics, returns hotel name, full GDS name, brand, address, and more. Pure curl. The `profiles/details` host (`apis.ihg.com/hotels/v1/...`) is Akamai-WAF'd and returns `Access Denied` from some IPs for every method and fieldset (observed blocked 2026-06 while the availability host kept working). When blocked, fall back to `not-google-chrome` on the public `ihg.com/.../<mnemonic>/hoteldetail` page for the name/area.
+5. **Hotel details (names, addresses, brand info)** — given one or more hotel mnemonics, returns hotel name, full GDS name, brand, address, and more. Pure curl. The `profiles/details` host (`apis.ihg.com/hotels/v1/...`) is Akamai-WAF'd and returns `Access Denied` from some IPs for every method and fieldset (observed blocked 2026-06 while the availability host kept working). When blocked, fall back to `browser-serialiser --dump` on the public `ihg.com/.../<mnemonic>/hoteldetail` page for the name/area.
 6. **Room-type / suite availability and refundable-rate check** — given one mnemonic and a date, lists each room type with its live availability tonight and flags which rate plans are refundable. Single property only. Pure curl. Tested and working.
 
 ## Brand codes
@@ -153,7 +153,7 @@ If this returns 403, coordinates can be obtained from any geocoding service or l
 
 ## Fallback
 
-If the curl-based API becomes WAF-protected, fall back to `not-google-chrome`.
+If the curl-based API becomes WAF-protected, fall back to `browser-serialiser --dump`.
 
 ## Typical workflow
 
