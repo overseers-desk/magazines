@@ -6,24 +6,24 @@ argument-hint: <search terms, a reddit post URL, or a request for saved items>
 
 ## Why this skill exists
 
-WebFetch hard-refuses reddit.com ("Claude Code is unable to fetch from www.reddit.com"), so the only path to Reddit content is the headless-browser wrapper. Reddit's rendered HTML is auto-translated into the logged-in account's UI locale, which corrupts verbatim quote capture; its `.json` endpoints carry original-language text and parse cleanly. This skill fetches the `.json` endpoint through the wrapper and parses it.
+WebFetch hard-refuses reddit.com ("Claude Code is unable to fetch from www.reddit.com"), so the only path to Reddit content is the serialiser's browser. Reddit's rendered HTML is auto-translated into the logged-in account's UI locale, which corrupts verbatim quote capture; its `.json` endpoints carry original-language text and parse cleanly. This skill fetches the `.json` endpoint through the serialiser and parses it.
 
 ## Execution model
 
-Spawn a **Sonnet subagent** to run the workflow. A search dump is tens of KB; a busy thread can be a few hundred KB. The two-step path (§1-2) fetches a `.json` dump with `not-google-chrome` (the wrapper from the headless-browser skill, called by bare name) and parses the file with `${CLAUDE_PLUGIN_ROOT}/skills/reddit.com/reddit.tcl`. The one-session paths (§3-4) run under the policed serialiser as `serialised-browsing` skills, invoked by reference (`browser-serialiser reddit.com/<script> …`); the serialiser owns the browser, so no `--cdp` wrapper and no `CDP_WS_URL`. Keep raw dumps out of the main session.
+Spawn a **Sonnet subagent** to run the workflow. A search dump is tens of KB; a busy thread can be a few hundred KB. The two-step path (§1-2) fetches a `.json` dump with `browser-serialiser --dump` (the serialiser's one-shot render mode) and parses the file with `${CLAUDE_PLUGIN_ROOT}/skills/reddit.com/reddit.tcl`. The one-session paths (§3-4) run under the policed serialiser as `serialised-browsing` skills, invoked by reference (`browser-serialiser reddit.com/<script> …`); the serialiser owns the browser. Keep raw dumps out of the main session.
 
 A Reddit search hit is always a **post** (submission, kind `t3`); there is no comment-level search. A post's `comments/<id>.json` endpoint returns the post body and the comment tree together, so "go to the post" and "go to the comments" are a single fetch. §1-2 are the two-step path (one fetch, then parse a file); §3 collapses search-then-read-each into one browser session and is what you usually want for gathering discussions.
 
 ## Prerequisites
 
-`[browser] user_agent` set in `$HOME/.claude/skills/config.ini` (the wrapper exits 78 without it). Reddit's public `.json` does not require a logged-in session, but going through the user's Chromium profile keeps the fingerprint consistent and reduces throttling. If a dump comes back as a "blocked" or login interstitial, back off rather than hammer; Reddit throttles bursts.
+`[browser] user_agent` set in `$HOME/.claude/skills/config.ini` (the serialiser exits 78 without it). Reddit's public `.json` does not require a logged-in session, but going through the user's Chromium profile keeps the fingerprint consistent and reduces throttling. If a dump comes back as a "blocked" or login interstitial, back off rather than hammer; Reddit throttles bursts.
 
 ## 1. Search
 
 Subreddit search:
 
 ```bash
-not-google-chrome -t 25 \
+browser-serialiser --dump -t 25 \
   "https://old.reddit.com/r/SUBREDDIT/search.json?q=SEARCH+TERMS&restrict_sr=on&sort=relevance&t=all&limit=25" \
   > /tmp/reddit-search.html 2> /tmp/reddit-search.err
 ```
@@ -31,7 +31,7 @@ not-google-chrome -t 25 \
 Site-wide search (drop `restrict_sr`):
 
 ```bash
-not-google-chrome -t 25 \
+browser-serialiser --dump -t 25 \
   "https://old.reddit.com/search.json?q=SEARCH+TERMS&sort=relevance&t=all&limit=25" \
   > /tmp/reddit-search.html 2> /tmp/reddit-search.err
 ```
@@ -51,7 +51,7 @@ Prints, per post: title, `r/subreddit`, `u/author`, score, comment count, date, 
 Append `.json` to any post permalink. A `www.reddit.com/r/SUB/comments/ID/slug/` URL works the same way; swap the host to `old.reddit.com` for locale consistency or leave it, since the `.json` body is original-language regardless:
 
 ```bash
-not-google-chrome -t 25 \
+browser-serialiser --dump -t 25 \
   "https://old.reddit.com/r/SUBREDDIT/comments/POST_ID.json?limit=100&sort=top" \
   > /tmp/reddit-thread.html 2> /tmp/reddit-thread.err
 ```
@@ -96,7 +96,7 @@ browser-serialiser reddit.com/reddit-saved --user NAME [--limit 25]
 
 ## Notes
 
-- The parser strips the wrapper's `<pre>`, unescapes the HTML-render layer and Reddit's own entity escaping, and parses the result as JSON. It also accepts a raw `.json` body if fetched some other way. The §3-4 serialiser path fetches JSON directly through the `api` verb (a same-origin replay from the page), so there is no `<pre>` layer there; the shared `clean` still handles Reddit's entity escaping.
+- The parser strips the render's `<pre>`, unescapes the HTML-render layer and Reddit's own entity escaping, and parses the result as JSON. It also accepts a raw `.json` body if fetched some other way. The §3-4 serialiser path fetches JSON directly through the `api` verb (a same-origin replay from the page), so there is no `<pre>` layer there; the shared `clean` still handles Reddit's entity escaping.
 - A post-only Listing parses with `search` mode, so a subreddit front page (`/r/SUB/.json`) or a user's posts (`/user/NAME.json`) work through the same command. A saved listing mixes posts and comments, so it has its own `saved` mode (`reddit.tcl saved <dump>`), which §4 calls.
 - Author may read `[deleted]`; score may be hidden (shown as the number Reddit returns, often a low placeholder) on recent posts. These are Reddit states, not parse errors.
 

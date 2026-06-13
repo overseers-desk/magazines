@@ -2,7 +2,7 @@
 # reddit.tcl - parse a Reddit .json dump and the shared printers/parser the
 # CDP-driver scripts (reddit-discussions.tcl, reddit-saved.tcl) source.
 #
-# The headless-browser wrapper renders the JSON endpoint's response inside an
+# The serialiser's --dump render places the JSON endpoint's response inside an
 # HTML <pre>; load strips that wrapper, unescapes entities, and returns the
 # decoded JSON. Reddit's JSON carries original-language text, so this path is
 # immune to the account-locale auto-translation that corrupts the rendered
