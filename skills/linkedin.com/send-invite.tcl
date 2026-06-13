@@ -5,7 +5,7 @@
 #   navigates to the custom-invite modal over the policed verbs, types the note,
 #   locates the send control, and clicks it. The send click is the IRREVERSIBLE
 #   outward action; --dry-run types but stops before it.
-# Direct path (legacy, CDP client): tclsh send-invite.tcl under not-google-chrome --cdp.
+# Direct path (legacy, CDP client): CDP_WS_URL from the harness/overseer relay; browser-serialiser linkedin.com/send-invite.
 #
 # Usage:
 #     browser-serialiser linkedin.com/send-invite VANITY_NAME "Note text (<=300 chars)"
@@ -382,7 +382,7 @@ proc main {} {
     set page_url "https://www.linkedin.com/preload/custom-invite/?vanityName=$vanity_name"
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh send-invite.tcl VANITY_NAME \"Note\" \[--dry-run\]"
+        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser linkedin.com/send-invite VANITY_NAME \"Note\" \[--dry-run\]"
         exit 1
     }
 

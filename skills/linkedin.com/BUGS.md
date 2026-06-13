@@ -4,7 +4,7 @@
 
 **Symptom:** `login.tcl --check` against an active, logged-in session returns `{"status": "unknown"}` instead of `already_logged_in`. The page was the normal logged-in feed (title `Feed | LinkedIn`, ~7.8 MB DOM, no checkpoint redirect), yet `login_state` matched none of its branches and fell through to `unknown`.
 
-**Repro:** with a logged-in session, `not-google-chrome --cdp -- tclsh login.tcl --check`. Observed 2026-06-01.
+**Repro:** with a logged-in session, `browser-serialiser linkedin.com/login --check`. Observed 2026-06-01.
 
 **Cause:** `login_state` (login.tcl:101-115) detects the logged-in state with class-substring selectors: `[class*="global-nav__me"]`, `a[href*="/in/"][class*="global-nav"]`, `main [class*="feed"]`, `div[class*="feed-shared"]`. LinkedIn randomises class names per session (the skill's own DOM notes say never to select by class), so on the current feed render these match nothing; `has_nav` and `has_feed` are both false and the function returns `unknown`. The logged-out branches (fastrack CTA, login form) use more stable selectors, which is why logged-out detection still works.
 

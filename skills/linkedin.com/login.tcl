@@ -9,7 +9,7 @@
 # Serialiser path (see SKILL.md): browser-serialiser linkedin.com/login [--check]
 #   navigates home over the policed verbs, detects the login form via eval/state,
 #   and clicks the fastrack "continue" control. `--check` reports state only.
-# Direct path (legacy, CDP client): tclsh login.tcl [--check] under not-google-chrome --cdp.
+# Direct path (legacy, CDP client): CDP_WS_URL from the harness/overseer relay; browser-serialiser linkedin.com/login [--check].
 #
 # Clicking "continue" mints a session — an outward action. The serialiser path
 # performs it through the policed `click` verb; `--check` stops before any click.
@@ -183,7 +183,7 @@ proc main {} {
     }
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh login.tcl \[--check\]"
+        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser linkedin.com/login \[--check\]"
         exit 1
     }
 

@@ -705,7 +705,7 @@ proc main {argv} {
     lassign [parse_args $argv] command argsd
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh otter-cdp.tcl ..."
+        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser otter.ai/otter-cdp ..."
         exit 1
     }
 

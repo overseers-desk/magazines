@@ -320,7 +320,7 @@ proc main {} {
     set handle [lindex $positional 0]
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh fetch-followers.tcl ..."
+        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser instagram.com/fetch-followers ..."
         exit 1
     }
 
