@@ -14,12 +14,12 @@
 #   data path), drives the expansion through the in-page eval, harvests the
 #   GraphQL bodies, builds the synthetic comment HTML, and emits the parsed
 #   Markdown directly (reusing parse-reel-comments' byte-identical parser).
-# Direct path (legacy CDP): the not-google-chrome --cdp wrapper owns the browser
-#   and exports CDP_WS_URL; this file is then a pure CDP client. It writes a
+# Direct path (legacy CDP): CDP_WS_URL is supplied by the serialiser harness or
+#   the overseer relay; this file is then a pure CDP client. It writes a
 #   synthetic HTML document (one block per top-level comment) for parse-reel-comments.tcl.
 #
-# Usage (legacy):
-#   not-google-chrome --cdp -- tclsh reel-comments-cdp.tcl URL [--out PATH]
+# Usage:
+#   browser-serialiser facebook.com/reel-comments-cdp URL [--out PATH]
 #       [--bodies-json PATH] [--max-rounds N] [--debug]
 
 package require json
@@ -807,7 +807,7 @@ if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
     set url [lindex $positional 0]
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh reel-comments-cdp.tcl <reel-url> \[--out FILE\]"
+        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser facebook.com/reel-comments-cdp <reel-url> \[--out FILE\]"
         exit 1
     }
 

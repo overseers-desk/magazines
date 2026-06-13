@@ -285,7 +285,7 @@ proc main {} {
     set post_ref [lindex $positional 0]
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh fetch-post-comments.tcl ..."
+        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser instagram.com/fetch-post-comments ..."
         exit 1
     }
 

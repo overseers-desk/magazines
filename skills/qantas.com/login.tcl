@@ -11,8 +11,9 @@
 #         browser-serialiser qantas.com/login --check        # open the form, do not submit
 #     serialiser_run navigates the sign-in page, detects the form, types the
 #     credentials, clicks submit, then reads and parses the account page.
-#   - Direct tclsh (legacy), credentials from ~/.claude/skills/config.ini:
-#         not-google-chrome --cdp -- tclsh login.tcl [--json|--check]
+#   - Direct tclsh (legacy, CDP_WS_URL from the harness/overseer relay),
+#     credentials from ~/.claude/skills/config.ini:
+#         browser-serialiser qantas.com/login [--json|--check]
 
 package require json
 
@@ -186,7 +187,7 @@ proc qf::run {check_only debug} {
     }
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh login.tcl \[--json|--check\]"
+        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser qantas.com/login \[--json|--check\]"
         exit 1
     }
 

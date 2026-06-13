@@ -631,7 +631,7 @@ proc main {} {
     }
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh read-seen-thread.tcl ..."
+        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser instagram.com/read-seen-thread ..."
         exit 1
     }
 

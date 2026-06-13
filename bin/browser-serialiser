@@ -44,8 +44,8 @@ source [file join $::Root skills lib cdp-client.tcl]
 source [file join $::Root skills lib serialiser-harness.tcl]
 
 # ---------------------------------------------------------------------------
-# Config: UA + accept-lang from the same [browser] section not-google-chrome
-# reads, so the headless fetch presents the logged-in browser's fingerprint.
+# Config: UA + accept-lang from the [browser] section of config.ini, so the
+# headless fetch presents the logged-in browser's fingerprint.
 # ---------------------------------------------------------------------------
 
 proc config_path {} {
@@ -71,7 +71,7 @@ proc config_get {section key} {
 }
 
 # ---------------------------------------------------------------------------
-# Browser launch (standalone), ported from not-google-chrome to pure Tcl.
+# Browser launch (standalone): pure-Tcl flock + launch + teardown.
 # ---------------------------------------------------------------------------
 
 # Locate the Chromium binary and the user-data-dir for the running OS. Returns a
@@ -81,8 +81,8 @@ proc browser_locate {} {
         Linux {
             set binary [browser_which {chromium chromium-browser}]
             if {$binary eq ""} { error "no chromium binary on PATH" }
-            # Snap and apt builds keep the profile in different places. Match
-            # not-google-chrome: a snap-wrapped chromium uses the snap profile.
+            # Snap and apt builds keep the profile in different places: a
+            # snap-wrapped chromium uses the snap profile.
             if {[browser_is_snap $binary]} {
                 set udd [file join $::env(HOME) snap chromium common chromium]
             } else {
@@ -125,13 +125,13 @@ proc browser_is_snap {binary} {
     return 0
 }
 
-# Acquire the single-browser lock so two serialiser / not-google-chrome instances
-# never share the profile concurrently. Shares not-google-chrome's lock FILE
-# (/tmp/chromium.lock via flock) plus an exclusive-create lock DIR for the
-# pure-Tcl path, so a serialiser and a not-google-chrome cannot both launch:
-#   - flock on /tmp/chromium.lock is the same OS lock not-google-chrome holds, so
-#     the two interlock. We hold it for our run with a background `flock` holder
-#     whose stdout signals "acquired"; the holder process is killed at teardown.
+# Acquire the single-browser lock so two serialiser instances never share the
+# profile concurrently. The lock is the OS flock on /tmp/chromium.lock, plus an
+# exclusive-create lock DIR fallback for hosts without flock; any other launcher
+# that flocks the same file interlocks with us:
+#   - flock on /tmp/chromium.lock is the shared OS lock. We hold it for our run
+#     with a background `flock` holder whose stdout signals "acquired"; the holder
+#     process is killed at teardown.
 #   - On a host without flock, fall back to the exclusive-create dir lock with a
 #     bounded wait and stale-PID sweep.
 # Returns a token dict consumed by lock_release.
@@ -139,9 +139,9 @@ proc lock_acquire {waitSecs} {
     set lockPath /tmp/chromium.lock
     set flockBin [browser_which {flock}]
     if {$flockBin ne ""} {
-        # A single background holder process takes /tmp/chromium.lock (the SAME
-        # file not-google-chrome flocks, so the two interlock) and blocks holding
-        # it until we kill that ONE pid at teardown. The holder is a shell that
+        # A single background holder process takes /tmp/chromium.lock (the shared
+        # OS lock file, so any co-launcher that flocks it interlocks) and blocks
+        # holding it until we kill that ONE pid at teardown. The holder is a shell that
         # opens fd 9 on the lock file, flocks fd 9 non-blocking, and then EXECs
         # sleep -- exec so the shell is replaced, leaving exactly one process whose
         # death (and fd-9 close) drops the lock cleanly. flock -n either grabs the
@@ -316,12 +316,12 @@ proc browser_teardown {pid port userDataDir} {
 
 # ---------------------------------------------------------------------------
 # Direct render modes (--dump / --pdf). These run in THIS trusted interpreter,
-# not a safe interp: they are the generic, non-CDP counterpart to the policed
-# skill-by-reference mode, the in-harness replacement for not-google-chrome's
-# dump-dom and --pdf. They reuse the same flock + launch + teardown, drive the
-# browser directly over cdp-client (no skill, no policing surface), and so may
-# write files (--pdf). Browser config (UA/lang) is read the same way the skill
-# path reads it, so the render presents the logged-in fingerprint.
+# not a safe interp: they are the generic, non-policed counterpart to the policed
+# skill-by-reference mode, the one-shot DOM dump and PDF render of a single URL.
+# They reuse the same flock + launch + teardown, drive the browser directly over
+# cdp-client (no skill, no policing surface), and so may write files (--pdf).
+# Browser config (UA/lang) is read the same way the skill path reads it, so the
+# render presents the logged-in fingerprint.
 # ---------------------------------------------------------------------------
 
 # Resolve UA/lang from config (shared by both render modes). Dies on a missing
@@ -343,7 +343,7 @@ proc render_browser_config {} {
 # loading, up to $timeoutSecs. Page.enable is issued so Page.loadEventFired
 # arrives; drainEvents parks events while we watch for it. If the load event
 # never comes within budget we proceed anyway (a slow site may still have a
-# usable DOM), mirroring not-google-chrome's deadman-then-emit behaviour.
+# usable DOM): a deadman timeout, then emit whatever rendered.
 proc render_navigate {cdp url timeoutSecs} {
     $cdp cdp Page.enable
     $cdp cdp Page.navigate [dict create url $url]

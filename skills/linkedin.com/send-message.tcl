@@ -5,7 +5,7 @@
 #   navigates to the profile, opens the compose URL over the policed verbs, types
 #   the message, locates the Send control, and clicks it. The send click is the
 #   IRREVERSIBLE outward action; --dry-run types but stops before it.
-# Direct path (legacy, CDP client): tclsh send-message.tcl under not-google-chrome --cdp.
+# Direct path (legacy, CDP client): CDP_WS_URL from the harness/overseer relay; browser-serialiser linkedin.com/send-message.
 #
 # Usage:
 #     browser-serialiser linkedin.com/send-message VANITY_NAME "Message text"
@@ -339,7 +339,7 @@ proc main {} {
     set page_url "https://www.linkedin.com/in/$vanity_name/"
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh send-message.tcl VANITY_NAME \"Message\" \[--dry-run\]"
+        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser linkedin.com/send-message VANITY_NAME \"Message\" \[--dry-run\]"
         exit 1
     }
 

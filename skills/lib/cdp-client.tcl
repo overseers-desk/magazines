@@ -1,13 +1,14 @@
 # cdp-client.tcl - shared Chrome DevTools Protocol client for the aesop site-skills.
 #
 # A skill sources this and drives a browser over plain RFC6455 + flat CDP. The
-# transport URL arrives in the CDP_WS_URL environment variable, set by
-# not-google-chrome: either a real Chromium page target
-# (ws://127.0.0.1:PORT/devtools/page/...) when not-google-chrome launches its own
-# Chromium, or the overseer relay (ws://127.0.0.1:PORT/cdp/<leaseId>) when the
-# overseer brokers the browser. Both are plain RFC6455 with no Authorization
-# header and both preserve the client's top-level integer id, so one client
-# serves both.
+# transport URL is either a real Chromium page target
+# (ws://127.0.0.1:PORT/devtools/page/...), which the serialiser harness reads off
+# /json after launching its own Chromium, or the overseer relay
+# (ws://127.0.0.1:PORT/cdp/<leaseId>) when the overseer brokers the browser. Both
+# are plain RFC6455 with no Authorization header and both preserve the client's
+# top-level integer id, so one client serves both. A direct-mode legacy script
+# (e.g. instagram.com/fetch-recent-posts.tcl run with bare tclsh) reads the URL
+# from the CDP_WS_URL environment variable.
 #
 # Framing matches the overseer's proven masked-client path (desktop/lib/wsclient.tcl,
 # desktop/lib/ws.tcl): FIN=1 opcode=1 masked text frames out, id-matched responses
@@ -38,7 +39,7 @@ namespace eval cdp {}
 proc cdp::connect {{url ""}} {
     if {$url eq ""} {
         if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-            error "CDP_WS_URL is not set; not-google-chrome supplies it"
+            error "CDP_WS_URL is not set; the serialiser harness or overseer supplies it"
         }
         set url $::env(CDP_WS_URL)
     }

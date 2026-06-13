@@ -7,7 +7,7 @@
 # extracted from caption, and mentioned handles.
 #
 # Usage:
-#     not-google-chrome --cdp -- tclsh fetch-recent-posts.tcl posts <handle> [--limit N]
+#     browser-serialiser instagram.com/fetch-recent-posts posts <handle> [--limit N]
 #
 # This file is the shared IG library: every sibling sources it for the ig::
 # helpers (JSON eval, user-id resolution, feed paging, the typed-JSON encoder).
@@ -881,7 +881,7 @@ proc ig::main {} {
     }
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh fetch-recent-posts.tcl ..."
+        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser instagram.com/fetch-recent-posts posts <handle> \[--limit N\]"
         exit 1
     }
 
