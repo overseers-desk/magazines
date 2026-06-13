@@ -97,6 +97,21 @@ variable serialiser::ViewBeforeFetch {
     instagram.com {
         */api/v1/feed/user/*   *instagram.com/*
         */api/v1/users/web_profile_info/* *instagram.com/*
+        */api/v1/friendships/*/followers/* *instagram.com/*
+        */api/v1/friendships/*/following/* *instagram.com/*
+        */api/v1/media/*/comments/* *instagram.com/*
+        */api/v1/direct_v2/inbox/* *instagram.com/*
+        */api/v1/direct_v2/threads/* *instagram.com/*
+        */api/v1/usertags/*/feed/* *instagram.com/*
+        */api/v1/news/inbox/* *instagram.com/*
+        */api/v1/accounts/current_user/* *instagram.com/*
+        */api/v1/archive/reel/* *instagram.com/*
+    }
+    reddit.com {
+        *.json   *reddit.com/*
+    }
+    airbnb.com {
+        */api/v2/reservations* *airbnb*/hosting/reservations*
     }
 }
 
