@@ -9,13 +9,13 @@ A Claude Code plugin of AI-executed skills. Each skill drives the user's own log
 - **Editorial review:** edit-email, edit-economistly, sorry-im-late, quote-me.
 - **Research and rendering:** build-dossier, typst-pdf, and the shared headless-browser fallback.
 
-Skills are namespaced `overseer-toolbox:<skill>` (e.g. `overseer-toolbox:linkedin-com`).
+Skills are namespaced `ot:<skill>` (e.g. `ot:linkedin-com`).
 
 ## Install
 
 ```sh
-claude plugin marketplace add git@github.com:SmartLayer/overseer-toolbox.git
-claude plugin install overseer-toolbox@overseer-toolbox
+claude plugin marketplace add git@github.com:SmartLayer/ot.git
+claude plugin install ot@ot
 ```
 
 `claude plugin list` then shows it enabled. For development, load it from disk without installing; this reads the working tree live, so edits take effect without reinstalling:

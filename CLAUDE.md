@@ -29,6 +29,6 @@ claude --plugin-dir . -p --dangerously-skip-permissions "<natural language reque
 ```
 
 Or inspect what the plugin exposes without running it:
-`claude --plugin-dir . plugin details overseer-toolbox`. Calling a script directly
+`claude --plugin-dir . plugin details ot`. Calling a script directly
 with `python3` or `tclsh` tests the script, not the skill trigger; a skill is not
 working until `claude -p` returns real data.
