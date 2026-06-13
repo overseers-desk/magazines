@@ -1,0 +1,45 @@
+---
+name: sorry-im-late
+description: Run before sending or publishing a draft written during a conversation, so it reads for someone who has the project but was not in that conversation. Pass the path to the draft file (it must already be written to disk); a fresh-context colleague opens it and reads it cold, in full, the same way it reads the project's code, then writes back two things: a reading log of what landed and how (revealing confident wrong-readings the author can compare against intent) and rule-driven flags for missing context, conversation residue, and insider-pitched passages.
+---
+
+# sorry-im-late
+
+A colleague walks into a working session already under way and says "sorry I'm late, I see you have started." He knows the project, the document produced by it, but not what this conversation has covered leading to the document. Everything you write from here has to land for him. This skill is in the family of edit-email and edit-economistly.
+
+## Problem this skill exists to solve
+
+This is a document tool, in the same family as edit-email and edit-economistly: it makes a finished text read for its reader. The reader here is an outsider who has the project but was not in the conversation that produced the text. The product is the document, not the conversation; the skill does not summarise the talk, it makes the text stand on its own. If most of the conversation is irrelevant to the document, none of it belongs in the document.
+
+A draft written in the middle of a conversation carries that conversation into the text three ways, and all read badly to the imaginary person who arrived late:
+
+- **Short of context.** The author holds the whole exchange, so the draft leans on it: "Option C", "the approach we agreed", "the current behaviour", a conclusion whose reason was spoken and not written, a change that never says what becomes of what it replaces. The reader cannot reconstruct any of it.
+- **Conversation residue.** The draft also carries the conversation's leftovers: an idea raised and abandoned, an alternative weighed and dropped, deliberation replayed, kept only because it happened. A reader who wants the result, not the transcript, has to wade through it. That a thing was discussed is not a reason to include it.
+- **Pitched at an insider.** The draft can hold every fact yet tell it from the seat of someone who walked the conversation: a present framed as a change from a before only an insider knew, a defence of an objection the reader never raised. To the newcomer it reads as the middle of a talk he never joined.
+
+The reader-simulation maxim in CLAUDE.md is not enough on its own, because the author cannot see the scaffolding it carried in. A separate reader who never had the conversation can. This is the boundary from edit-economistly, whose reader is a generalist outside the project who needs entities glossed and acronyms expanded; here the reader is inside the project and needs none of that. The one thing withheld from him is this conversation.
+
+The rules both the author and the colleague work to are in `${CLAUDE_PLUGIN_ROOT}/skills/sorry-im-late/rulebook.md`.
+
+## Procedure
+
+1. The draft must already be a file on disk (the finished text at a known path). The colleague reads it by that path, in full, the same way it reads the project's code — which is why the draft has to be written first. Take its path. Never paste the draft into the prompt, and never a condensed or excerpted version: the review is only as thorough as what the colleague actually sees, so a shortened draft silently blinds it to the sections you cut.
+2. Spawn a fresh-context general-purpose agent with `model: "sonnet"`, leaving its tools to read the project's materials available (the colleague reads the project, whatever form it takes: a codebase, a document set, a shared body of work). The prompt template is at `${CLAUDE_PLUGIN_ROOT}/skills/sorry-im-late/editor-prompt.md`; substitute `$RULEBOOK_PATH` with `${CLAUDE_PLUGIN_ROOT}/skills/sorry-im-late/rulebook.md` and `$DRAFT_PATH` with the absolute path to the draft file. Pass the result as the agent prompt. Do not add anything to the prompt that telegraphs what you hope the colleague will catch.
+3. The agent returns three sections: READING (the colleague's interpretive write-back, in his own words), POLISHED (light fixes applied), and QUERIES (gaps only this conversation can close).
+4. Read the READING section first. Compare each interpretation against what you meant. Where the colleague's reading diverges from your intent, that is a defect even if no query fires, because the rule-driven checks cannot catch a confident wrong reading. Fix the draft so the next reader would resolve the same passages as you intended. Then resolve queries from your conversation, folding the answer into the draft in project terms where the matter was settled, or marking it open where the conversation never settled it rather than inventing a decision; and apply any POLISHED tightenings you agree with.
+5. Show the user the revised draft. Sending or publishing is the caller's act; this skill does neither.
+
+## Files
+
+`${CLAUDE_PLUGIN_ROOT}/skills/sorry-im-late/`:
+
+- `rulebook.md` — the colleague's knowledge boundary and the gaps to query
+- `editor-prompt.md` — the subagent prompt template
+
+## Why a fresh-context subagent
+
+The authoring role belongs to the caller, which holds the conversation. A subagent forked inside the same context inherits the same blindness about which sentences are conversation and which are draft. A brand-new agent that can read the project but never saw the conversation is the colleague the draft is actually for.
+
+## Anti-cheating discipline
+
+Rulebook examples come from outside any test fixture, so the subagent applies the rule rather than recognising a remembered phrase. The prompt carries only the rulebook path and the draft's path; no hint about the particular draft is leaked in, and the colleague reads the draft in full from its file (never a pasted or condensed copy), so the review covers every section rather than the ones the caller happened to include.
