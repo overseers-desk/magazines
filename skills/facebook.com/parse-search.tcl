@@ -1,7 +1,9 @@
 #!/usr/bin/env tclsh
-# Parse Facebook people-search results HTML to extract profile URLs and context.
+# Parse Facebook people-search results to extract profile URLs and context.
 #
-# Usage: tclsh parse-search.tcl <html-file>
+# Serialiser path (see SKILL.md §1-2): browser-serialiser facebook.com/parse-search <search terms>
+#   navigates to /search/people/?q=..., dumps the rendered DOM, and runs the identical parse.
+# Direct path (legacy, file-fed): tclsh parse-search.tcl <html-file>
 #
 # Facebook's DOM uses randomised class names, so we cannot select by class.
 # Instead we:
@@ -32,8 +34,10 @@ proc isalnum_nodot {s} {
 }
 
 proc parse_search_results {html_path} {
-    set html [fb::read_file $html_path]
+    parse_search_results_html [fb::read_file $html_path]
+}
 
+proc parse_search_results_html {html} {
     set title [fb::title $html ""]
     if {[fb::title_is_login $title] || \
         [string first "facebook – log in" [string tolower $title]] >= 0} {
@@ -155,9 +159,35 @@ proc lappend_all {varname more} {
     foreach e $more { lappend v $e }
 }
 
-if {[llength $argv] != 1} {
-    puts "Usage: parse-search.tcl <search-results.html>"
-    exit 1
+# ---------------------------------------------------------------------------
+# Serialiser entry: nav to the people-search results, dump the rendered DOM, run
+# the identical parse under fb::capture, emit the report.
+#
+# Invoked by reference through the serialiser (see SKILL.md §1-2):
+#     browser-serialiser facebook.com/parse-search <search terms>
+# ---------------------------------------------------------------------------
+proc serialiser_run {skillArgs} {
+    set terms [join $skillArgs " "]
+    if {$terms eq ""} {
+        emit "Usage: facebook.com/parse-search <search terms>"
+        return
+    }
+    set q [string map {" " %20} $terms]
+    nav "https://www.facebook.com/search/people/?q=$q" --wait 5
+    if {[dict get [state] terminal] ne ""} {
+        emit "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
+        return
+    }
+    set html [dump]
+    emit [fb::capture out { parse_search_results_html $html }]
 }
-fconfigure stdout -encoding utf-8
-parse_search_results [lindex $argv 0]
+
+# Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    if {[llength $argv] != 1} {
+        puts "Usage: parse-search.tcl <search-results.html>"
+        exit 1
+    }
+    fconfigure stdout -encoding utf-8
+    parse_search_results [lindex $argv 0]
+}

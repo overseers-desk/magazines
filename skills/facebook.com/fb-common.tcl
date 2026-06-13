@@ -156,3 +156,68 @@ proc fb::is_noise {text} {
     set pat {width:|padding|margin:|font-|display:|background|border|position:|overflow|opacity|color:|transform|transition|animation|z-index|box-shadow|text-decoration|line-height|letter-spacing|white-space|flex|grid|align-|justify-|cursor:|visibility|pointer-events|x[0-9a-z]{7,}|__MODULE|webpack|require\(|exports\.|React\.|componentkey|data-display|tabindex|aria-}
     return [regexp -- $pat $text]
 }
+
+# ---------------------------------------------------------------------------
+# Serialiser support, shared by every facebook.com script's serialiser_run.
+# The legacy parsers print their report line-by-line with `puts` to stdout and
+# `exit 1` on a login wall; under the serialiser there is one output channel
+# (`emit`) and stdout does not exist in the safe interp. fb::capture renames
+# `puts` to a buffer so the byte-identical printers run untouched, returning the
+# captured text; a parser `exit 1` (the login-wall path) surfaces as a catchable
+# error in the Safe Base, so the buffer printed before it is returned as-is.
+# Keeping this here is single-source-of-truth: every sibling reuses it rather
+# than each re-implementing the rename.
+# ---------------------------------------------------------------------------
+
+# Run $script, capturing everything its body `puts` to stdout (or explicit
+# stdout) into $bodyVar; `puts stderr ...` passes through to the shared stderr.
+# A parser `exit` inside the body ends the capture with whatever was buffered
+# (under the serialiser, `exit` is the parser's "printed an error, stop" signal,
+# not a process exit). Returns the captured text in $bodyVar; the proc's own
+# return value is the captured text too, for convenience.
+proc fb::capture {bodyVar script} {
+    upvar 1 $bodyVar captured
+    set ::fb::_cap_buf ""
+    rename ::puts ::fb::_cap_real
+    proc ::puts {args} {
+        # Forms: puts ?-nonewline? ?channel? string
+        set nonewline 0
+        if {[lindex $args 0] eq "-nonewline"} {
+            set nonewline 1
+            set args [lrange $args 1 end]
+        }
+        if {[llength $args] == 2} {
+            set chan [lindex $args 0]
+            set str [lindex $args 1]
+        } else {
+            set chan stdout
+            set str [lindex $args 0]
+        }
+        if {$chan in {stdout ""}} {
+            append ::fb::_cap_buf $str
+            if {!$nonewline} { append ::fb::_cap_buf "\n" }
+            return
+        }
+        # stderr (or any other channel): pass through to the real puts.
+        if {$nonewline} {
+            ::fb::_cap_real -nonewline $chan $str
+        } else {
+            ::fb::_cap_real $chan $str
+        }
+    }
+    set code [catch {uplevel 1 $script} result]
+    set captured $::fb::_cap_buf
+    rename ::puts {}
+    rename ::fb::_cap_real ::puts
+    unset -nocomplain ::fb::_cap_buf
+    # A parser exit (the login-wall path) raised as a Safe Base error: the report
+    # printed up to that point is already captured, so swallow it and return the
+    # buffer. A different error is re-raised.
+    if {$code && $result eq {wrong # args: should be "exit"}} {
+        return $captured
+    }
+    if {$code} {
+        return -code $code $result
+    }
+    return $captured
+}

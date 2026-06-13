@@ -1,31 +1,45 @@
 #!/usr/bin/env tclsh
-# Fetch comments from a Facebook reel via CDP.
+# Fetch comments from a Facebook reel.
 #
 # The reel viewer (https://www.facebook.com/reel/{id}) is an authenticated SPA
 # that defers comment loading until the user clicks the Comment button. A plain
-# --dump-dom captures the player chrome but no comment text. This script drives
-# the viewer over CDP: clicks Comment, switches sort to an unfiltered view,
-# scrolls the comment list, and clicks "View more comments" / "View N replies"
-# until the harvested set stops growing.
+# DOM dump captures the player chrome but no comment text. This script drives the
+# viewer: clicks Comment, switches sort to an unfiltered view, scrolls the
+# comment list, and clicks "View more comments" / "View N replies" until the
+# harvested set stops growing, then reads the comment bodies from the page's own
+# GraphQL responses.
 #
-# Output: a synthetic HTML document (one block per top-level comment) on stdout,
-# suitable for piping into parse-reel-comments.tcl.
+# Serialiser path (see SKILL.md §9): browser-serialiser facebook.com/reel-comments-cdp URL [--max-rounds N]
+#   navigates via capture (the page's GraphQL comment responses are the primary
+#   data path), drives the expansion through the in-page eval, harvests the
+#   GraphQL bodies, builds the synthetic comment HTML, and emits the parsed
+#   Markdown directly (reusing parse-reel-comments' byte-identical parser).
+# Direct path (legacy CDP): the not-google-chrome --cdp wrapper owns the browser
+#   and exports CDP_WS_URL; this file is then a pure CDP client. It writes a
+#   synthetic HTML document (one block per top-level comment) for parse-reel-comments.tcl.
 #
-# The wrapper (not-google-chrome --cdp) owns the browser lifecycle and exports
-# CDP_WS_URL; this script is a pure CDP client and exits if run without it.
-#
-# Usage:
+# Usage (legacy):
 #   not-google-chrome --cdp -- tclsh reel-comments-cdp.tcl URL [--out PATH]
 #       [--bodies-json PATH] [--max-rounds N] [--debug]
 
 package require json
 package require base64
 
-source [file dirname [info script]]/../lib/cdp-client.tcl
+# The legacy CDP engine is for the direct-tclsh path only; under the serialiser
+# harness raw CDP is removed (the policed verbs replace it), so source it only
+# when it is not already present and reachable. Sourcing it inside the safe
+# interp is a no-op (the file is outside the access path / cdp already absent).
+if {![namespace exists cdp]} {
+    catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
+}
 source [file dirname [info script]]/fb-common.tcl
 
 namespace eval fbcdp {
     variable debug 0
+    # This file's directory, captured at load time ([info script] is only valid
+    # here, not at proc-runtime), so the lazy sibling source resolves correctly
+    # both under plain tclsh and inside the safe interp's access path.
+    variable dir [file dirname [info script]]
 }
 
 proc fbcdp::log {msg} {
@@ -570,49 +584,250 @@ proc dict_get0 {d key} {
     return $v
 }
 
-# --- Argument parsing ---
-set url ""
-set out_path ""
-set bodies_json ""
-set max_rounds 80
-set positional {}
-for {set i 0} {$i < [llength $argv]} {incr i} {
-    set a [lindex $argv $i]
-    switch -- $a {
-        --out         { incr i; set out_path [lindex $argv $i] }
-        --bodies-json { incr i; set bodies_json [lindex $argv $i] }
-        --max-rounds  { incr i; set max_rounds [lindex $argv $i] }
-        --debug       { set fbcdp::debug 1 }
-        default       { lappend positional $a }
+# ---------------------------------------------------------------------------
+# Serialiser path. The interaction logic and every in-page JS expression are the
+# legacy ones verbatim (the logic lives in the browser); only the transport
+# changes — `eval` replaces fbcdp::js, `capture`/`harvest` replace the raw
+# Network.enable + getResponseBody drain. The harvested synthetic HTML and the
+# GraphQL bodies feed parse-reel-comments' byte-identical parser, and the run
+# emits the Markdown directly (the serialiser has one output channel).
+# ---------------------------------------------------------------------------
+
+# eval-over-the-verb, mirroring fbcdp::js's swallow-to-default contract: the
+# policed `eval` raises "JS exception: ..." on a page error, which we catch and
+# return $default, exactly as the legacy js() swallowed exceptions.
+proc fbcdp::sv_js {expr {default ""}} {
+    if {[catch {eval $expr} v]} { return $default }
+    if {$v eq ""} { return $default }
+    return $v
+}
+
+# js_dict variant: the harvest-stats expression returns an object; eval returns
+# it as a Tcl dict (returnByValue). On failure return $default.
+proc fbcdp::sv_js_dict {expr default} {
+    set v [fbcdp::sv_js $expr ""]
+    if {$v eq ""} { return $default }
+    if {[catch {dict size $v}]} { return $default }
+    return $v
+}
+
+# Drive the reel viewer over the policed surface and return the synthetic comment
+# HTML plus the {legacy_fbid -> body} dict harvested from the page's GraphQL
+# responses. The expansion loop and the JS constants are byte-identical to
+# fbcdp::fetch; the differences are transport-only (sv_js / capture / harvest).
+proc fbcdp::sv_fetch {url max_rounds} {
+    variable JS_COMMENT_COUNT
+    variable JS_REPLY_COUNT
+    variable JS_CLICK_COMMENT_BUTTON
+    variable JS_SCROLL_COMMENTS
+    variable JS_CLICK_VIEW_MORE
+    variable JS_SWITCH_SORT_ALL
+    variable JS_PICK_SORT_OPTION
+    variable JS_TOTAL_COMMENT_COUNT
+    variable JS_HARVEST_COMMENTS
+    variable JS_DUMP_HARVEST
+    variable JS_CLICK_SEE_MORE
+    variable JS_SCROLL_TOP
+    variable JS_SCROLL_STEP
+
+    # capture navigates (paced) with Network buffering on, settles the initial
+    # render, and clears its own initial harvest; thereafter every eval parks the
+    # page's GraphQL responses for the final harvest. The covering view is
+    # intrinsic (the comment data exists only because the reel was viewed).
+    capture $url --seconds 5 --match "*__none__*"
+
+    set st [state]
+    if {[dict get $st terminal] ne ""} {
+        return [list "" [dict create] [dict get $st terminal]]
     }
-}
-if {[llength $positional] != 1} {
-    puts stderr "Usage: reel-comments-cdp.tcl URL \[--out PATH\] \[--bodies-json PATH\] \[--max-rounds N\] \[--debug\]"
-    exit 1
-}
-set url [lindex $positional 0]
 
-if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-    puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh reel-comments-cdp.tcl <reel-url> \[--out FILE\]"
-    exit 1
+    # No-session detection (the legacy check, over the policed eval).
+    set title [fbcdp::sv_js {document.title} ""]
+    set no_session [fbcdp::sv_js \
+        {/"(?:USER_ID|ACCOUNT_ID)":"0"/.test(document.documentElement.outerHTML)} false]
+    set tl [string tolower $title]
+    if {$no_session eq "true" || \
+        [string first "log in" $tl] >= 0 || \
+        [string first "log into" $tl] >= 0 || \
+        [string first "iniciar sesi" $tl] >= 0} {
+        return [list "" [dict create] no-session]
+    }
+
+    set total [fbcdp::sv_js $JS_TOTAL_COMMENT_COUNT ""]
+
+    # Open the comment panel.
+    fbcdp::sv_js $JS_CLICK_COMMENT_BUTTON false
+    dwell 3
+
+    # Wait for the panel to render before switching sort.
+    for {set w 0} {$w < 30} {incr w} {
+        if {[num [fbcdp::sv_js $JS_COMMENT_COUNT 0]] > 0} { break }
+        dwell 0.5
+    }
+
+    # Switch sort from "Most relevant" to an unfiltered view.
+    if {[fbcdp::sv_js $JS_SWITCH_SORT_ALL ""] ne ""} {
+        dwell 1.5
+        fbcdp::sv_js $JS_PICK_SORT_OPTION ""
+        dwell 3
+    }
+
+    # Harvest loop: scroll + click "view more" until the harvest stops growing.
+    fbcdp::sv_js $JS_HARVEST_COMMENTS ""
+    set stable_rounds 0
+    for {set round_num 0} {$round_num < $max_rounds} {incr round_num} {
+        fbcdp::sv_js $JS_SCROLL_COMMENTS false
+        dwell 0.6
+        set clicked_more [num [fbcdp::sv_js $JS_CLICK_VIEW_MORE 0]]
+        if {$clicked_more} { dwell 1.2 }
+        set stats [fbcdp::sv_js_dict $JS_HARVEST_COMMENTS [dict create total 0 added 0]]
+        set h_total [num [dict_get0 $stats total]]
+        set h_added [num [dict_get0 $stats added]]
+        if {$total ne "" && $total ne "null" && $h_total >= [num $total]} {
+            break
+        }
+        if {$h_added == 0 && $clicked_more == 0} {
+            incr stable_rounds
+            if {$stable_rounds >= 8} { break }
+        } else {
+            set stable_rounds 0
+        }
+    }
+
+    # Final pass: scroll top->bottom expanding "See more".
+    foreach direction {0 1} {
+        if {$direction == 0} {
+            fbcdp::sv_js $JS_SCROLL_TOP ""
+            dwell 2.0
+        }
+        for {set step 0} {$step < 50} {incr step} {
+            set sm [num [fbcdp::sv_js $JS_CLICK_SEE_MORE 0]]
+            if {$sm} { dwell 1.4 }
+            set vm [num [fbcdp::sv_js $JS_CLICK_VIEW_MORE 0]]
+            if {$vm} { dwell 1.0 }
+            fbcdp::sv_js $JS_HARVEST_COMMENTS ""
+            set moved [fbcdp::sv_js $JS_SCROLL_STEP false]
+            if {$moved ne "true" && $sm == 0 && $vm == 0} { break }
+        }
+    }
+
+    # Build the synthetic harvest HTML (identical to the legacy dump + head splice).
+    set title [fbcdp::sv_js {document.title} "Facebook reel"]
+    if {$title eq ""} { set title "Facebook reel" }
+    set title_clean [string map {' ""} $title]
+    set dump_expr [string map [list __TITLE__ $title_clean] $JS_DUMP_HARVEST]
+    set html [fbcdp::sv_js $dump_expr ""]
+    if {$html eq ""} { set html "" }
+    set head_html [fbcdp::sv_js \
+        {(function(){var head = document.querySelector('head');return head ? head.outerHTML : '';})()} ""]
+    if {$head_html ne "" && [string first "<head>" $html] >= 0} {
+        set needle "<head><title>$title_clean</title></head>"
+        set pos [string first $needle $html]
+        if {$pos >= 0} {
+            set html "[string range $html 0 [expr {$pos-1}]]$head_html[string range $html [expr {$pos+[string length $needle]}] end]"
+        }
+    }
+
+    # The comment bodies are the page's own GraphQL responses, the primary
+    # private-data path: harvest the buffered responses and extract per-comment
+    # canonical text with the byte-identical extractor.
+    set bodies [dict create]
+    foreach triple [harvest --match "*graphql*"] {
+        lassign $triple resp_url resp_status txt
+        if {[string first {"legacy_fbid"} $txt] < 0} { continue }
+        foreach {k v} [fbcdp::extract_comment_bodies $txt] {
+            dict set bodies $k $v
+        }
+    }
+
+    return [list $html $bodies ""]
 }
 
-fconfigure stdout -encoding utf-8
-fconfigure stderr -encoding utf-8
-
-set c [cdp::connect]
-set rc [catch {fbcdp::fetch $c $url $max_rounds $bodies_json} html]
-catch {$c close}
-if {$rc} {
-    error $html
+# The entry the harness calls. Drives the viewer, then runs parse-reel-comments'
+# byte-identical parse_html + to_markdown over the harvested HTML and GraphQL
+# bodies, emitting the Markdown (the run's single output).
+#
+# Invoked by reference through the serialiser (see SKILL.md §9):
+#     browser-serialiser facebook.com/reel-comments-cdp URL [--max-rounds N]
+proc serialiser_run {skillArgs} {
+    set url ""
+    set max_rounds 80
+    for {set i 0} {$i < [llength $skillArgs]} {incr i} {
+        set a [lindex $skillArgs $i]
+        switch -- $a {
+            --max-rounds { incr i; set max_rounds [lindex $skillArgs $i] }
+            default      { if {$url eq ""} { set url $a } }
+        }
+    }
+    if {$url eq ""} {
+        emit "Usage: facebook.com/reel-comments-cdp URL \[--max-rounds N\]"
+        return
+    }
+    lassign [fbcdp::sv_fetch $url $max_rounds] html bodies wall
+    if {$wall ne ""} {
+        emit "ERROR: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry."
+        return
+    }
+    set data [parse_html $html $bodies]
+    emit [to_markdown $data $url]
 }
 
-if {$out_path ne ""} {
-    set f [open $out_path w]
-    fconfigure $f -encoding utf-8
-    puts -nonewline $f $html
-    close $f
-    puts stderr "wrote [fb::commafy [string length $html]] bytes to $out_path"
-} else {
-    puts -nonewline $html
+# The byte-identical comment parser/renderer lives in the sibling parse-reel-comments.
+# Source it at load time (the Safe Base's `source` works during a file's own load,
+# even with the `eval` verb aliased; a runtime source does not). The guard skips
+# the source when its procs are already present, so the two files' mutual
+# load-time sources resolve without recursion: each defines its own procs first,
+# then sources the other, which then sees those procs and skips back.
+if {![llength [info commands parse_html]]} {
+    source [file join $fbcdp::dir parse-reel-comments.tcl]
+}
+
+# Direct-tclsh entry (legacy CDP). Skipped when sourced as a serialiser skill.
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    # --- Argument parsing ---
+    set url ""
+    set out_path ""
+    set bodies_json ""
+    set max_rounds 80
+    set positional {}
+    for {set i 0} {$i < [llength $argv]} {incr i} {
+        set a [lindex $argv $i]
+        switch -- $a {
+            --out         { incr i; set out_path [lindex $argv $i] }
+            --bodies-json { incr i; set bodies_json [lindex $argv $i] }
+            --max-rounds  { incr i; set max_rounds [lindex $argv $i] }
+            --debug       { set fbcdp::debug 1 }
+            default       { lappend positional $a }
+        }
+    }
+    if {[llength $positional] != 1} {
+        puts stderr "Usage: reel-comments-cdp.tcl URL \[--out PATH\] \[--bodies-json PATH\] \[--max-rounds N\] \[--debug\]"
+        exit 1
+    }
+    set url [lindex $positional 0]
+
+    if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
+        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh reel-comments-cdp.tcl <reel-url> \[--out FILE\]"
+        exit 1
+    }
+
+    fconfigure stdout -encoding utf-8
+    fconfigure stderr -encoding utf-8
+
+    set c [cdp::connect]
+    set rc [catch {fbcdp::fetch $c $url $max_rounds $bodies_json} html]
+    catch {$c close}
+    if {$rc} {
+        error $html
+    }
+
+    if {$out_path ne ""} {
+        set f [open $out_path w]
+        fconfigure $f -encoding utf-8
+        puts -nonewline $f $html
+        close $f
+        puts stderr "wrote [fb::commafy [string length $html]] bytes to $out_path"
+    } else {
+        puts -nonewline $html
+    }
 }

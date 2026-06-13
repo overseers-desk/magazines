@@ -1,7 +1,9 @@
 #!/usr/bin/env tclsh
-# Parse a Facebook reel / page-post permalink HTML for caption, counts, commenters.
+# Parse a Facebook reel / page-post permalink for caption, counts, commenters.
 #
-# Usage: tclsh parse-reel.tcl <html-file>
+# Serialiser path (see SKILL.md §6): browser-serialiser facebook.com/parse-reel <post-permalink-url>
+#   navigates to the permalink, dumps the rendered DOM, and runs the identical parse.
+# Direct path (legacy, file-fed): tclsh parse-reel.tcl <html-file>
 #
 # The right URL to fetch is the page-post permalink form, not /reel/{id}:
 #     https://www.facebook.com/{PAGE_ID}/posts/{POST_ID}
@@ -16,9 +18,8 @@
 
 source [file dirname [info script]]/fb-common.tcl
 
-proc parse_reel {html_path} {
-    set html [fb::read_file $html_path]
-
+# Parse from in-memory HTML, the single home for the byte-identical extraction.
+proc parse_reel_html {html} {
     set title [fb::title $html ""]
     if {[fb::title_is_login $title]} {
         puts "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
@@ -251,9 +252,46 @@ proc capture_list {text pat} {
     return $out
 }
 
-if {[llength $argv] < 1} {
-    puts "Usage: parse-reel.tcl <reel-permalink.html>"
-    exit 1
+# Legacy file-fed entry: read the file, then run the shared parser.
+proc parse_reel {html_path} {
+    parse_reel_html [fb::read_file $html_path]
 }
-fconfigure stdout -encoding utf-8
-parse_reel [lindex $argv 0]
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: nav to the post permalink, dump the rendered DOM, run the
+# identical parse under fb::capture, emit the report. Pass the page-post
+# permalink (https://www.facebook.com/{PAGE_ID}/posts/{POST_ID}); a /reel/{id}
+# URL renders an empty shell (the parser warns, as in the file path).
+#
+# Invoked by reference through the serialiser (see SKILL.md §6):
+#     browser-serialiser facebook.com/parse-reel <post-permalink-url>
+# ---------------------------------------------------------------------------
+proc serialiser_run {skillArgs} {
+    set url ""
+    foreach a $skillArgs {
+        if {[string match "--*" $a]} continue
+        set url $a
+        break
+    }
+    if {$url eq ""} {
+        emit "Usage: facebook.com/parse-reel <post-permalink-url>"
+        return
+    }
+    nav $url --wait 6
+    if {[dict get [state] terminal] ne ""} {
+        emit "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
+        return
+    }
+    set html [dump]
+    emit [fb::capture out { parse_reel_html $html }]
+}
+
+# Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    if {[llength $argv] < 1} {
+        puts "Usage: parse-reel.tcl <reel-permalink.html>"
+        exit 1
+    }
+    fconfigure stdout -encoding utf-8
+    parse_reel [lindex $argv 0]
+}

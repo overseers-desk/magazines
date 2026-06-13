@@ -1,219 +1,119 @@
 ---
 name: facebook
-description: "search people, read profiles, extract posts with hashtags and tagged people, check keywords, dump reel comments to markdown; find someone's posts/activity."
+description: "search people, read profiles, extract posts with hashtags and tagged people, check keywords, dump reel comments to markdown; find someone's posts/activity. Runs under the serialised-browsing harness; does not use Google Chrome."
 argument-hint: <name, URL, or search terms>
 ---
 
 ## Execution model
 
-This workflow produces large DOM outputs (1-15MB per page). Spawn a **Sonnet subagent** to execute it so the main conversation context is not consumed. Tell the subagent to use the scripts in `${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/` — do not paste scripts inline.
+This workflow produces large DOM outputs (1-15MB per page). Spawn a **Sonnet subagent** to run it so the main conversation context is not consumed. Each script runs under the **serialised-browsing** harness: `browser-serialiser` loads the skill into a policed safe interpreter and drives the browser through the command surface (no raw CDP, anti-ban pacing enforced). Invoke by reference, `browser-serialiser facebook.com/<script> <args>`; the subagent need not paste scripts inline. See the serialised-browsing skill for the command surface.
+
+Each script navigates to the relevant page, dumps the rendered DOM (or, for reel comments, harvests the page's own GraphQL responses), and emits its report in one step. A profile reference is a bare handle, a numeric id, or a full URL.
 
 ## Prerequisites
 
-A logged-in Facebook session in the user-data-dir that `not-google-chrome` targets.
+A logged-in Facebook session in the user-data-dir the serialiser targets.
 
 ### No-session detection
 
 When no one is logged in, Facebook embeds `"USER_ID":"0"` and `"ACCOUNT_ID":"0"` in the page config and serves a login wall (`id="login_form"`, `input name="email"`, `input name="pass"`, action `login/device-based/regular/login/`). The `"USER_ID":"0"` marker is the reliable one: it fires even on a public profile whose `<title>` still reads like a real page (e.g. `Mark Zuckerberg | Facebook`) behind the wall, where a title-only check would be fooled. When logged in, `USER_ID`/`ACCOUNT_ID` carry the real numeric account id.
 
-`parse-profile.tcl` checks these markers and exits with `ERROR: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry.` The reel CDP fetcher (`reel-comments-cdp.tcl`) runs the same check after navigation and exits with the same message rather than returning an empty harvest. If a read returns this, surface it to the user verbatim — do not retry blindly or report empty results.
+The harness classifies a login/checkpoint redirect into a terminal `logged-out`/`checkpoint` state; the scripts also check the no-session markers in the dumped DOM and emit `ERROR: Facebook: not logged in ...`. If a read returns this, surface it to the user verbatim — do not retry blindly or report empty results.
 
 Facebook may otherwise serve different DOM structures depending on the target profile's privacy settings and the session locale.
 
-## Skill-specific Chrome-compatible flag
+## Pacing and walls
 
-The wrapper handles standard flags (headless, window size, user agent, user-data-dir, flock, timeout). This skill appends `--virtual-time-budget=3000` to allow Facebook's JS to render. Increase to 45000 on slow connections.
+The harness owns pacing+jitter on every wire-touching verb and the 429/login backoff, so a script cannot burst. A page settles for a few seconds before its rendered DOM is read. On a login/checkpoint redirect the run goes terminal at once; a script never retries a wall.
 
-## 1. Search for people
+## 1-2. Search for people
 
 ```bash
-not-google-chrome \
-  "https://www.facebook.com/search/people/?q=SEARCH_TERMS" \
-  --virtual-time-budget=3000 \
-  > /tmp/facebook-search-results.html 2>/dev/null
+browser-serialiser facebook.com/parse-search SEARCH TERMS
 ```
 
-URL-encode search terms (spaces become `%20`).
+Pass terms as plain arguments (the script URL-encodes them and navigates to `/search/people/?q=...`). Outputs profile URLs (both vanity `/username` and numeric `/profile.php?id=`) with nearby visible text.
 
 ### Search variants for hard-to-find people
 
 Try in order if no results:
 
-1. `Name City` — `Vikram%20Mazumder%20Mumbai`
-2. `Name Company` — `Vikram%20Mazumder%20Google`
-3. `"Name" Country` — `Vikram%20Mazumder%20India`
+1. `Name City` — `Vikram Mazumder Mumbai`
+2. `Name Company` — `Vikram Mazumder Google`
+3. `Name Country` — `Vikram Mazumder India`
 4. Alternative romanisations — for Indian names try Mazumdar/Mazumder/Majumder/Majumdar; for Chinese names try Lin/Lim/Lam etc.
 
-## 2. Parse search results
+## 3-4. Fetch and parse a profile
 
 ```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/parse-search.tcl /tmp/facebook-search-results.html
+browser-serialiser facebook.com/parse-profile HANDLE_OR_URL
 ```
 
-Outputs profile URLs (both vanity `/username` and numeric `/profile.php?id=`) with nearby visible text.
+Navigates to the profile (a bare handle resolves to `https://www.facebook.com/HANDLE`; a numeric id to `/profile.php?id=ID`) and extracts name, meta descriptions, JSON-LD Person data (if present), bio/intro lines, role/work mentions, location mentions, and visible text blocks.
 
-## 3. Fetch a profile
+For richer bio data, point the same script at the about page URL: `https://www.facebook.com/HANDLE/about` (numeric: `/profile.php?id=ID&sk=about`).
 
-For username-based profiles:
+## 5. Parse recent posts
 
 ```bash
-not-google-chrome \
-  "https://www.facebook.com/USERNAME" \
-  --virtual-time-budget=3000 \
-  > /tmp/facebook-profile.html 2>/dev/null
+browser-serialiser facebook.com/parse-posts HANDLE_OR_URL
 ```
 
-For numeric-ID profiles:
-
-```bash
-not-google-chrome \
-  "https://www.facebook.com/profile.php?id=NUMERIC_ID" \
-  --virtual-time-budget=3000 \
-  > /tmp/facebook-profile.html 2>/dev/null
-```
-
-### Optional: Fetch the About page for richer bio data
-
-```bash
-not-google-chrome \
-  "https://www.facebook.com/USERNAME/about" \
-  --virtual-time-budget=3000 \
-  > /tmp/facebook-about.html 2>/dev/null
-```
-
-For numeric-ID profiles, the about URL is `https://www.facebook.com/profile.php?id=NUMERIC_ID&sk=about`.
-
-## 4. Parse profile
-
-```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/parse-profile.tcl /tmp/facebook-profile.html
-```
-
-Extracts name, meta descriptions, JSON-LD Person data (if present), bio/intro lines, role/work mentions, location mentions, and visible text blocks.
-
-Optionally parse the about page too:
-
-```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/parse-profile.tcl /tmp/facebook-about.html
-```
-
-## 5. Parse recent posts (optional)
-
-Uses the same profile HTML from step 3 (no additional fetch):
-
-```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/parse-posts.tcl /tmp/facebook-profile.html
-```
-
-Extracts per post: text content, hashtags, tagged/mentioned people and pages (with profile URLs), and shared-from source. Produces a summary of all hashtags and tagged entities across posts.
+Navigates to the profile and extracts per post: text content, hashtags, tagged/mentioned people and pages (with profile URLs), and shared-from source. Produces a summary of all hashtags and tagged entities across posts.
 
 The script auto-detects the profile owner's ID to exclude self-references. To override:
 
 ```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/parse-posts.tcl /tmp/facebook-profile.html --owner-id 100006232604720
+browser-serialiser facebook.com/parse-posts HANDLE_OR_URL --owner-id 100006232604720
 ```
 
 How it works: each Facebook post carries a unique `__cft__[0]` token in all its links. The script uses `data-ad-preview="message"` markers to locate post boundaries, then associates hashtag and profile links via these tokens. Comments are excluded by limiting tag search to the header + content region.
 
-## 6. Fetch a single reel / page post with comments
+## 6. Fetch a single reel / page post with rendered counts and commenters
 
-Fetching `https://www.facebook.com/reel/{ID}` directly returns an empty shell with no rendered content. To get the rendered post with caption, counts, and visible comments, use the page-post permalink form:
-
-```bash
-not-google-chrome \
-  "https://www.facebook.com/PAGE_ID/posts/POST_ID" \
-  --virtual-time-budget=5000 \
-  > /tmp/facebook-post.html 2>/dev/null
-```
-
-`POST_ID` for a recent reel can be found in the main profile dump (step 3). Look for `"post_id":"NNNNNNNNN"` adjacent to the reel's `/reel/{ID}` URL — there is one such pair per recent reel embedded in the profile JSON.
-
-Parse with:
+A `https://www.facebook.com/reel/{ID}` URL renders an empty shell with no content. Use the page-post permalink form:
 
 ```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/parse-reel.tcl /tmp/facebook-post.html
+browser-serialiser facebook.com/parse-reel https://www.facebook.com/PAGE_ID/posts/POST_ID
 ```
+
+`POST_ID` for a recent reel can be found in the main profile dump (§3). Look for `"post_id":"NNNNNNNNN"` adjacent to the reel's `/reel/{ID}` URL — there is one such pair per recent reel embedded in the profile JSON.
 
 Outputs page name, caption (from `<title>`), counts from both embedded JSON (`reaction_count`, `share_count`, sometimes `total_comment_count`) and the rendered engagement bar (reactions / comments / shares visible to the viewer), and the commenters whose names render in the DOM along with the comment body text adjacent to each name.
 
-Limit: Facebook lazy-loads comments. A single headless render yields the first ~5-10 comments out of the full thread. The total count in the engagement bar is the true number; do not invent further commenters beyond what the parser extracts.
+Limit: Facebook lazy-loads comments. A single render yields the first ~5-10 comments out of the full thread. The total count in the engagement bar is the true number; do not invent further commenters beyond what the parser extracts. For the full comment thread use §9.
 
-## 7. Parse reels-tab view counts (optional)
-
-For a profile's reels tab (`...?sk=reels_tab` or `/USERNAME/reels`), fetch the page as in step 3, then:
+## 7. Parse reels-tab view counts
 
 ```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/parse-reels-tab.tcl /tmp/facebook-reels-tab.html
+browser-serialiser facebook.com/parse-reels-tab HANDLE_OR_URL
 ```
 
-Extracts per visible reel card: reel URL and view count (e.g. `191K`). Headless dumps render only the first few cards before lazy-load — typical yield is 3 reels.
+Navigates to the profile's reels tab (`/HANDLE/reels`, or `/profile.php?id=ID&sk=reels_tab` for a numeric id) and extracts per visible reel card: reel URL and view count (e.g. `191K`). The render yields the first few cards before lazy-load — typical yield is 3 reels.
 
 How it works: each reel card has an eye-icon SVG with a fixed path string (`M7.5 10a2.5...`); the view count is the first `<span>` after it. The reel ID is the closest `/reel/NNNNN` link occurring before that SVG.
 
-## 8. Keyword search (optional)
+## 8. Keyword search
 
 ```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/keyword-search.tcl /tmp/facebook-profile.html keyword1 keyword2 ...
+browser-serialiser facebook.com/keyword-search HANDLE_OR_URL keyword1 keyword2 ...
 ```
 
-Checks whether a profile mentions specific terms and shows surrounding context.
+Navigates to the profile, then for each keyword shows the count and surrounding context — useful for checking whether a profile mentions specific companies, roles, locations, or topics without reading the entire DOM. The first argument is the profile reference; the rest are keywords.
 
-## 7. Dump reel comments to Markdown
+## 9. Dump reel comments to Markdown
 
-The reel viewer (`https://www.facebook.com/reel/{id}`) is an authenticated SPA
-that defers comment loading until the Comment button is clicked, and uses
-"Most relevant" sort by default. A plain `--dump-dom` captures the player
-chrome but no comments. Use the CDP fetcher, then the parser.
-
-Prerequisite: the user's snap chromium must be fully closed (the GUI holds
-the user-data-dir lock; the `not-google-chrome --cdp` wrapper needs exclusive
-access to launch its headless instance against the logged-in session).
-
-The fetcher is a pure CDP client: the `not-google-chrome --cdp` wrapper owns
-the browser (launch, flock, deadman timeout, snap-robust teardown, Singleton
-lock cleanup) and exports `CDP_WS_URL`; the script connects to it. Run without
-the wrapper and it exits with `ERROR: CDP_WS_URL not set`.
-
-If there is no session, the fetcher exits after navigation with `ERROR:
-Facebook: not logged in - no session in this profile...` (see No-session
-detection above) instead of returning an empty harvest.
+The reel viewer (`https://www.facebook.com/reel/{id}`) is an authenticated SPA that defers comment loading until the Comment button is clicked, and uses "Most relevant" sort by default. The reel-comments script drives the viewer: it navigates via `capture` (so the page's own GraphQL comment responses are buffered — the primary private-data path), clicks Comment, switches sort to an unfiltered view, scrolls and expands "N replies" / "See more" until the harvested set stops growing, harvests the GraphQL bodies for canonical comment text, and emits the parsed Markdown directly.
 
 ```bash
-# 1. Fetch — drives CDP: open Comment panel, switch sort to All comments,
-#    scroll and expand "N replies" / "See more" until the harvested set
-#    stops growing. Each comment article is captured into a JS-side dict
-#    (resilient to virtualization) and the comment list is dumped in thread
-#    order at the end. The fetcher also intercepts every GraphQL response
-#    and writes a sidecar JSON of {legacy_fbid: canonical_body_text} — used
-#    by the parser to restore full text for comments truncated by 'See more'
-#    in the DOM render. For a 600-comment reel this takes 3-5 minutes, so
-#    raise the wrapper's deadman with -t (e.g. -t 600).
-not-google-chrome --cdp -t 600 -- \
-  tclsh ${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/reel-comments-cdp.tcl \
-  "https://www.facebook.com/reel/REEL_ID" \
-  --out /tmp/reel-comments.html \
-  --bodies-json /tmp/reel-bodies.json \
-  --max-rounds 200 \
-  --debug
-
-# 2. Parse to Markdown. Pass --bodies-json so truncated bodies get backfilled
-#    with canonical text from the GraphQL sidecar.
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/facebook.com/parse-reel-comments.tcl \
-  /tmp/reel-comments.html \
-  --bodies-json /tmp/reel-bodies.json \
-  --md /tmp/reel-comments.md \
-  --source-url "https://www.facebook.com/reel/REEL_ID"
+browser-serialiser facebook.com/reel-comments-cdp https://www.facebook.com/reel/REEL_ID --max-rounds 200
 ```
 
-Output format is raw: `Author · age` followed by body lines for each top-level
-comment, with replies indented under their parent (prefixed with `↳`). No
-headers, no profile URLs, no comment IDs — designed for reading.
+`facebook.com/parse-reel-comments URL` is the same end-to-end (it reuses the same driver and renderer); either reference produces the Markdown.
 
-The number of comments returned matches what Facebook serves over its GraphQL
-endpoint. The viewer's header count (e.g. "630 comments") is often higher
-than what's actually returned because Facebook counts include
-spam-filtered/deleted/cross-universe-aggregated items that the API does not
-serve to a logged-in viewer.
+Output format is raw: `Author · age` followed by body lines for each top-level comment, with replies indented under their parent (prefixed with `↳`). No headers, no profile URLs, no comment IDs — designed for reading.
+
+The number of comments returned matches what Facebook serves over its GraphQL endpoint. The viewer's header count (e.g. "630 comments") is often higher than what's actually returned because Facebook counts include spam-filtered/deleted/cross-universe-aggregated items that the API does not serve to a logged-in viewer.
 
 ## DOM parsing notes
 

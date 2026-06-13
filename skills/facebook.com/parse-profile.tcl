@@ -1,7 +1,9 @@
 #!/usr/bin/env tclsh
-# Parse a Facebook profile page HTML to extract structured information.
+# Parse a Facebook profile page for structured information.
 #
-# Usage: tclsh parse-profile.tcl <html-file>
+# Serialiser path (see SKILL.md §3-4): browser-serialiser facebook.com/parse-profile <handle|profile-url>
+#   navigates to the profile, dumps the rendered DOM, and runs the identical parse.
+# Direct path (legacy, file-fed): tclsh parse-profile.tcl <html-file>
 #
 # Facebook's DOM uses randomised class names (e.g. x1lliihq x6ikm8r), so we
 # cannot select by class. Instead we extract:
@@ -12,9 +14,10 @@
 
 source [file dirname [info script]]/fb-common.tcl
 
-proc parse_profile {html_path} {
-    set html [fb::read_file $html_path]
-
+# Parse from in-memory HTML, the single home for the byte-identical extraction.
+# The legacy file path reads the file then calls this; the serialiser path dumps
+# the DOM then calls this.
+proc parse_profile_html {html} {
     set title [fb::title $html "NOT FOUND"]
 
     # No-session detection. "USER_ID"/"ACCOUNT_ID" of "0" is the reliable
@@ -154,9 +157,54 @@ proc filter_contains_any {items needles} {
     return $out
 }
 
-if {[llength $argv] != 1} {
-    puts "Usage: parse-profile.tcl <profile.html>"
-    exit 1
+# Legacy file-fed entry: read the file, then run the shared parser.
+proc parse_profile {html_path} {
+    parse_profile_html [fb::read_file $html_path]
 }
-fconfigure stdout -encoding utf-8
-parse_profile [lindex $argv 0]
+
+# Resolve a profile reference (handle, numeric id, or full URL) to a URL.
+proc fb_profile_url {ref} {
+    if {[string match "http*://*" $ref]} { return $ref }
+    if {[regexp {^\d+$} $ref]} {
+        return "https://www.facebook.com/profile.php?id=$ref"
+    }
+    return "https://www.facebook.com/[string trimleft $ref @/]"
+}
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: nav to the profile, dump the rendered DOM, run the identical
+# parse under fb::capture, emit the captured report. A login wall caught by
+# `state`; the parser's own no-session exit is the captured fallback.
+#
+# Invoked by reference through the serialiser (see SKILL.md §3-4):
+#     browser-serialiser facebook.com/parse-profile <handle|profile-url>
+# ---------------------------------------------------------------------------
+proc serialiser_run {skillArgs} {
+    set target ""
+    foreach a $skillArgs {
+        if {[string match "--*" $a]} continue
+        set target $a
+        break
+    }
+    if {$target eq ""} {
+        emit "Usage: facebook.com/parse-profile <handle|profile-url>"
+        return
+    }
+    nav [fb_profile_url $target] --wait 5
+    if {[dict get [state] terminal] ne ""} {
+        emit "ERROR: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry."
+        return
+    }
+    set html [dump]
+    emit [fb::capture out { parse_profile_html $html }]
+}
+
+# Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    if {[llength $argv] != 1} {
+        puts "Usage: parse-profile.tcl <profile.html>"
+        exit 1
+    }
+    fconfigure stdout -encoding utf-8
+    parse_profile [lindex $argv 0]
+}

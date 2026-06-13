@@ -1,8 +1,9 @@
 #!/usr/bin/env tclsh
-# Parse a Facebook profile page HTML to extract recent posts with hashtags and
-# tagged people.
+# Parse a Facebook profile page for recent posts with hashtags and tagged people.
 #
-# Usage: tclsh parse-posts.tcl <html-file> [--owner-id ID]
+# Serialiser path (see SKILL.md §5): browser-serialiser facebook.com/parse-posts <handle|profile-url> [--owner-id ID]
+#   navigates to the profile, dumps the rendered DOM, and runs the identical parse.
+# Direct path (legacy, file-fed): tclsh parse-posts.tcl <html-file> [--owner-id ID]
 #
 # Extracts per post: text content, hashtags, tagged/mentioned people and pages
 # (with profile URLs), and the shared-from source.
@@ -15,9 +16,10 @@
 
 source [file dirname [info script]]/fb-common.tcl
 
-proc parse_posts {html_path owner_id} {
-    set html [fb::read_file $html_path]
-
+# Parse from in-memory HTML (the serialiser path) instead of a file, so the
+# byte-identical extraction below has one home. The legacy file path reads the
+# file then calls this; the serialiser path dumps the DOM then calls this.
+proc parse_posts_html {html owner_id} {
     set title [fb::title $html "NOT FOUND"]
     if {[fb::title_is_login $title]} {
         puts "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
@@ -306,22 +308,75 @@ proc compare_counter {a b} {
     return [expr {[lindex $a 2] - [lindex $b 2]}]
 }
 
-# Argument handling: a path plus optional --owner-id ID.
-set html_path ""
-set owner_id ""
-set rest {}
-for {set i 0} {$i < [llength $argv]} {incr i} {
-    set a [lindex $argv $i]
-    if {$a eq "--owner-id"} {
-        incr i
-        set owner_id [lindex $argv $i]
-    } else {
-        lappend rest $a
+# Legacy file-fed entry: read the file, then run the shared parser.
+proc parse_posts {html_path owner_id} {
+    parse_posts_html [fb::read_file $html_path] $owner_id
+}
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: nav to the profile (the covering view), dump the rendered
+# DOM, and run the identical parse over the in-memory HTML under fb::capture so
+# the byte-identical printers populate the single emitted string. A login wall
+# is caught by `state` after nav (the parser's own no-session exit is the
+# fallback, captured before it fires).
+#
+# Invoked by reference through the serialiser (see SKILL.md §5):
+#     browser-serialiser facebook.com/parse-posts <handle|profile-url> [--owner-id ID]
+# ---------------------------------------------------------------------------
+proc serialiser_run {skillArgs} {
+    set owner_id ""
+    set target ""
+    for {set i 0} {$i < [llength $skillArgs]} {incr i} {
+        set a [lindex $skillArgs $i]
+        if {$a eq "--owner-id"} {
+            incr i
+            set owner_id [lindex $skillArgs $i]
+        } elseif {$target eq ""} {
+            set target $a
+        }
     }
+    if {$target eq ""} {
+        emit "Usage: facebook.com/parse-posts <handle|profile-url> \[--owner-id ID\]"
+        return
+    }
+    nav [fb_profile_url $target] --wait 5
+    if {[dict get [state] terminal] ne ""} {
+        emit "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
+        return
+    }
+    set html [dump]
+    emit [fb::capture out { parse_posts_html $html $owner_id }]
 }
-if {[llength $rest] < 1} {
-    puts "Usage: parse-posts.tcl <profile.html> \[--owner-id ID\]"
-    exit 1
+
+# Resolve a profile reference (a bare handle, a numeric id, or a full URL) to a
+# facebook.com profile URL to navigate to.
+proc fb_profile_url {ref} {
+    if {[string match "http*://*" $ref]} { return $ref }
+    if {[regexp {^\d+$} $ref]} {
+        return "https://www.facebook.com/profile.php?id=$ref"
+    }
+    return "https://www.facebook.com/[string trimleft $ref @/]"
 }
-fconfigure stdout -encoding utf-8
-parse_posts [lindex $rest 0] $owner_id
+
+# Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    # Argument handling: a path plus optional --owner-id ID.
+    set html_path ""
+    set owner_id ""
+    set rest {}
+    for {set i 0} {$i < [llength $argv]} {incr i} {
+        set a [lindex $argv $i]
+        if {$a eq "--owner-id"} {
+            incr i
+            set owner_id [lindex $argv $i]
+        } else {
+            lappend rest $a
+        }
+    }
+    if {[llength $rest] < 1} {
+        puts "Usage: parse-posts.tcl <profile.html> \[--owner-id ID\]"
+        exit 1
+    }
+    fconfigure stdout -encoding utf-8
+    parse_posts [lindex $rest 0] $owner_id
+}

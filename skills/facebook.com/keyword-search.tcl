@@ -1,7 +1,9 @@
 #!/usr/bin/env tclsh
-# Search a Facebook profile HTML for specific keywords and show context.
+# Search a Facebook profile for specific keywords and show context.
 #
-# Usage: tclsh keyword-search.tcl <html-file> keyword1 keyword2 ...
+# Serialiser path (see SKILL.md §8): browser-serialiser facebook.com/keyword-search <handle|profile-url> keyword1 keyword2 ...
+#   navigates to the profile, dumps the rendered DOM, and runs the identical search.
+# Direct path (legacy, file-fed): tclsh keyword-search.tcl <html-file> keyword1 keyword2 ...
 #
 # For each keyword found, prints the count and surrounding text (with HTML tags
 # stripped). Useful for checking whether a profile mentions specific companies,
@@ -58,7 +60,10 @@ proc cp_slice {cps a b} {
 }
 
 proc keyword_search {html_path keywords} {
-    set html [fb::read_file $html_path]
+    keyword_search_html [fb::read_file $html_path] $keywords
+}
+
+proc keyword_search_html {html keywords} {
     # The whole document as a code-point list, so every offset and slice below
     # matches Python's str indexing regardless of emoji in the markup.
     set cps [cp_list $html]
@@ -130,9 +135,45 @@ proc keyword_search {html_path keywords} {
     }
 }
 
-if {[llength $argv] < 2} {
-    puts "Usage: keyword-search.tcl <profile.html> keyword1 \[keyword2 ...\]"
-    exit 1
+# Resolve a profile reference (handle, numeric id, or full URL) to a URL.
+proc fb_profile_url {ref} {
+    if {[string match "http*://*" $ref]} { return $ref }
+    if {[regexp {^\d+$} $ref]} {
+        return "https://www.facebook.com/profile.php?id=$ref"
+    }
+    return "https://www.facebook.com/[string trimleft $ref @/]"
 }
-fconfigure stdout -encoding utf-8
-keyword_search [lindex $argv 0] [lrange $argv 1 end]
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: nav to the profile, dump the rendered DOM, run the identical
+# keyword search under fb::capture, emit the report. The first argument is the
+# profile reference; the rest are the keywords.
+#
+# Invoked by reference through the serialiser (see SKILL.md §8):
+#     browser-serialiser facebook.com/keyword-search <handle|profile-url> keyword1 [keyword2 ...]
+# ---------------------------------------------------------------------------
+proc serialiser_run {skillArgs} {
+    if {[llength $skillArgs] < 2} {
+        emit "Usage: facebook.com/keyword-search <handle|profile-url> keyword1 \[keyword2 ...\]"
+        return
+    }
+    set target [lindex $skillArgs 0]
+    set keywords [lrange $skillArgs 1 end]
+    nav [fb_profile_url $target] --wait 5
+    if {[dict get [state] terminal] ne ""} {
+        emit "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
+        return
+    }
+    set html [dump]
+    emit [fb::capture out { keyword_search_html $html $keywords }]
+}
+
+# Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    if {[llength $argv] < 2} {
+        puts "Usage: keyword-search.tcl <profile.html> keyword1 \[keyword2 ...\]"
+        exit 1
+    }
+    fconfigure stdout -encoding utf-8
+    keyword_search [lindex $argv 0] [lrange $argv 1 end]
+}
