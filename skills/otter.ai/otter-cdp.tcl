@@ -1,18 +1,23 @@
 #!/usr/bin/env tclsh
-# CDP helper for Otter.ai API calls.
+# Otter.ai recording management over the serialised-browsing command surface.
 #
-# not-google-chrome --cdp owns the browser lifecycle and exports CDP_WS_URL;
-# this script is a pure CDP client and exits if run without it. It navigates to
-# otter.ai to establish session context, then executes JavaScript fetch() calls
-# against the Otter.ai internal API. Prints JSON results to stdout.
+# The harness sources this file into a per-run safe interpreter and calls
+# serialiser_run with the subcommand args. The flow navigates to otter.ai (the
+# covering view for the /forward/api/v1/* endpoints) and runs Otter's internal
+# API through the policed `eval` verb — reads (list, dropbox-status) and writes
+# (rename, trash, export-dropbox) alike are page-context fetch() calls carried by
+# the session's own cookies + CSRF token. Each subcommand emits a JSON document.
 #
-# Usage:
-#   not-google-chrome --cdp -- tclsh otter-cdp.tcl list [--page-size N] [--last-load-ts TS]
-#   not-google-chrome --cdp -- tclsh otter-cdp.tcl rename <otid> <new_title>
-#   not-google-chrome --cdp -- tclsh otter-cdp.tcl trash <otid>
-#   not-google-chrome --cdp -- tclsh otter-cdp.tcl export-dropbox <otid> [--format txt|pdf|docx|srt]
-#   not-google-chrome --cdp -- tclsh otter-cdp.tcl fetch-via-dropbox <otid> [--timeout N] [--extended-timeout N]
-#   not-google-chrome --cdp -- tclsh otter-cdp.tcl dropbox-status
+# Invoked by reference through the serialiser (see SKILL.md):
+#   browser-serialiser otter.ai/otter-cdp list [--page-size N] [--last-load-ts TS]
+#   browser-serialiser otter.ai/otter-cdp rename <otid> <new_title>
+#   browser-serialiser otter.ai/otter-cdp trash <otid>
+#   browser-serialiser otter.ai/otter-cdp export-dropbox <otid> [--format txt|pdf|docx|srt]
+#   browser-serialiser otter.ai/otter-cdp dropbox-status
+#
+# fetch-via-dropbox needs rclone (a host tool) and so cannot run over the policed
+# surface; the direct-tclsh `main` below keeps it for host-side use. The legacy
+# CDP-client path (main + cdp::connect) is retained for direct `tclsh` runs.
 #
 # Note: `trash` moves the recording to Otter Trash (recoverable via the web UI
 # for ~30 days). There is deliberately no `delete` subcommand. See the DANGER
@@ -20,7 +25,15 @@
 
 package require json
 
-source [file dirname [info script]]/../lib/cdp-client.tcl
+# Legacy CDP engine, kept for the direct-tclsh path (main, which calls
+# cdp::connect when run as `tclsh otter-cdp.tcl ...` outside the serialiser).
+# Sourced only when not already present, so loading this file under the
+# serialiser harness (where the policed verbs replace raw CDP and the socket
+# transport is unavailable in the safe interp) is a no-op rather than an error.
+# The harness path uses serialiser_run.
+if {![namespace exists cdp]} {
+    catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
+}
 
 # Pretty-print a compact JSON document with 2-space indentation, the shape
 # Python's json.dumps(indent=2, ensure_ascii=False) emits. Values pass through
@@ -108,19 +121,36 @@ proc json_str {s} {
 # value is taken verbatim when it parses as JSON, else wrapped as {"raw":...};
 # a JS exception becomes {"error":...}, a missing value {"error":"No value..."}.
 # Returns a two-element list {kind doc}: kind is json|raw|error.
+#
+# Dual transport, single classifier. Direct-tclsh path: $cdp is a cdp::Client and
+# the raw Runtime.evaluate value is read here. Serialiser path: $cdp is the
+# sentinel `serialiser` and the policed `eval` verb returns the JS value (raising
+# `JS exception: ...` on a page error). Either way the same JSON document string
+# is classified into {kind doc}, so every cmd_* below renders byte-identically
+# whichever host drives it.
 proc eval_js {cdp expr} {
-    set resp [$cdp cdp Runtime.evaluate [dict create \
-        expression $expr awaitPromise true returnByValue true]]
-    set result [dict get $resp result]
-    if {[dict exists $result exceptionDetails]} {
-        set exc [dict get $result exceptionDetails]
-        set text [expr {[dict exists $exc text] ? [dict get $exc text] : "JS exception"}]
-        return [list error "\{[json_str error]:[json_str $text]\}"]
+    if {$cdp eq "serialiser"} {
+        if {[catch {eval $expr} val]} {
+            set text $val
+            if {[string match "JS exception:*" $text]} {
+                set text [string trim [string range $text [string length "JS exception:"] end]]
+            }
+            return [list error "\{[json_str error]:[json_str $text]\}"]
+        }
+    } else {
+        set resp [$cdp cdp Runtime.evaluate [dict create \
+            expression $expr awaitPromise true returnByValue true]]
+        set result [dict get $resp result]
+        if {[dict exists $result exceptionDetails]} {
+            set exc [dict get $result exceptionDetails]
+            set text [expr {[dict exists $exc text] ? [dict get $exc text] : "JS exception"}]
+            return [list error "\{[json_str error]:[json_str $text]\}"]
+        }
+        if {![dict exists $result result value]} {
+            return [list error "\{[json_str error]:[json_str {No value returned from JS}]\}"]
+        }
+        set val [dict get $result result value]
     }
-    if {![dict exists $result result value]} {
-        return [list error "\{[json_str error]:[json_str {No value returned from JS}]\}"]
-    }
-    set val [dict get $result result value]
     if {[catch {json::json2dict $val}]} {
         # Not JSON: wrap the raw string, matching Python's {"raw": val}.
         return [list raw "\{[json_str raw]:[json_str $val]\}"]
@@ -704,4 +734,123 @@ proc main {argv} {
     }
 }
 
-main $argv
+# ---------------------------------------------------------------------------
+# Serialiser entry: the policed-surface path. The harness sources this file into
+# a safe interp and calls serialiser_run with the skill args. The flow navigates
+# to the covering Otter page (the view-before-fetch view for /forward/api/v1/*),
+# checks for a wall via `state`, then dispatches to the same cmd_* procs the
+# legacy path uses. Each cmd_* drives the policed `eval` verb (the `serialiser`
+# sentinel into eval_js) with its JS unchanged, and json_pretty renders the same
+# document, so the emitted result is byte-identical to the direct-tclsh output.
+# ---------------------------------------------------------------------------
+
+# Parse the subcommand into {command argsd}, emitting a usage error instead of
+# exiting (the safe interp has no exit, and the harness's one channel is emit).
+# Returns "" on a parse error after emitting. argsd dict shapes mirror parse_args.
+proc sv_parse_args {skillArgs} {
+    if {![llength $skillArgs]} {
+        emit [json_pretty "\{[json_str error]:[json_str {Usage: otter.ai/otter-cdp <list|rename|trash|export-dropbox|fetch-via-dropbox|dropbox-status> ...}]\}"]
+        return ""
+    }
+    set command [lindex $skillArgs 0]
+    set rest [lrange $skillArgs 1 end]
+    switch -- $command {
+        list {
+            set d [dict create page_size 50 last_load_ts ""]
+            for {set i 0} {$i < [llength $rest]} {incr i} {
+                set a [lindex $rest $i]
+                switch -- $a {
+                    --page-size    { incr i; dict set d page_size [lindex $rest $i] }
+                    --last-load-ts { incr i; dict set d last_load_ts [lindex $rest $i] }
+                    default        { emit [json_pretty "\{[json_str error]:[json_str "unknown argument: $a"]\}"]; return "" }
+                }
+            }
+            return [list list $d]
+        }
+        rename {
+            if {[llength $rest] < 2} { emit [json_pretty "\{[json_str error]:[json_str {rename requires <otid> <new_title>}]\}"]; return "" }
+            return [list rename [dict create otid [lindex $rest 0] new_title [lindex $rest 1]]]
+        }
+        trash {
+            if {[llength $rest] < 1} { emit [json_pretty "\{[json_str error]:[json_str {trash requires <otid>}]\}"]; return "" }
+            return [list trash [dict create otid [lindex $rest 0]]]
+        }
+        export-dropbox {
+            if {[llength $rest] < 1} { emit [json_pretty "\{[json_str error]:[json_str {export-dropbox requires <otid>}]\}"]; return "" }
+            set d [dict create otid [lindex $rest 0] format txt]
+            for {set i 1} {$i < [llength $rest]} {incr i} {
+                set a [lindex $rest $i]
+                switch -- $a {
+                    --format {
+                        incr i
+                        set fmt [lindex $rest $i]
+                        if {$fmt ni {txt pdf docx srt}} {
+                            emit [json_pretty "\{[json_str error]:[json_str {--format must be txt, pdf, docx or srt}]\}"]; return ""
+                        }
+                        dict set d format $fmt
+                    }
+                    default { emit [json_pretty "\{[json_str error]:[json_str "unknown argument: $a"]\}"]; return "" }
+                }
+            }
+            return [list export-dropbox $d]
+        }
+        fetch-via-dropbox {
+            if {[llength $rest] < 1} { emit [json_pretty "\{[json_str error]:[json_str {fetch-via-dropbox requires <otid>}]\}"]; return "" }
+            set d [dict create otid [lindex $rest 0] timeout 60 extended_timeout 120]
+            for {set i 1} {$i < [llength $rest]} {incr i} {
+                set a [lindex $rest $i]
+                switch -- $a {
+                    --timeout          { incr i; dict set d timeout [lindex $rest $i] }
+                    --extended-timeout { incr i; dict set d extended_timeout [lindex $rest $i] }
+                    default            { emit [json_pretty "\{[json_str error]:[json_str "unknown argument: $a"]\}"]; return "" }
+                }
+            }
+            return [list fetch-via-dropbox $d]
+        }
+        dropbox-status {
+            return [list dropbox-status [dict create]]
+        }
+        default {
+            emit [json_pretty "\{[json_str error]:[json_str "unknown command: $command"]\}"]
+            return ""
+        }
+    }
+}
+
+proc serialiser_run {skillArgs} {
+    set parsed [sv_parse_args $skillArgs]
+    if {$parsed eq ""} { return }
+    lassign $parsed command argsd
+
+    # fetch-via-dropbox's round-trip reads and deletes files via rclone (a host
+    # exec). The safe interp removes exec, so that half cannot run here; surface
+    # it plainly rather than fail opaquely. The browser-side export it wraps is
+    # reached directly through export-dropbox.
+    if {$command eq "fetch-via-dropbox"} {
+        emit [json_pretty "\{[json_str error]:[json_str {fetch-via-dropbox needs rclone (a host tool) and is not available over the policed surface; use export-dropbox for the browser-side export, then read the file from Dropbox host-side.}]\}"]
+        return
+    }
+
+    # Covering view: navigate to my-notes (the view-before-fetch view for the
+    # /forward/api/v1/* endpoints), then read the harness's wall classification.
+    nav "https://otter.ai/my-notes" --wait 6
+    if {[dict get [state] terminal] ne ""} {
+        emit [json_pretty "\{[json_str error]:[json_str {Not logged in to Otter.ai. Log in via a Chrome-compatible browser first.}]\}"]
+        return
+    }
+
+    switch -- $command {
+        list              { set res [cmd_list serialiser $argsd] }
+        rename            { set res [cmd_rename serialiser $argsd] }
+        trash             { set res [cmd_trash serialiser $argsd] }
+        export-dropbox    { set res [cmd_export_dropbox serialiser $argsd] }
+        dropbox-status    { set res [cmd_dropbox_status serialiser $argsd] }
+    }
+    lassign $res kind doc
+    emit [json_pretty $doc]
+}
+
+# Run main only when executed directly, not when sourced under the harness.
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    main $argv
+}

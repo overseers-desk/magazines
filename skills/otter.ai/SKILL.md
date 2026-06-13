@@ -1,29 +1,28 @@
 ---
 name: otter.ai
-description: "recordings: list, rename, trash, export; transcripts and content management."
+description: "recordings: list, rename, trash, export; transcripts and content management. Runs under the serialised-browsing harness; does not use Google Chrome."
 argument-hint: <list | rename | trash | export-dropbox | fetch-via-dropbox | dropbox-status>
 allowed-tools: Bash, Read
 ---
 
 ## Execution model
 
-Spawn a **subagent** to run the CDP script, as each invocation launches a headless browser session (~15s overhead). Tell the subagent to use the script at `${CLAUDE_PLUGIN_ROOT}/skills/otter.ai/otter-cdp.tcl`.
+Spawn a **subagent** to run the workflow. The skill runs under the **serialised-browsing** harness: `browser-serialiser` loads it into a policed safe interpreter and drives the browser through the command surface (no raw CDP, anti-ban pacing enforced). Invoke by reference, `browser-serialiser otter.ai/otter-cdp <subcommand> <args>`; the subagent need not paste scripts inline. See the serialised-browsing skill for the command surface.
 
 ## Prerequisites
 
-- A Chrome-compatible browser with an active Otter.ai session (user must be logged in via the browser UI). Browser invocation via `not-google-chrome`.
-- `tclsh` with the tcllib `json` package (the shared `lib/cdp-client.tcl` provides the WebSocket/CDP transport)
-- For Dropbox export: Dropbox must be connected in Otter.ai settings
-- Export path configured in `~/.claude/skills/config.ini` under `[otter.ai] dropbox_export_path`
+- A logged-in Otter.ai session in the user-data-dir the serialiser targets (the user logs in via the browser UI).
+- For Dropbox export: Dropbox must be connected in Otter.ai settings.
+- Export path configured in `~/.claude/skills/config.ini` under `[otter.ai] dropbox_export_path`.
 
-If the script returns `{"error": "Not logged in..."}`, the user needs to log in to otter.ai in their browser first. If `~/.claude/skills/config.ini` is absent, pause and let the user know: "Create `~/.claude/skills/config.ini` with an `[otter.ai]` section containing `dropbox_export_path = ...`. This file is not part of the shared aesop repository - create it locally."
+If a subcommand returns `{"error": "Not logged in..."}`, the user needs to log in to otter.ai in their browser first; the harness classifies a login/checkpoint redirect as a terminal state and stops. If `~/.claude/skills/config.ini` is absent, pause and let the user know: "Create `~/.claude/skills/config.ini` with an `[otter.ai]` section containing `dropbox_export_path = ...`. This file is not part of the shared aesop repository - create it locally."
 
 ## Capabilities
 
 ### 1. List recordings
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/otter.ai/otter-cdp.tcl list [--page-size N] [--last-load-ts TS]
+browser-serialiser otter.ai/otter-cdp list [--page-size N] [--last-load-ts TS]
 ```
 
 Returns JSON with `speeches` array. Each entry has: `otid`, `title`, `created_at` (epoch), `duration` (seconds), `summary`, `link` (full URL).
@@ -33,7 +32,7 @@ Default page size is 50. To paginate, pass `--last-load-ts` from the previous re
 ### 2. Rename a recording
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/otter.ai/otter-cdp.tcl rename <otid> "<new title>"
+browser-serialiser otter.ai/otter-cdp rename <otid> "<new title>"
 ```
 
 Returns `{"status": "OK", "modified_time": ...}` on success.
@@ -45,7 +44,7 @@ The `otid` is the recording identifier from the list command or from an otter.ai
 ### 3. Move a recording to Trash
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/otter.ai/otter-cdp.tcl trash <otid>
+browser-serialiser otter.ai/otter-cdp trash <otid>
 ```
 
 Moves the recording to Otter Trash, the same action as the web UI's "Move to Trash" button. The recording is recoverable from the Trash folder in the web UI for approximately 30 days, then permanently removed by Otter.
@@ -57,7 +56,7 @@ Use this as the end-of-pipeline action once the transcript has been captured, co
 ### 4. Export to Dropbox
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/otter.ai/otter-cdp.tcl export-dropbox <otid> [--format txt|pdf|docx|srt]
+browser-serialiser otter.ai/otter-cdp export-dropbox <otid> [--format txt|pdf|docx|srt]
 ```
 
 Exports the recording to the user's connected Dropbox. Default format is `txt`.
@@ -66,35 +65,24 @@ Returns `{"status": "OK", "failed_speeches": []}` on success.
 
 ### 5. Fetch a recording via Dropbox round-trip
 
-```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/otter.ai/otter-cdp.tcl fetch-via-dropbox <otid> [--timeout 60] [--extended-timeout 120]
-```
-
-One-shot helper that triggers a txt export to Dropbox, polls `Dropbox:Apps/Otter` via `rclone` until a new file appears, reads its contents, deletes it from Dropbox, and returns the text. Format is hardcoded to `txt`. Path `Dropbox:Apps/Otter` is hardcoded.
-
-Polling: `rclone lsf` every 5 seconds. `--timeout` (default 60s) is the initial deadline; on expiry a stderr notice is logged and polling continues until `--extended-timeout` (default 120s).
-
-Returns `{"otid", "dropbox_filename", "content"}` on success. Errors include `Timeout waiting for Dropbox export`, `Multiple new files in Dropbox:Apps/Otter` (if a concurrent unrelated upload races), and any error propagated from `export-dropbox`.
-
-Requires `rclone` configured with a `Dropbox:` remote.
+The one-shot round-trip — trigger a txt export, poll `Dropbox:Apps/Otter` via `rclone` until the file appears, read it, delete it, return the text — uses `rclone`, a host tool. The serialised-browsing surface exposes only the browser; `rclone` is not reachable from the policed safe interpreter, so over `browser-serialiser` the `fetch-via-dropbox` subcommand returns an error pointing here. Run the round-trip in two host-side steps: `export-dropbox <otid>` (browser-side, over the serialiser), then read the resulting file from `Dropbox:Apps/Otter` with `rclone` from a shell. Format is `txt`; path `Dropbox:Apps/Otter` is the Otter app folder.
 
 ### 6. Check Dropbox connection
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/otter.ai/otter-cdp.tcl dropbox-status
+browser-serialiser otter.ai/otter-cdp dropbox-status
 ```
 
 Returns connection status, `dropbox_account_id`, auto-export/import settings, and default export format.
 
 ## How it works
 
-The `not-google-chrome --cdp` wrapper launches a headless browser with the user's logged-in user-data-dir and exports `CDP_WS_URL` to the client. The script is a pure CDP client that:
-1. Connects to the page target given by `CDP_WS_URL`
-2. Navigates to otter.ai to establish session context
-3. Executes JavaScript `fetch()` calls against Otter.ai's internal API (`/forward/api/v1/...`)
-4. Returns JSON results
+The serialised-browsing harness launches the browser with the user's logged-in user-data-dir and loads the skill into a policed safe interpreter. The skill drives the command surface:
+1. `nav` to `otter.ai/my-notes` to establish session context — the covering view for the `/forward/api/v1/*` endpoints (view-before-fetch).
+2. `eval` runs page-context JavaScript `fetch()` calls against Otter.ai's internal API (`/forward/api/v1/...`), reads and writes carried by the page's own cookies and CSRF token.
+3. Each subcommand returns a JSON document, pretty-printed to stdout.
 
-No Selenium needed. The wrapper owns the browser lifecycle; the client holds no browser PID.
+The harness owns pacing+jitter and the 429/login backoff, and the safe interpreter removes file/exec/socket/raw-CDP — the skill reaches the browser only through the verbs. The `otter.ai` view-before-fetch entries live in `skills/lib/serialiser-harness.tcl`.
 
 ## API endpoints used
 
