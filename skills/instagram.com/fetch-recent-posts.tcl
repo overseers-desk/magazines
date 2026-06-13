@@ -14,7 +14,15 @@
 
 package require json
 
-source [file dirname [info script]]/../lib/cdp-client.tcl
+# Legacy CDP engine, for the still-unported siblings that source this file as a
+# library and call cdp::connect (collab-expand, fetch-followers,
+# fetch-post-comments). Sourced only when not already present, so loading this
+# file under the serialiser harness (where the policed verbs replace raw CDP) is
+# a no-op rather than a re-definition. The harness path uses serialiser_run; the
+# direct/legacy path uses ig::main.
+if {![namespace exists cdp]} {
+    catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
+}
 
 namespace eval ig { variable LastRaw "" }
 
@@ -690,6 +698,153 @@ proc ig::n_strarr {lst} {
     set elems {}
     foreach v $lst { lappend elems [ig::n_str $v] }
     return [ig::n_arr $elems]
+}
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: the policed-surface path. The harness sources this file into
+# a safe interp and calls serialiser_run with the skill args; the flow drives
+# the verbs (nav/eval/api/emit) instead of cdp::connect. Parsing and rendering
+# reuse the identical ig:: helpers above, so byte-output matches the legacy path.
+# ---------------------------------------------------------------------------
+
+# Standard IG private-API headers, passed to `api`. The CSRF token and
+# X-Requested-With are added by the harness; IG also needs its web app id.
+proc ig::api_headers {} {
+    return [list X-IG-App-ID 936619743392459]
+}
+
+# Resolve a handle to its numeric user_id over the policed surface: nav to the
+# profile (the covering view for the feed api), then eval the same extraction JS
+# the legacy path uses. Returns the user_id string or a dict {error ...}.
+proc ig::sv_resolve_user_id {handle} {
+    nav "https://www.instagram.com/$handle/" --wait 4
+    set st [state]
+    if {[dict get $st terminal] ne ""} {
+        return [dict create error "Redirected to a wall ([dict get $st terminal]). Session may be expired or rate-limited."]
+    }
+    set js_extract_id {
+    (async () => {
+        const scripts = Array.from(document.querySelectorAll('script:not([src])'));
+        for (const s of scripts) {
+            const t = s.textContent || '';
+            const m = t.match(/"user_id"\s*:\s*"(\d+)"/);
+            if (m) return JSON.stringify({user_id: m[1]});
+            const m2 = t.match(/"id"\s*:\s*"(\d+)".*?"is_private"/s);
+            if (m2) return JSON.stringify({user_id: m2[1]});
+        }
+        try {
+            const sd = window._sharedData;
+            if (sd) {
+                const uid = sd?.entry_data?.ProfilePage?.[0]?.graphql?.user?.id;
+                if (uid) return JSON.stringify({user_id: uid});
+            }
+        } catch(e) {}
+        return JSON.stringify({error: 'user_id not found in page'});
+    })()
+    }
+    set raw [eval $js_extract_id]
+    if {[catch {json::json2dict $raw} parsed]} {
+        return [dict create error "Could not parse user_id extraction result"]
+    }
+    if {[ig::dget $parsed user_id ""] ne ""} {
+        return [dict get $parsed user_id]
+    }
+    # Fall back to the web_profile_info endpoint via the policed api verb.
+    set body [api "/api/v1/users/web_profile_info/" \
+        --params "username=$handle" --headers [ig::api_headers]]
+    if {![catch {json::json2dict $body} info]} {
+        set uid [ig::dget [ig::dget [ig::dget $info data {}] user {}] id ""]
+        if {$uid ne ""} { return $uid }
+    }
+    return [dict create error "Could not determine user_id for @$handle"]
+}
+
+# Page the user feed over the policed api verb (the harness paces and bounds it),
+# returning the raw items list, identical in shape to the legacy paginator.
+proc ig::sv_fetch_feed {user_id limit} {
+    set items {}
+    set max_id ""
+    set page_num 0
+    while {[llength $items] < $limit} {
+        incr page_num
+        set params "count=12"
+        if {$max_id ne ""} { append params "&max_id=$max_id" }
+        set body [api "/api/v1/feed/user/$user_id/" \
+            --params $params --headers [ig::api_headers]]
+        if {[catch {json::json2dict $body} page]} {
+            puts stderr "Page $page_num: response was not JSON; stopping."
+            break
+        }
+        set page_items [ig::dget $page items {}]
+        if {![llength $page_items]} {
+            puts stderr "Page $page_num returned no items; stopping."
+            break
+        }
+        foreach it $page_items { lappend items $it }
+        puts stderr "Page $page_num: [llength $page_items] items (cumulative [llength $items])"
+        if {[ig::dget $page more_available false] ne "true"} { break }
+        set max_id [ig::dget $page next_max_id ""]
+        if {$max_id eq ""} { break }
+        if {[llength $items] >= $limit} { break }
+    }
+    if {[llength $items] > $limit} {
+        set items [lrange $items 0 [expr {$limit - 1}]]
+    }
+    return $items
+}
+
+# The entry proc the harness calls. Parses the same `posts <handle> [--limit N]`
+# arguments, drives the policed flow, and emits the rendered JSON (byte-identical
+# to the legacy ig::main output for the same feed).
+proc serialiser_run {skillArgs} {
+    set command ""
+    set handle ""
+    set limit 12
+    if {[llength $skillArgs] && [lindex $skillArgs 0] eq "posts"} {
+        set command posts
+        set rest [lrange $skillArgs 1 end]
+        set positional {}
+        for {set i 0} {$i < [llength $rest]} {incr i} {
+            set a [lindex $rest $i]
+            switch -- $a {
+                --limit { incr i; set limit [lindex $rest $i] }
+                default { lappend positional $a }
+            }
+        }
+        set handle [lindex $positional 0]
+    }
+    if {$command eq "" || $handle eq ""} {
+        emit [ig::render_flat [dict create error "Usage: instagram.com/fetch-recent-posts posts <handle> \[--limit N\]"]]
+        return
+    }
+
+    # Establish the session: view the IG home, then check for a wall.
+    nav "https://www.instagram.com/" --wait 3
+    set st [state]
+    if {[dict get $st terminal] ne ""} {
+        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get $st terminal]). Log in via a Chrome-compatible browser first."]]
+        return
+    }
+
+    set uid [ig::sv_resolve_user_id $handle]
+    if {[ig::dget $uid error ""] ne ""} {
+        emit [ig::render_flat $uid]
+        return
+    }
+    set user_id $uid
+
+    set items [ig::sv_fetch_feed $user_id $limit]
+    if {![llength $items]} {
+        emit [ig::render_posts_result [dict create handle $handle user_id $user_id \
+            post_count 0 \
+            note "Feed returned no items. Account may be private or feed empty." \
+            posts {}]]
+        return
+    }
+    set posts [ig::parse_media_items $items]
+    set result [dict create handle $handle user_id $user_id \
+        post_count [llength $posts] posts $posts]
+    emit [ig::render_posts_result $result]
 }
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,419 @@
+#!/usr/bin/env tclsh
+# browser-serialiser - run a browser skill inside a per-run policing harness.
+#
+# A browser skill is loaded into a SAFE interpreter that exposes only a policed
+# command surface (nav/dump/eval/api/capture/.../emit). The skill never reaches a
+# socket, file, exec, or raw CDP; the harness drives the real browser and enforces
+# anti-ban web behaviour (pacing, view-before-fetch, 429/login backoff). See
+# skills/serialised-browsing/COMMAND-SURFACE.md for the surface and the entry
+# convention, and skills/lib/serialiser-harness.tcl for the policy.
+#
+# Usage:
+#     browser-serialiser <skill-ref> [skill args...]
+#
+# <skill-ref> is a path relative to the toolbox skills/ directory, WITHOUT the
+# .tcl suffix. "instagram.com/fetch-recent-posts" runs
+# skills/instagram.com/fetch-recent-posts.tcl. The ref must stay inside skills/.
+#
+# Browser ownership (this phase: STANDALONE only):
+#   The serialiser launches its own headless Chromium on the user's REAL logged-in
+#   profile (flock /tmp/chromium.lock, --headless=new --remote-debugging-port,
+#   --user-data-dir=<profile>), polls /json for the page-target ws url, connects
+#   via cdp-client, runs the skill, and tears the browser down on every exit.
+#   Browser-launch logic is ported from bin/not-google-chrome (which still backs
+#   the unported skills and is left intact).
+#
+#   OVERSEER-DELEGATION SEAM (Phase 3, not built here): when the overseer browser
+#   broker answers on 127.0.0.1:11402, the serialiser will lease a browser by
+#   reference and let the OVERSEER run the harness (central cross-job rate budget)
+#   instead of launching Chromium. serialiser_delegate below is the stub Phase 3
+#   fills; today it always declines, so the standalone path runs.
+#
+# Exit codes: 0 ok; 64 bad usage; 65 skill error; 66 terminal wall (rate-limited
+#   / logged-out / checkpoint); 75 lock-wait timeout; 78 environment (no Chromium,
+#   CDP endpoint never came up, config missing).
+
+package require json
+
+set ::ScriptDir [file dirname [file normalize [info script]]]
+set ::Root [file dirname $::ScriptDir]   ;# toolbox root: holds bin/ and skills/
+
+source [file join $::Root skills lib cdp-client.tcl]
+source [file join $::Root skills lib serialiser-harness.tcl]
+
+# ---------------------------------------------------------------------------
+# Config: UA + accept-lang from the same [browser] section not-google-chrome
+# reads, so the headless fetch presents the logged-in browser's fingerprint.
+# ---------------------------------------------------------------------------
+
+proc config_path {} {
+    return [file join $::env(HOME) .claude skills config.ini]
+}
+
+# Read one value from config.ini's [section] key. Empty if absent.
+proc config_get {section key} {
+    set path [config_path]
+    if {![file exists $path]} { return "" }
+    set f [open $path r]
+    set data [read $f]
+    close $f
+    set cur ""
+    foreach line [split $data \n] {
+        set t [string trim $line]
+        if {[regexp {^\[(.+)\]$} $t -> sect]} { set cur $sect; continue }
+        if {$cur eq $section && [regexp "^\\s*$key\\s*=\\s*(.*)$" $line -> val]} {
+            return [string trim $val]
+        }
+    }
+    return ""
+}
+
+# ---------------------------------------------------------------------------
+# Browser launch (standalone), ported from not-google-chrome to pure Tcl.
+# ---------------------------------------------------------------------------
+
+# Locate the Chromium binary and the user-data-dir for the running OS. Returns a
+# dict {binary <path> userDataDir <path>}; raises on an unsupported OS.
+proc browser_locate {} {
+    switch -- $::tcl_platform(os) {
+        Linux {
+            set binary [browser_which {chromium chromium-browser}]
+            if {$binary eq ""} { error "no chromium binary on PATH" }
+            # Snap and apt builds keep the profile in different places. Match
+            # not-google-chrome: a snap-wrapped chromium uses the snap profile.
+            if {[browser_is_snap $binary]} {
+                set udd [file join $::env(HOME) snap chromium common chromium]
+            } else {
+                set udd [file join $::env(HOME) .config chromium]
+            }
+            return [dict create binary $binary userDataDir $udd]
+        }
+        Darwin {
+            set binary /Applications/Chromium.app/Contents/MacOS/Chromium
+            set udd [file join $::env(HOME) Library "Application Support" Chromium]
+            return [dict create binary $binary userDataDir $udd]
+        }
+        default { error "unsupported OS $::tcl_platform(os)" }
+    }
+}
+
+# First of $names found on PATH (absolute path), or "".
+proc browser_which {names} {
+    foreach n $names {
+        foreach dir [split $::env(PATH) :] {
+            set p [file join $dir $n]
+            if {[file executable $p]} { return $p }
+        }
+    }
+    return ""
+}
+
+# True if $binary resolves (through symlinks) to the snap launcher. The snap
+# chromium is a symlink to /usr/bin/snap, so a launch uses the snap profile path.
+proc browser_is_snap {binary} {
+    set real $binary
+    catch { set real [file normalize [file link $binary]] }
+    # A snap shim is typically /snap/bin/chromium -> /usr/bin/snap, or the binary
+    # path itself sits under /snap/.
+    if {[string match "*/snap*" $binary] || [string match "*/snap*" $real]} { return 1 }
+    catch {
+        set real2 [exec readlink -f $binary]
+        if {[string match "*/snap" $real2] || $real2 eq "/usr/bin/snap"} { return 1 }
+    }
+    return 0
+}
+
+# Acquire the single-browser lock so two serialiser / not-google-chrome instances
+# never share the profile concurrently. Shares not-google-chrome's lock FILE
+# (/tmp/chromium.lock via flock) plus an exclusive-create lock DIR for the
+# pure-Tcl path, so a serialiser and a not-google-chrome cannot both launch:
+#   - flock on /tmp/chromium.lock is the same OS lock not-google-chrome holds, so
+#     the two interlock. We hold it for our run with a background `flock` holder
+#     whose stdout signals "acquired"; the holder process is killed at teardown.
+#   - On a host without flock, fall back to the exclusive-create dir lock with a
+#     bounded wait and stale-PID sweep.
+# Returns a token dict consumed by lock_release.
+proc lock_acquire {waitSecs} {
+    set lockPath /tmp/chromium.lock
+    set flockBin [browser_which {flock}]
+    if {$flockBin ne ""} {
+        # A single background holder process takes /tmp/chromium.lock (the SAME
+        # file not-google-chrome flocks, so the two interlock) and blocks holding
+        # it until we kill that ONE pid at teardown. The holder is a shell that
+        # opens fd 9 on the lock file, flocks fd 9 non-blocking, and then EXECs
+        # sleep -- exec so the shell is replaced, leaving exactly one process whose
+        # death (and fd-9 close) drops the lock cleanly. flock -n either grabs the
+        # lock (the holder lives, blocking in sleep) or fails and the holder exits
+        # at once; we poll for acquisition by holder LIVENESS (a failed holder is
+        # a reaped/zombie pid, which holder_alive rejects). Bounded retry up to
+        # waitSecs. open's LIST form execs without a shell re-split.
+        set holderScript "exec 9>$lockPath; $flockBin -n 9 || exit 1; exec sleep 100000"
+        set deadline [expr {[clock milliseconds] + $waitSecs * 1000}]
+        while 1 {
+            set chan [open [list | sh -c $holderScript] r]
+            set pids [pid $chan]
+            set holder [lindex $pids 0]
+            after 200
+            if {[holder_alive $holder]} {
+                fconfigure $chan -blocking 0
+                return [dict create kind flock chan $chan pids $pids]
+            }
+            catch {close $chan}
+            if {[clock milliseconds] >= $deadline} {
+                error "lock-wait timeout after ${waitSecs}s on $lockPath" {} {SERIALISER_LOCK 1}
+            }
+            after 300
+        }
+    }
+    # No flock: exclusive-create dir lock with bounded wait + stale sweep.
+    set dir /tmp/chromium.serialiser.lock
+    set deadline [expr {[clock milliseconds] + $waitSecs * 1000}]
+    while 1 {
+        if {![catch {file mkdir $dir; file attributes $dir} ] && [lock_dir_claim $dir]} {
+            return [dict create kind dir dir $dir]
+        }
+        if {[clock milliseconds] >= $deadline} {
+            error "lock-wait timeout after ${waitSecs}s on $dir" {} {SERIALISER_LOCK 1}
+        }
+        after 250
+    }
+}
+
+# True if process $pid is a LIVE holder (running/sleeping), not a zombie.
+#
+# When flock -n loses the race it exits non-zero at once, but Tcl has not yet
+# reaped the pipeline child, so /proc/<pid> lingers as a DEFUNCT (zombie) entry.
+# A bare "/proc exists" check would mistake that loser for a live holder, so the
+# zombie state (stat field 3 == Z) is excluded explicitly. On Linux we read
+# /proc/<pid>/stat; elsewhere kill -0 reports liveness (zombies are rarer and the
+# flock path is Linux in practice).
+proc holder_alive {pid} {
+    if {![string is integer -strict $pid]} { return 0 }
+    set statf /proc/$pid/stat
+    if {[file exists $statf]} {
+        if {[catch {
+            set f [open $statf r]; set line [read $f]; close $f
+        }]} { return 0 }
+        # ... (comm) State ...  -- State is the token after the closing paren.
+        set after [string range $line [expr {[string last ")" $line] + 1}] end]
+        set state [lindex $after 0]
+        return [expr {$state ne "Z" && $state ne ""}]
+    }
+    if {![catch {exec kill -0 $pid}]} { return 1 }
+    return 0
+}
+
+# Try to claim the dir lock by writing our PID iff it is unclaimed or stale.
+proc lock_dir_claim {dir} {
+    set pidFile [file join $dir pid]
+    if {[file exists $pidFile]} {
+        set f [open $pidFile r]; set held [string trim [read $f]]; close $f
+        if {[string is integer -strict $held] && [file exists /proc/$held]} {
+            return 0   ;# a live holder
+        }
+    }
+    set f [open $pidFile w]; puts -nonewline $f [pid]; close $f
+    return 1
+}
+
+# Release the browser lock acquired by lock_acquire.
+proc lock_release {token} {
+    if {$token eq ""} return
+    switch -- [dict get $token kind] {
+        flock {
+            # Kill the holder so the flock is dropped (sleep never writes again,
+            # so closing the pipe alone would not signal it). SIGTERM the holder
+            # pids, then close the pipe.
+            foreach p [dict get $token pids] {
+                catch {exec kill -TERM $p}
+            }
+            catch {close [dict get $token chan]}
+        }
+        dir { catch {file delete -force [dict get $token dir]} }
+    }
+}
+
+# Launch headless Chromium on the real profile and return the page-target ws url.
+# Mirrors not-google-chrome: fixed debug port, about:blank so a page target
+# exists at once, UA/lang from config. Raises if the endpoint never appears.
+proc browser_launch {binary userDataDir ua lang port} {
+    set cmd [list $binary \
+        --user-data-dir=$userDataDir \
+        --headless=new \
+        --remote-debugging-port=$port --remote-allow-origins=* \
+        --user-agent=$ua --accept-lang=$lang \
+        --window-size=1920,1080 --no-first-run --no-default-browser-check \
+        about:blank]
+    # Detach: the browser reparents and is torn down by debug-port match, exactly
+    # as not-google-chrome does (a launch-time PID would go stale).
+    exec {*}$cmd >/dev/null 2>@1 &
+
+    set wsUrl ""
+    for {set i 0} {$i < 60} {incr i} {
+        set wsUrl [browser_page_ws $port]
+        if {$wsUrl ne ""} break
+        after 250
+    }
+    if {$wsUrl eq ""} {
+        error "CDP endpoint on port $port never came up" {} {SERIALISER_ENV 1}
+    }
+    return $wsUrl
+}
+
+# Read /json from the debug port and return the first page target's ws url, or
+# "". Uses a short-lived raw HTTP/1.0 GET over a loopback socket (no http pkg
+# dependency, and the harness's own sockets are master-side, not in the sandbox).
+proc browser_page_ws {port} {
+    if {[catch {socket 127.0.0.1 $port} sock]} { return "" }
+    fconfigure $sock -translation crlf -blocking 1
+    puts $sock "GET /json HTTP/1.0"
+    puts $sock "Host: 127.0.0.1:$port"
+    puts $sock ""
+    flush $sock
+    fconfigure $sock -translation binary
+    set body [read $sock]
+    catch {close $sock}
+    set sep [string first "\r\n\r\n" $body]
+    if {$sep < 0} { return "" }
+    set json [string range $body [expr {$sep + 4}] end]
+    if {[catch {json::json2dict $json} targets]} { return "" }
+    foreach t $targets {
+        if {[dict exists $t type] && [dict get $t type] eq "page" \
+                && [dict exists $t webSocketDebuggerUrl]} {
+            return [dict get $t webSocketDebuggerUrl]
+        }
+    }
+    return ""
+}
+
+# Tear down the browser by its unique --remote-debugging-port (the launch PID
+# goes stale on reparent). SIGTERM, then SIGKILL after a grace period, then sweep
+# stale Singleton symlinks so the next launch is not blocked. Best-effort.
+proc browser_teardown {port userDataDir} {
+    set pkill [browser_which {pkill}]
+    set pgrep [browser_which {pgrep}]
+    if {$pkill ne "" && $pgrep ne ""} {
+        if {![catch {exec $pgrep -f -- "remote-debugging-port=$port"}]} {
+            catch {exec $pkill -TERM -f -- "remote-debugging-port=$port"}
+            for {set i 0} {$i < 6} {incr i} {
+                if {[catch {exec $pgrep -f -- "remote-debugging-port=$port"}]} break
+                after 500
+            }
+            if {![catch {exec $pgrep -f -- "remote-debugging-port=$port"}]} {
+                catch {exec $pkill -KILL -f -- "remote-debugging-port=$port"}
+            }
+        }
+    }
+    if {$::tcl_platform(platform) eq "unix" && $::tcl_platform(os) eq "Linux"} {
+        foreach s {SingletonLock SingletonCookie SingletonSocket} {
+            set link [file join $userDataDir $s]
+            if {[catch {file readlink $link} tgt]} continue
+            set spid [lindex [split $tgt -] end]
+            if {[string is integer -strict $spid] && ![file exists /proc/$spid]} {
+                catch {file delete $link}
+            }
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# Overseer-delegation seam (Phase 3). Today: always decline -> standalone.
+# ---------------------------------------------------------------------------
+
+# Try to run the skill via the overseer browser broker (Phase 3). Returns a dict
+# {delegated 1 result <emitted>} on success, or {delegated 0} to fall through to
+# the standalone launch. This phase always declines; the standalone path runs.
+proc serialiser_delegate {skillRef skillArgs} {
+    return [dict create delegated 0]
+}
+
+# ---------------------------------------------------------------------------
+# Standalone run: own the browser, run the skill under the harness.
+# ---------------------------------------------------------------------------
+
+proc run_standalone {skillRef skillArgs} {
+    serialiser::setRoot $::Root
+    set skillPath [serialiser::resolveSkill $skillRef]
+
+    set ua [config_get browser user_agent]
+    if {$ua eq ""} {
+        die 78 "[config_path]: [browser] user_agent missing (copy config.ini.example and fill it)"
+    }
+    if {[string match "*HeadlessChrome*" $ua]} {
+        die 78 "user_agent contains 'HeadlessChrome', the marker sites block on; use a real browser's UA"
+    }
+    set lang [config_get browser accept_lang]
+    if {$lang eq ""} { set lang "en-US,en;q=0.9" }
+
+    set loc [browser_locate]
+    set binary [dict get $loc binary]
+    set udd [dict get $loc userDataDir]
+
+    set port 9223   ;# fixed (the lock guarantees one browser) so teardown matches.
+    set lockToken ""
+    set launched 0
+    set rc 0
+    set out ""
+    if {[catch {
+        set lockToken [lock_acquire 30]
+        set wsUrl [browser_launch $binary $udd $ua $lang $port]
+        set launched 1
+        set cdp [cdp::connect $wsUrl]
+        try {
+            set out [serialiser::run $skillPath $cdp $skillArgs]
+        } finally {
+            catch {$cdp close}
+        }
+    } err errOpts]} {
+        set code [dict get $errOpts -errorcode]
+        if {[lindex $code 0] eq "SERIALISER_TERMINAL"} {
+            puts stderr "browser-serialiser: terminal [lindex $code 1]"
+            set rc 66
+        } elseif {[lindex $code 0] eq "SERIALISER_LOCK"} {
+            puts stderr "browser-serialiser: $err"
+            set rc 75
+        } elseif {[lindex $code 0] eq "SERIALISER_ENV"} {
+            puts stderr "browser-serialiser: $err"
+            set rc 78
+        } else {
+            puts stderr "browser-serialiser: $err"
+            set rc 65
+        }
+    }
+    if {$launched} { browser_teardown $port $udd }
+    lock_release $lockToken
+    if {$rc == 0} { puts $out }
+    return $rc
+}
+
+proc die {code msg} {
+    puts stderr "browser-serialiser: $msg"
+    exit $code
+}
+
+# ---------------------------------------------------------------------------
+# Entry.
+# ---------------------------------------------------------------------------
+
+proc main {} {
+    fconfigure stdout -encoding utf-8
+    fconfigure stderr -encoding utf-8
+    global argv
+    if {[llength $argv] < 1} {
+        puts stderr "Usage: browser-serialiser <skill-ref> \[skill args...\]"
+        puts stderr "  e.g. browser-serialiser instagram.com/fetch-recent-posts posts <handle> --limit 3"
+        exit 64
+    }
+    set skillRef [lindex $argv 0]
+    set skillArgs [lrange $argv 1 end]
+
+    # Phase 3 seam: try the overseer first, fall through to standalone.
+    set d [serialiser_delegate $skillRef $skillArgs]
+    if {[dict get $d delegated]} {
+        puts [dict get $d result]
+        exit 0
+    }
+    exit [run_standalone $skillRef $skillArgs]
+}
+
+main
