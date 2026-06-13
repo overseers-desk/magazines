@@ -36,6 +36,7 @@
 #   CDP endpoint never came up, config missing).
 
 package require json
+package require json::write
 
 set ::ScriptDir [file dirname [file normalize [info script]]]
 set ::Root [file dirname $::ScriptDir]   ;# toolbox root: holds bin/ and skills/
@@ -442,14 +443,74 @@ proc render_session {timeoutSecs cfg body} {
 }
 
 # ---------------------------------------------------------------------------
-# Overseer-delegation seam (Phase 3). Today: always decline -> standalone.
+# Overseer-delegation seam (Phase 3). When the overseer browser broker answers on
+# 127.0.0.1:11402, let IT run the harness (central cross-job rate budget, one shared
+# browser pool) instead of launching our own Chromium; fall through to the
+# standalone launch when the overseer is absent.
 # ---------------------------------------------------------------------------
 
-# Try to run the skill via the overseer browser broker (Phase 3). Returns a dict
-# {delegated 1 result <emitted>} on success, or {delegated 0} to fall through to
-# the standalone launch. This phase always declines; the standalone path runs.
+# The overseer control port, BI_OVERSEER_PORT or the 11402 default (mirrors the
+# overseer's cfg::port), so a test overseer on another port is reachable too.
+proc overseer_port {} {
+    if {[info exists ::env(BI_OVERSEER_PORT)] && $::env(BI_OVERSEER_PORT) ne ""} {
+        return $::env(BI_OVERSEER_PORT)
+    }
+    return 11402
+}
+
+# True if the overseer answers GET /health on the loopback control port.
+proc overseer_up {} {
+    package require http
+    set port [overseer_port]
+    if {[catch {http::geturl "http://127.0.0.1:$port/health" -timeout 1500} tok]} {
+        return 0
+    }
+    set code [http::ncode $tok]
+    http::cleanup $tok
+    return [expr {$code == 200}]
+}
+
+# Try to run the skill via the overseer broker. Returns {delegated 1 result <emit>}
+# on success, {delegated 0} to fall through to standalone when the overseer is
+# absent. When the overseer IS up it owns the outcome: a skill fault from /run is
+# returned as a delegated error (we do NOT silently re-launch our own Chromium and
+# contend with the overseer for the shared profile). POST /run carries the skill ref
+# and its args as a JSON array string; the overseer leases a browser, runs the skill
+# in a coroutine, and replies {result:<emit>} or {fault:{shape,detail}}.
 proc serialiser_delegate {skillRef skillArgs} {
-    return [dict create delegated 0]
+    if {![overseer_up]} { return [dict create delegated 0] }
+    package require http
+    set port [overseer_port]
+    set argsJson [args_to_json $skillArgs]
+    set body "{\"skillRef\":[json::write string $skillRef],\"argsJson\":[json::write string $argsJson]}"
+    if {[catch {
+        http::geturl "http://127.0.0.1:$port/run" \
+            -method POST -type application/json -query $body -timeout 600000
+    } tok]} {
+        die 65 "overseer /run failed: $tok"
+    }
+    set code [http::ncode $tok]
+    set data [http::data $tok]
+    http::cleanup $tok
+    if {$code != 200} { die 65 "overseer /run HTTP $code: $data" }
+    set resp [json::json2dict $data]
+    if {[dict exists $resp fault] && [dict get $resp fault] ne "null" && [dict get $resp fault] ne ""} {
+        set f [dict get $resp fault]
+        set shape [expr {[dict exists $f shape] ? [dict get $f shape] : "skill"}]
+        set detail [expr {[dict exists $f detail] ? [dict get $f detail] : ""}]
+        if {$shape eq "terminal"} { die 66 "terminal $detail" }
+        die 65 "overseer skill fault: $detail"
+    }
+    set result [expr {[dict exists $resp result] ? [dict get $resp result] : ""}]
+    return [dict create delegated 1 result $result]
+}
+
+# Encode a Tcl list of skill args as a JSON array string (each element a JSON
+# string), matching what /run expects to json2dict back into a list.
+proc args_to_json {skillArgs} {
+    set parts {}
+    foreach a $skillArgs { lappend parts [json::write string $a] }
+    return "\[[join $parts ,]\]"
 }
 
 # ---------------------------------------------------------------------------

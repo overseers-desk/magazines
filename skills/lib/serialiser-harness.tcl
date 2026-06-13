@@ -410,18 +410,21 @@ proc serialiser::Pace {verb} {
     serialiser::Sleep $ms
 }
 
-# Sleep $ms milliseconds, coroutine-aware. Inside a Tcl coroutine (the overseer
-# hosts the harness on its single event loop) schedule the resume with `after`
-# and `yield`, so the event loop keeps running while the skill pauses; standalone
-# (no coroutine) a plain blocking `after $ms`, byte-for-byte as before.
+# Sleep $ms milliseconds, host-aware. Standalone (cdp::PumpMode 0) a plain blocking
+# `after $ms`, byte-for-byte as before. Overseer-hosted (PumpMode 1) park the pause
+# in a nested `vwait` armed by an `after` timer, so the overseer's single event loop
+# keeps running while the skill dwells - the same event-loop-pumping wait the hosted
+# CDP reads use, and for the same reason (a coroutine `yield` cannot cross the Safe
+# Base interp the skill runs in).
 proc serialiser::Sleep {ms} {
-    set coro [info coroutine]
-    if {$coro eq ""} {
+    if {!$::cdp::PumpMode} {
         after $ms
-    } else {
-        after $ms $coro
-        yield
+        return
     }
+    set wv [namespace current]::sleepwait
+    set tok [after $ms [list set $wv 1]]
+    vwait $wv
+    after cancel $tok
 }
 
 # The site host suffix the view-before-fetch table is keyed on. Returns the

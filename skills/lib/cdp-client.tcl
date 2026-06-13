@@ -33,7 +33,27 @@ package require json
 package require json::write
 package require base64
 
-namespace eval cdp {}
+namespace eval cdp {
+    # Read mode for the frame reads. Two hosts, one client:
+    #   0 (standalone, browser-serialiser): plain BLOCKING reads, byte-for-byte the
+    #     behaviour before the overseer hosted the harness.
+    #   1 (overseer-hosted): event-loop-PUMPING reads - a non-blocking read wrapped
+    #     in a nested `vwait` on `fileevent readable`, so while one skill waits on a
+    #     CDP round-trip the overseer's single event loop keeps serving /health, the
+    #     watchdog, and the GUI. (A coroutine `yield` cannot be used: the skill runs
+    #     inside a Safe Base interp, and `yield` cannot cross that C stack frame -
+    #     "cannot yield: C stack busy". A nested vwait re-enters the notifier
+    #     without yielding, so it works across the alias boundary AND stays
+    #     responsive.)
+    variable PumpMode 0
+}
+
+# Select the read mode (see the PumpMode comment). The overseer sets pump mode 1
+# before connecting; standalone leaves it 0.
+proc cdp::pumpMode {on} {
+    variable PumpMode
+    set PumpMode [expr {$on ? 1 : 0}]
+}
 
 # Build a CDP client connected to $url, or to $env(CDP_WS_URL) when $url is empty.
 proc cdp::connect {{url ""}} {
@@ -47,12 +67,27 @@ proc cdp::connect {{url ""}} {
 }
 
 oo::class create cdp::Client {
-    variable Sock NextId EventBuffer
+    variable Sock NextId EventBuffer LogCb
 
     constructor {url} {
         set NextId 0
         set EventBuffer {}
+        # Optional wire-log sink: a command prefix invoked `{*}$LogCb <dir> <data>`
+        # for every frame sent (dir to-browser) and received (dir from-browser).
+        # Empty (standalone) means no logging, byte-for-byte the behaviour before
+        # the overseer hosted the client; the overseer sets it to route every frame
+        # through ov::wire_log so total wire-logging survives the relay's retirement.
+        set LogCb ""
         my Open $url
+    }
+
+    # Set (or clear, with "") the wire-log sink. The host calls this right after
+    # connect; standalone never does.
+    method logCallback {cb} { set LogCb $cb }
+
+    # Emit one wire record through the sink if one is set.
+    method WireLog {dir data} {
+        if {$LogCb ne ""} { catch { {*}$LogCb $dir $data } }
     }
 
     destructor {
@@ -97,10 +132,16 @@ oo::class create cdp::Client {
         puts -nonewline $Sock $req
         flush $Sock
 
+        # The handshake reads BLOCKING, even under PumpMode, bypassing ReadN's
+        # event-loop pump: a loopback CDP upgrade completes in microseconds, so a
+        # blocking read here cannot meaningfully starve the event loop, and the
+        # constructor that calls this is a C stack frame anyway. The pump is reserved
+        # for the post-connect command frames (ReadN), which wait on real browser
+        # work where a multi-second freeze would matter.
         set resp ""
         while {[string first "\r\n\r\n" $resp] < 0} {
-            set c [my ReadN 1]
-            if {$c eq ""} { error "CDP handshake: no response from $host:$port" }
+            set c [read $Sock 1]
+            if {$c eq "" && [eof $Sock]} { error "CDP handshake: no response from $host:$port" }
             append resp $c
         }
         if {![string match "HTTP/1.1 101*" $resp]} {
@@ -156,35 +197,38 @@ oo::class create cdp::Client {
         # Server->client frames are unmasked per RFC6455.
         set payload ""
         if {$len > 0} { set payload [my ReadN $len] }
-        if {$opcode == 0x8} { return "" }
-        return [encoding convertfrom utf-8 $payload]
+        if {$opcode == 0x8} { my WireLog from-browser "close frame"; return "" }
+        set text [encoding convertfrom utf-8 $payload]
+        my WireLog from-browser $text
+        return $text
     }
 
     # Read exactly $n bytes from the CDP socket. The same primitive serves both
-    # execution modes, branching on whether the caller runs inside a Tcl
-    # coroutine:
-    #   - In a coroutine (the overseer hosts the harness on its single event
-    #     loop): set the socket non-blocking, read what is available, and when
-    #     short of N, arm `fileevent` to resume this coroutine on readable and
-    #     `yield` so the event loop keeps running while we wait. No `vwait` here.
-    #   - Standalone (no coroutine): a plain blocking `read $Sock $n`, byte-for-
-    #     byte the behaviour before coroutines existed.
+    # execution hosts, branching on cdp::PumpMode (set by the host before connect):
+    #   - Standalone (PumpMode 0): a plain blocking `read $Sock $n`, byte-for-byte
+    #     the behaviour before the overseer hosted the harness.
+    #   - Overseer-hosted (PumpMode 1): set the socket non-blocking, read what is
+    #     available, and when short of N park in a nested `vwait` armed by
+    #     `fileevent readable`, so the overseer's event loop keeps serving other
+    #     sockets while this skill waits. A nested vwait (not a coroutine yield)
+    #     because the skill runs inside a Safe Base interp, across which `yield`
+    #     raises "cannot yield: C stack busy" but a vwait re-enters the notifier
+    #     cleanly.
     # EOF before N bytes is an error in both modes (a closed CDP socket).
     method ReadN {n} {
-        set coro [info coroutine]
-        if {$coro eq ""} {
+        if {!$::cdp::PumpMode} {
             return [read $Sock $n]
         }
-        # Coroutine mode: non-blocking accumulate, yielding on starvation.
         fconfigure $Sock -blocking 0
         set buf ""
+        set wv [namespace current]::readwait
         try {
             while {[string length $buf] < $n} {
                 append buf [read $Sock [expr {$n - [string length $buf]}]]
                 if {[string length $buf] >= $n} { break }
                 if {[eof $Sock]} { error "CDP socket closed mid-frame" }
-                fileevent $Sock readable [list $coro]
-                yield
+                fileevent $Sock readable [list set $wv 1]
+                vwait $wv
                 fileevent $Sock readable {}
             }
         } finally {
@@ -204,6 +248,7 @@ oo::class create cdp::Client {
         } else {
             set msg [subst {{"id":$id,"method":[json::write string $method],"params":[my ToJson $params]}}]
         }
+        my WireLog to-browser $msg
         puts -nonewline $Sock [my FrameMasked $msg]
         flush $Sock
         while 1 {
@@ -239,8 +284,10 @@ oo::class create cdp::Client {
         set payload ""
         if {$len > 0} { set payload [my ReadNTimed $len $ms] }
         fconfigure $Sock -blocking 1
-        if {$opcode == 0x8} { return "" }
-        return [encoding convertfrom utf-8 $payload]
+        if {$opcode == 0x8} { my WireLog from-browser "close frame"; return "" }
+        set text [encoding convertfrom utf-8 $payload]
+        my WireLog from-browser $text
+        return $text
     }
 
     # Read exactly $n bytes from a non-blocking socket, waiting up to $ms total.
@@ -277,6 +324,7 @@ oo::class create cdp::Client {
         } else {
             set msg [subst {{"id":$id,"method":[json::write string $method],"params":[my ToJson $params]}}]
         }
+        my WireLog to-browser $msg
         puts -nonewline $Sock [my FrameMasked $msg]
         flush $Sock
         while 1 {
