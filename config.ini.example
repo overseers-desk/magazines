@@ -1,0 +1,21 @@
+[browser]
+# Match the UA and locale list of the browser you log into sites with, so that
+# headless/CDP runs present the same fingerprint as your authenticated session.
+# Capture from a real request in DevTools Network panel (any site).
+user_agent = Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36
+accept_lang = es-ES,es,en
+
+[serpapi]
+api_key = <API-KEY>
+
+[supplier.getyourguide.com]
+supplier_id = <ID>
+
+[interlinetravel.com.au]
+email = <EMAIL>
+password = <PASSWORD>
+
+[qantas.com]
+member_id = <ID>
+last_name = <SURNAME>
+pin = <PIN>
