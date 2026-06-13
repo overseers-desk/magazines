@@ -10,7 +10,7 @@ WebFetch hard-refuses reddit.com ("Claude Code is unable to fetch from www.reddi
 
 ## Execution model
 
-Spawn a **Sonnet subagent** to run the workflow. A search dump is tens of KB; a busy thread can be a few hundred KB. Tell the subagent to use `not-google-chrome` (the wrapper from the headless-browser skill, called by bare name), the parser at `${CLAUDE_PLUGIN_ROOT}/skills/reddit.com/reddit.tcl`, and the discussion batcher at `${CLAUDE_PLUGIN_ROOT}/skills/reddit.com/reddit-discussions.tcl`. Keep raw dumps out of the main session.
+Spawn a **Sonnet subagent** to run the workflow. A search dump is tens of KB; a busy thread can be a few hundred KB. The two-step path (§1-2) fetches a `.json` dump with `not-google-chrome` (the wrapper from the headless-browser skill, called by bare name) and parses the file with `${CLAUDE_PLUGIN_ROOT}/skills/reddit.com/reddit.tcl`. The one-session paths (§3-4) run under the policed serialiser as `serialised-browsing` skills, invoked by reference (`browser-serialiser reddit.com/<script> …`); the serialiser owns the browser, so no `--cdp` wrapper and no `CDP_WS_URL`. Keep raw dumps out of the main session.
 
 A Reddit search hit is always a **post** (submission, kind `t3`); there is no comment-level search. A post's `comments/<id>.json` endpoint returns the post body and the comment tree together, so "go to the post" and "go to the comments" are a single fetch. §1-2 are the two-step path (one fetch, then parse a file); §3 collapses search-then-read-each into one browser session and is what you usually want for gathering discussions.
 
@@ -69,7 +69,7 @@ Prints the post header (title, subreddit, author, score, comment count, date, pe
 Searches, then fetches each result's discussion (post body plus comment tree) over a single CDP session, so it does not pay a browser cold-start per result. This is the usual entry point for quote-gathering.
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/reddit.com/reddit-discussions.tcl \
+browser-serialiser reddit.com/reddit-discussions \
   --query "SEARCH TERMS" [--subreddit SUB] \
   [--sort relevance|new|top|comments] [--time all|year|month|week|day] \
   [--limit 5] [--comments 15]
@@ -78,26 +78,25 @@ not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/reddit.com/reddit-
 Subreddit listing instead of a search (omit `--query`, give `--subreddit`; `--sort` then takes `hot|new|top|rising`):
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/reddit.com/reddit-discussions.tcl \
+browser-serialiser reddit.com/reddit-discussions \
   --subreddit SUB --sort hot --limit 5 --comments 15
 ```
 
-`--limit` is the number of discussions returned; `--comments` caps comments printed per discussion. Each discussion prints the post header, full selftext, and the top comment tree, the same format as §2. The script reads `CDP_WS_URL` from the wrapper's `--cdp` environment; it exits 78 if run without it. It paces one second between discussions.
+`--limit` is the number of discussions returned; `--comments` caps comments printed per discussion. Each discussion prints the post header, full selftext, and the top comment tree, the same format as §2. The serialiser owns the browser session and paces the `.json` fetches; the script asks a one-second dwell between discussions.
 
 ## 4. List the logged-in account's saved items
 
-The saved listing is private: Reddit returns it only to the account that owns it, so this needs the user's session cookie. It runs over CDP (the authenticated `old.reddit.com` origin), the same path §3 uses, and **the user must close their GUI Chromium first** (the user-data-dir lock, see CLAUDE.md), otherwise the headless instance reads no cookies and Reddit answers `404`.
+The saved listing is private: Reddit returns it only to the account that owns it, so this needs the user's session cookie. It reads the authenticated `old.reddit.com` origin through the serialiser, the same path §3 uses, and **the user must close their GUI Chromium first** (the user-data-dir lock, see CLAUDE.md), otherwise the session reads no cookies and Reddit answers `404`.
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/reddit.com/reddit-saved.tcl \
-  --user NAME [--limit 25]
+browser-serialiser reddit.com/reddit-saved --user NAME [--limit 25]
 ```
 
-`--user` is the account whose saved list to read and must be the logged-in account; another user's saved list is unreachable. `--limit` is the number of items returned, newest first. The script walks Reddit's `after` cursor across pages internally (100 per fetch, paced one second apart), so the caller asks for a count and never handles a cursor. A saved list interleaves posts (`t3`) and comments (`t1`); both print, comments tagged `[comment]` and carrying the title of the post they sit under. A `404` here means not logged in, the wrong account, or the GUI browser is still holding the profile lock.
+`--user` is the account whose saved list to read and must be the logged-in account; another user's saved list is unreachable. `--limit` is the number of items returned, newest first. The script walks Reddit's `after` cursor across pages internally (100 per fetch, a one-second dwell between pages), so the caller asks for a count and never handles a cursor. A saved list interleaves posts (`t3`) and comments (`t1`); both print, comments tagged `[comment]` and carrying the title of the post they sit under. A `404` here means not logged in, the wrong account, or the GUI browser is still holding the profile lock.
 
 ## Notes
 
-- The parser strips the wrapper's `<pre>`, unescapes the HTML-render layer and Reddit's own entity escaping, and parses the result as JSON. It also accepts a raw `.json` body if fetched some other way. The §3 batcher fetches JSON directly via in-page `fetch()`, so there is no `<pre>` layer there; the shared `clean` still handles Reddit's entity escaping.
+- The parser strips the wrapper's `<pre>`, unescapes the HTML-render layer and Reddit's own entity escaping, and parses the result as JSON. It also accepts a raw `.json` body if fetched some other way. The §3-4 serialiser path fetches JSON directly through the `api` verb (a same-origin replay from the page), so there is no `<pre>` layer there; the shared `clean` still handles Reddit's entity escaping.
 - A post-only Listing parses with `search` mode, so a subreddit front page (`/r/SUB/.json`) or a user's posts (`/user/NAME.json`) work through the same command. A saved listing mixes posts and comments, so it has its own `saved` mode (`reddit.tcl saved <dump>`), which §4 calls.
 - Author may read `[deleted]`; score may be hidden (shown as the number Reddit returns, often a low placeholder) on recent posts. These are Reddit states, not parse errors.
 

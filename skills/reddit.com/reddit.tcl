@@ -246,6 +246,77 @@ proc reddit::cmd_thread {data limit} {
     reddit::walk [dict get [lindex $data 1] data children] $limit counter
 }
 
+# ---------------------------------------------------------------------------
+# Serialiser-path shared helper. The driver scripts (reddit-discussions.tcl,
+# reddit-saved.tcl) run inside the policed safe interp and reach Reddit's .json
+# endpoints through the `api` verb, which replays a same-origin fetch from the
+# already-navigated old.reddit.com page (cookies + locale apply) and lets the
+# harness classify 429/login walls. This helper splits an absolute old.reddit
+# URL into the same-origin path + query the `api` verb expects, invokes it, and
+# returns [list ok <dict>] or [list error <msg>] in the same shape the legacy
+# in-page fetch_json used, so each driver's listing/paging flow is unchanged.
+# Lives here, not in each driver, to keep the fetch logic single-sourced.
+# Capture everything the byte-identical render/print procs `puts` to stdout while
+# $body runs, returning the captured text. A `puts stderr ...` (diagnostics) is
+# passed through to the shared stderr untouched; only default-channel and
+# explicit-stdout writes are buffered. This lets the drivers reuse the legacy
+# printers (reddit::render_post, reddit::cmd_thread, reddit::print_saved) verbatim
+# under the serialiser, where the run's one output is the emitted string.
+proc reddit::sv_capture {bodyVar script} {
+    upvar 1 $bodyVar captured
+    set captured ""
+    rename ::puts ::reddit::_real_puts
+    proc ::puts {args} {
+        # Forms: puts ?-nonewline? ?channel? string
+        set nonewline 0
+        if {[lindex $args 0] eq "-nonewline"} {
+            set nonewline 1
+            set args [lrange $args 1 end]
+        }
+        if {[llength $args] == 2} {
+            set chan [lindex $args 0]
+            set str [lindex $args 1]
+        } else {
+            set chan stdout
+            set str [lindex $args 0]
+        }
+        if {$chan in {stdout ""}} {
+            append ::reddit::_sv_buf $str
+            if {!$nonewline} { append ::reddit::_sv_buf "\n" }
+            return
+        }
+        # stderr (or any other channel): pass through to the real puts.
+        if {$nonewline} {
+            ::reddit::_real_puts -nonewline $chan $str
+        } else {
+            ::reddit::_real_puts $chan $str
+        }
+    }
+    set ::reddit::_sv_buf ""
+    set code [catch {uplevel 1 $script} result options]
+    set captured $::reddit::_sv_buf
+    rename ::puts {}
+    rename ::reddit::_real_puts ::puts
+    unset -nocomplain ::reddit::_sv_buf
+    return -options $options $result
+}
+
+proc reddit::sv_fetch_json {url} {
+    # Same-origin split: drop the scheme://host, keep /path, hand ?query to
+    # --params (the harness re-appends it). The Accept header keeps Reddit on the
+    # JSON representation; the harness adds X-CSRFToken/X-Requested-With itself.
+    if {![regexp {^[a-z]+://[^/]+(/[^?]*)(?:\?(.*))?$} $url -> path query]} {
+        return [list error "could not split URL into path+query: $url"]
+    }
+    if {[catch {api $path --params $query --headers {Accept application/json}} body]} {
+        return [list error $body]
+    }
+    if {[catch {json::json2dict $body} data]} {
+        return [list error "non-JSON response (blocked or login wall): [string range $body 0 119]"]
+    }
+    return [list ok $data]
+}
+
 # --- CLI entry point (only when run directly, not when sourced). ---
 proc reddit::main {argv} {
     set limit 25
