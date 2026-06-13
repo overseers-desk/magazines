@@ -1,19 +1,24 @@
 #!/usr/bin/env tclsh
-# Establish a LinkedIn session via the fastrack (remember-me) flow using CDP.
+# Establish a LinkedIn session via the fastrack (remember-me) flow.
 #
 # LinkedIn periodically expires the active session but keeps a remember-me cookie
 # that allows re-login without a password. This script clicks the "Continue as
 # <name>" button to mint a fresh session, which persists to the user-data-dir
 # on disk for subsequent skill runs (send-invite.tcl, send-message.tcl).
 #
-# The wrapper (not-google-chrome --cdp) owns the browser lifecycle and exports
-# CDP_WS_URL; this script is a pure CDP client and exits if run without it.
+# Serialiser path (see SKILL.md): browser-serialiser linkedin.com/login [--check]
+#   navigates home over the policed verbs, detects the login form via eval/state,
+#   and clicks the fastrack "continue" control. `--check` reports state only.
+# Direct path (legacy, CDP client): tclsh login.tcl [--check] under not-google-chrome --cdp.
 #
-# Usage:
-#     not-google-chrome --cdp -- tclsh login.tcl            # report state; if logged out, attempt fastrack login
-#     not-google-chrome --cdp -- tclsh login.tcl --check    # report current login state only, never click
+# Clicking "continue" mints a session — an outward action. The serialiser path
+# performs it through the policed `click` verb; `--check` stops before any click.
 
-source [file dirname [info script]]/../lib/cdp-client.tcl
+# Legacy CDP engine, sourced only for the direct-tclsh path; under the serialiser
+# harness the policed verbs replace raw CDP, so loading is a no-op there.
+if {![namespace exists cdp]} {
+    catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
+}
 package require json
 
 # Run a Runtime.evaluate the way the Python js() helper did: awaitPromise=false,
@@ -207,6 +212,143 @@ proc main {} {
     }
 }
 
-fconfigure stdout -encoding utf-8
-fconfigure stderr -encoding utf-8
-main
+# ---------------------------------------------------------------------------
+# Serialiser path: the policed-surface flow. Mirrors run_flow over the verbs
+# (nav/eval/click/state/dwell) instead of cdp::connect; result_json renders the
+# same status object the legacy path prints, so output stays byte-identical.
+#
+#     browser-serialiser linkedin.com/login [--check]
+# ---------------------------------------------------------------------------
+
+# Evaluate a JS boolean over the policed `eval` verb: the value comes back as the
+# literal true/false string. Returns 1/0.
+proc sv_js_bool {expr} {
+    return [expr {[eval $expr] eq "true" ? 1 : 0}]
+}
+
+# The login-state markers, read over the policed surface (same selectors as the
+# legacy login_state). Returns logged_in / logged_out_remember_me / logged_out /
+# unknown.
+proc sv_login_state {} {
+    set has_nav [sv_js_bool {!!document.querySelector("[class*=\"global-nav__me\"], a[href*=\"/in/\"][class*=\"global-nav\"]")}]
+    set has_feed [sv_js_bool {!!document.querySelector("main [class*=\"feed\"], div[class*=\"feed-shared\"]")}]
+    set has_fastrack [sv_js_bool {!!document.querySelector(".fastrack-sign-in-cta")}]
+    set has_login_form [sv_js_bool {!!document.querySelector("form[action*=\"login\"], form[action*=\"authenticate\"]")}]
+    if {$has_nav || $has_feed} { return "logged_in" }
+    if {$has_fastrack} { return "logged_out_remember_me" }
+    if {$has_login_form} { return "logged_out" }
+    return "unknown"
+}
+
+# Find the continue control by visible text over the policed surface. Returns the
+# label or "" when none is present yet.
+proc sv_find_continue {} {
+    set r [eval {(function() {
+                var els = Array.from(document.querySelectorAll(
+                    "button, a, [role=button]"));
+                var m = els.find(function(el) {
+                    var t = (el.getAttribute("aria-label") || el.textContent || "")
+                        .trim().toLowerCase();
+                    return t === "continuar" || t === "continue"
+                        || t.indexOf("iniciar sesión") === 0
+                        || t.indexOf("sign in as") === 0;
+                });
+                return m ? (m.getAttribute("aria-label") || m.textContent.trim()) : null;
+            })()}]
+    if {$r eq "null"} { return "" }
+    return $r
+}
+
+# A CSS selector matching the continue control by its (variable) text. The click
+# verb selects by CSS only, so we tag the matching element with a data attribute
+# in-page first, then click that tag. Returns 1 if tagged, 0 otherwise.
+proc sv_tag_continue {} {
+    return [sv_js_bool {(function() {
+            var els = Array.from(document.querySelectorAll("button, a, [role=button]"));
+            var m = els.find(function(el) {
+                var t = (el.getAttribute("aria-label") || el.textContent || "")
+                    .trim().toLowerCase();
+                return t === "continuar" || t === "continue"
+                    || t.indexOf("iniciar sesión") === 0
+                    || t.indexOf("sign in as") === 0;
+            });
+            if (m) { m.setAttribute("data-sv-continue", "1"); return true; }
+            return false;
+        })()}]
+}
+
+proc serialiser_run {skillArgs} {
+    set check_only 0
+    foreach a $skillArgs {
+        if {$a eq "--check"} { set check_only 1 }
+    }
+
+    log "Navigating to homepage..."
+    nav "https://www.linkedin.com/" --wait 4
+    if {[dict get [state] terminal] ne ""} {
+        emit [result_json [dict create status logged_out \
+            note "navigation hit a wall ([dict get [state] terminal])"]]
+        return
+    }
+    set st [sv_login_state]
+
+    if {$st eq "logged_in"} {
+        emit [result_json [dict create status already_logged_in]]
+        return
+    }
+    if {$check_only} {
+        emit [result_json [dict create status $st]]
+        return
+    }
+    if {$st ne "logged_out_remember_me"} {
+        emit [result_json [dict create status $st \
+            note "no remember-me fastrack available; a password login is required"]]
+        return
+    }
+
+    # Click the fastrack CTA -> navigates to the JS-rendered continue page.
+    log "Clicking fastrack CTA..."
+    click ".fastrack-sign-in-cta"
+    dwell 5
+
+    # Wait for a clickable continue control (text-matched).
+    set label ""
+    for {set i 0} {$i < 24} {incr i} {
+        set label [sv_find_continue]
+        if {$label ne ""} break
+        dwell 0.5
+    }
+
+    if {$label eq ""} {
+        set clickables [eval {Array.from(document.querySelectorAll("button, a, [role=button]")).map(function(el){return (el.getAttribute("aria-label")||"")+"|"+(el.textContent||"").trim().slice(0,40)}).filter(function(s){return s.length>1}).slice(0,40).join("; ")}]
+        emit [result_json [dict create status continue_button_not_found \
+            url [eval {document.location.href}] \
+            clickables $clickables]]
+        return
+    }
+
+    # Tag the continue control in-page, then click it through the policed verb.
+    # This click mints a session (the outward action of this skill).
+    log "Clicking continue control: '[string range $label 0 59]'"
+    sv_tag_continue
+    click {[data-sv-continue="1"]}
+
+    log "Waiting for login to complete..."
+    dwell 6
+
+    # Re-check on the homepage to confirm a session was minted.
+    nav "https://www.linkedin.com/" --wait 4
+    set final [sv_login_state]
+    log "Final state: $final"
+
+    emit [result_json [dict create \
+        status [expr {$final eq "logged_in" ? "logged_in" : "login_failed"}] \
+        final_state $final]]
+}
+
+# Direct-tclsh entry: skipped when sourced as a serialiser skill (no argv0 match).
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    fconfigure stdout -encoding utf-8
+    fconfigure stderr -encoding utf-8
+    main
+}

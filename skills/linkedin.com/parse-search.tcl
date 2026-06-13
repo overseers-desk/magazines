@@ -1,7 +1,10 @@
 #!/usr/bin/env tclsh
 # Parse LinkedIn people search results HTML to extract profile URLs and headlines.
 #
-# Usage: tclsh parse-search.tcl <html-file>
+# Serialiser path (see SKILL.md): browser-serialiser linkedin.com/parse-search "<search terms>"
+#   navigates to the people-search URL, dumps the rendered DOM, and runs the
+#   identical parser over the in-memory HTML.
+# Direct path (legacy, file-fed): tclsh parse-search.tcl <html-file>
 #
 # LinkedIn's DOM uses randomised class names, so we cannot select by class.
 # Instead we:
@@ -39,12 +42,11 @@ proc strip_viewer_content {html} {
     return $html
 }
 
-proc parse_search_results {html_path} {
-    set f [open $html_path r]
-    fconfigure $f -encoding utf-8
-    set html [read $f]
-    close $f
-
+# Render the search-results report from an HTML string, returning the report
+# text (the same lines the legacy path printed). A login/expired page returns the
+# single sentinel "@@LOGIN@@" so each caller can map it to its own exit/terminal
+# handling. The body is byte-identical to the predecessor's stdout.
+proc render_search_results {html} {
     set html [strip_viewer_content $html]
 
     # Check if this is a login page.
@@ -55,14 +57,14 @@ proc parse_search_results {html_path} {
     set tl [string tolower $title]
     foreach marker {"sign in" "log in" "iniciar"} {
         if {[string first $marker $tl] >= 0} {
-            puts "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
-            exit 1
+            return "@@LOGIN@@"
         }
     }
 
-    puts "Page title: $title"
-    puts "HTML size: [commafy [cp_length $html]] bytes"
-    puts ""
+    set out {}
+    lappend out "Page title: $title"
+    lappend out "HTML size: [commafy [cp_length $html]] bytes"
+    lappend out ""
 
     # Extract profile slugs (catches all /in/ references).
     set slugs [regexp -all -inline {linkedin\.com/in/([a-zA-Z0-9_-]+)} $html]
@@ -77,13 +79,13 @@ proc parse_search_results {html_path} {
     }
 
     if {![llength $unique]} {
-        puts "No profiles found in search results."
-        puts "Possible causes: login required, empty results, or DOM structure changed."
-        return
+        lappend out "No profiles found in search results."
+        lappend out "Possible causes: login required, empty results, or DOM structure changed."
+        return [join $out "\n"]
     }
 
-    puts "Found [llength $unique] unique profiles:"
-    puts ""
+    lappend out "Found [llength $unique] unique profiles:"
+    lappend out ""
 
     foreach slug $unique {
         # Find the slug in HTML and extract nearby visible text.
@@ -131,15 +133,78 @@ proc parse_search_results {html_path} {
             set headline "[string range $headline 0 299]..."
         }
 
-        puts "  https://www.linkedin.com/in/$slug/"
-        puts "    $headline"
-        puts ""
+        lappend out "  https://www.linkedin.com/in/$slug/"
+        lappend out "    $headline"
+        lappend out ""
     }
+    return [join $out "\n"]
 }
 
-if {[llength $argv] != 1} {
-    puts "Usage: parse-search.tcl <search-results.html>"
-    exit 1
+# Direct path: read the file and print the report, exiting 1 on a login page.
+proc parse_search_results {html_path} {
+    set f [open $html_path r]
+    fconfigure $f -encoding utf-8
+    set html [read $f]
+    close $f
+
+    set report [render_search_results $html]
+    if {$report eq "@@LOGIN@@"} {
+        puts "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
+        exit 1
+    }
+    puts $report
 }
-fconfigure stdout -encoding utf-8
-parse_search_results [lindex $argv 0]
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: navigate to the people-search results, dump the rendered DOM,
+# and run the identical render over the in-memory HTML (no file read; Plane 1
+# removes file access). Emits the same report text.
+#
+#     browser-serialiser linkedin.com/parse-search "<search terms>"
+# ---------------------------------------------------------------------------
+proc serialiser_run {skillArgs} {
+    set terms [lindex $skillArgs 0]
+    if {$terms eq ""} {
+        emit "Usage: linkedin.com/parse-search \"<search terms>\""
+        return
+    }
+    set enc [serialiser_urlencode $terms]
+    nav "https://www.linkedin.com/search/results/people/?keywords=$enc&origin=GLOBAL_SEARCH_HEADER" --wait 5
+    if {[dict get [state] terminal] ne ""} {
+        emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
+        return
+    }
+    set html [dump]
+    set report [render_search_results $html]
+    if {$report eq "@@LOGIN@@"} {
+        emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
+        return
+    }
+    emit $report
+}
+
+# Percent-encode search terms (spaces and reserved chars) for the keywords param.
+proc serialiser_urlencode {s} {
+    set out ""
+    foreach ch [split $s ""] {
+        if {[regexp {[A-Za-z0-9._~-]} $ch]} {
+            append out $ch
+        } else {
+            foreach byte [split [encoding convertto utf-8 $ch] ""] {
+                scan $byte %c code
+                append out [format %%%02X [expr {$code & 0xff}]]
+            }
+        }
+    }
+    return $out
+}
+
+# Direct-tclsh entry: one HTML path. Skipped when sourced as a serialiser skill.
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    if {[llength $argv] != 1} {
+        puts "Usage: parse-search.tcl <search-results.html>"
+        exit 1
+    }
+    fconfigure stdout -encoding utf-8
+    parse_search_results [lindex $argv 0]
+}

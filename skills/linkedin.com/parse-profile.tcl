@@ -1,7 +1,10 @@
 #!/usr/bin/env tclsh
 # Parse a LinkedIn profile page HTML into a structured YAML record.
 #
-# Usage: tclsh parse-profile.tcl <html-file> [profile-url-or-slug]
+# Serialiser path (see SKILL.md): browser-serialiser linkedin.com/parse-profile <slug-or-url>
+#   navigates to the profile, dumps the rendered DOM, and runs the identical
+#   parser over the in-memory HTML.
+# Direct path (legacy, file-fed): tclsh parse-profile.tcl <html-file> [profile-url-or-slug]
 #
 # LinkedIn's DOM uses randomised class names and lazy-mounts deep sections
 # (career history, About, skills) after load, so reliable extraction is limited
@@ -621,12 +624,11 @@ proc yaml_kv {key rendered} {
 
 # ---- Record assembly ---------------------------------------------------------
 
-proc parse_profile {html_path url_arg} {
-    set f [open $html_path r]
-    fconfigure $f -encoding utf-8
-    set html [read $f]
-    close $f
-
+# Render the YAML record from an HTML string and the url/slug argument, returning
+# the YAML text (byte-identical to the predecessor's stdout). A login/expired page
+# returns the single sentinel "@@LOGIN@@" so each caller maps it to its own exit/
+# terminal handling.
+proc render_profile {html url_arg} {
     set title ""
     if {[regexp {(?s)<title[^>]*>(.*?)</title>} $html -> t]} {
         set title [string trim $t]
@@ -634,8 +636,7 @@ proc parse_profile {html_path url_arg} {
     set tl [string tolower $title]
     foreach bad {"sign in" "log in" "iniciar" "registrarse"} {
         if {[string first $bad $tl] >= 0} {
-            puts stderr "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
-            exit 1
+            return "@@LOGIN@@"
         }
     }
 
@@ -692,7 +693,56 @@ proc parse_profile {html_path url_arg} {
             lappend lines "- [yaml_scalar $e]"
         }
     }
-    puts [join $lines "\n"]
+    return [join $lines "\n"]
+}
+
+# Direct path: read the file and print the record, exiting 1 on a login page.
+proc parse_profile {html_path url_arg} {
+    set f [open $html_path r]
+    fconfigure $f -encoding utf-8
+    set html [read $f]
+    close $f
+
+    set record [render_profile $html $url_arg]
+    if {$record eq "@@LOGIN@@"} {
+        puts stderr "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
+        exit 1
+    }
+    puts $record
+}
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: navigate to the profile, dump the rendered DOM, and run the
+# identical render over the in-memory HTML (no file read; Plane 1 removes file
+# access). Emits the same YAML record.
+#
+#     browser-serialiser linkedin.com/parse-profile <slug-or-url>
+# ---------------------------------------------------------------------------
+proc serialiser_run {skillArgs} {
+    set arg [lindex $skillArgs 0]
+    if {$arg eq ""} {
+        emit "ERROR: usage: linkedin.com/parse-profile <slug-or-url>"
+        return
+    }
+    set slug [slug_from_arg $arg]
+    if {$slug eq ""} {
+        emit "ERROR: could not derive a profile slug from '$arg'"
+        return
+    }
+    nav "https://www.linkedin.com/in/$slug/" --wait 6
+    if {[dict get [state] terminal] ne ""} {
+        emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
+        return
+    }
+    set html [dump]
+    # Pass the original argument through unchanged so the slug/url derivation in
+    # the record matches the legacy path exactly.
+    set record [render_profile $html $arg]
+    if {$record eq "@@LOGIN@@"} {
+        emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
+        return
+    }
+    emit $record
 }
 
 # A scalar value, or the literal null when empty (the None sentinel). The empty
@@ -705,9 +755,13 @@ proc emit_or_null {v} {
     return [yaml_scalar $v]
 }
 
-if {[llength $argv] < 1} {
-    puts stderr "Usage: parse-profile.tcl <profile.html> \[profile-url-or-slug\]"
-    exit 1
+# Direct-tclsh entry: an HTML path and optional url/slug. Skipped when sourced as
+# a serialiser skill (no argv0 match).
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    if {[llength $argv] < 1} {
+        puts stderr "Usage: parse-profile.tcl <profile.html> \[profile-url-or-slug\]"
+        exit 1
+    }
+    fconfigure stdout -encoding utf-8
+    parse_profile [lindex $argv 0] [expr {[llength $argv] > 1 ? [lindex $argv 1] : ""}]
 }
-fconfigure stdout -encoding utf-8
-parse_profile [lindex $argv 0] [expr {[llength $argv] > 1 ? [lindex $argv 1] : ""}]
