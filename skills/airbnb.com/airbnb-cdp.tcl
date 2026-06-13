@@ -1,18 +1,24 @@
 #!/usr/bin/env tclsh
-# CDP helper for the Airbnb hosting dashboard.
+# Airbnb hosting dashboard skill, on the policed serialiser surface.
 #
-# not-google-chrome --cdp owns the browser lifecycle and exports CDP_WS_URL;
-# this script is a pure CDP client and exits if run without it. It navigates to
-# a hosting page, intercepts the React app's internal API responses (or replays
-# the reservations API from inside the page context), and prints them as JSON.
+# The harness sources this file into a per-run safe interp and calls
+# serialiser_run with the skill args; the flow drives the policed verbs
+# (nav/capture/harvest/eval/api/state/emit) instead of opening a raw CDP socket.
+# Two capabilities:
+#   list          quick-replies settings page: the React app loads its own
+#                 quick-replies API response on mount, harvested via capture.
+#   reservations  the reservations page establishes the session (the covering
+#                 view), then the page-context fetch loop replays
+#                 /api/v2/reservations (a declared, view-before-fetch endpoint).
 #
-# Usage:
-#   not-google-chrome --cdp -- tclsh airbnb-cdp.tcl list [--product STAYS|EXPERIENCES]
-#   not-google-chrome --cdp -- tclsh airbnb-cdp.tcl reservations [--filter past|upcoming|all]
+# The JSON shaping below (json_pretty / json_str) is byte-identical to the prior
+# raw-CDP version, so output bytes match for the same intercepted data.
+#
+# Usage (by reference, through the serialiser):
+#   browser-serialiser airbnb.com/airbnb-cdp list [--product STAYS|EXPERIENCES]
+#   browser-serialiser airbnb.com/airbnb-cdp reservations [--filter past|upcoming|all]
 
 package require json
-
-source [file dirname [info script]]/../lib/cdp-client.tcl
 
 # Pretty-print a compact JSON document with 2-space indentation, the shape
 # Python's json.dumps(indent=2, ensure_ascii=False) emits. Values pass through
@@ -95,114 +101,51 @@ proc json_str {s} {
     return $out
 }
 
-# Runtime.evaluate of $expr, returning the JS value as a JSON document string.
-# Mirrors the Python eval_js: the JS is expected to return a JSON string, so the
-# value is taken verbatim when it parses as JSON, else wrapped as {"raw":...};
-# a JS exception becomes {"error":...}, a missing value {"error":"No value..."}.
-proc eval_js {cdp expr} {
-    set resp [$cdp cdp Runtime.evaluate [dict create \
-        expression $expr awaitPromise true returnByValue true]]
-    set result [dict get $resp result]
-    if {[dict exists $result exceptionDetails]} {
-        set exc [dict get $result exceptionDetails]
-        set text [expr {[dict exists $exc text] ? [dict get $exc text] : "JS exception"}]
-        return [list error "\{[json_str error]:[json_str $text]\}"]
-    }
-    if {![dict exists $result result value]} {
-        return [list error "\{[json_str error]:[json_str {No value returned from JS}]\}"]
-    }
-    set val [dict get $result result value]
-    if {[catch {json::json2dict $val}]} {
-        # Not JSON: wrap the raw string, matching Python's {"raw": val}.
-        return [list raw "\{[json_str raw]:[json_str $val]\}"]
-    }
-    return [list json $val]
-}
-
-# True if the current page is an authenticated Airbnb hosting page.
-proc check_logged_in {cdp} {
-    lassign [eval_js $cdp {window.location.href}] kind doc
-    set url [extract_scalar $kind $doc]
-    if {[string match "*/login*" $url] || [string match "*/signup*" $url]} {
-        return 0
-    }
-    lassign [eval_js $cdp {document.title}] tkind tdoc
-    set title [extract_scalar $tkind $tdoc]
-    if {[string match "*Log in*" $title] || [string match "*Sign up*" $title]} {
-        return 0
-    }
-    return 1
-}
-
-# Pull a scalar string out of an eval_js return. For window.location.href and
-# document.title the JS returns a bare string, so eval_js parses it as a JSON
-# string value (kind=json) or wraps it raw; either way recover the text.
-proc extract_scalar {kind doc} {
-    if {$kind eq "json"} {
-        if {![catch {json::json2dict $doc} v]} { return $v }
-        return $doc
-    }
-    # raw/error wrapper: pull the inner value back out.
-    if {![catch {json::json2dict $doc} d]} {
-        if {[dict exists $d raw]} { return [dict get $d raw] }
-        if {[dict exists $d error]} { return [dict get $d error] }
-    }
-    return $doc
-}
-
-# list [--product STAYS|EXPERIENCES]: navigate the quick-replies settings page,
-# intercept the page's own quick-replies API response, return it.
-proc cmd_list {cdp product} {
+# list [--product STAYS|EXPERIENCES]: navigate the quick-replies settings page
+# via capture, so the React app issues its own quick-replies API call and the
+# harness buffers the response; harvest the matching bodies and wrap them in the
+# same per-entry JSON the prior version built.
+#
+# Returns a {kind doc} pair (kind is informational, like the prior eval_js
+# wrappers); the caller pretty-prints doc.
+proc cmd_list {product} {
     set url "https://www.airbnb.com/hosting/messages/settings/quick-replies?product=$product"
 
-    $cdp cdpBuffered Network.enable
-    $cdp cdpBuffered Page.navigate [dict create url $url]
+    # capture navigates (paced), lets the page load, and buffers the network
+    # responses. The hosting app loads quick replies on mount via the persisted
+    # query FetchQuickRepliesViaduct; match the operation on the response URL
+    # rather than a fixed domain (the session may be on a localised host).
+    set captured [capture $url --seconds 10 --match "*"]
 
-    # Collect network events while the page loads.
-    $cdp drainEvents 10
-
-    if {![check_logged_in $cdp]} {
+    set st [state]
+    if {[dict get $st terminal] ne ""} {
         return [list raw "\{[json_str error]:[json_str {Not logged in to Airbnb. Log in via your browser first, then close it before running this script.}]\}"]
     }
 
-    # The hosting app loads quick replies on mount via the persisted query
-    # FetchQuickRepliesViaduct. Match the operation rather than a fixed domain
-    # (the session may be on a localised host). Capture each matching response.
-    set pending {}
-    foreach evt [$cdp events] {
-        if {[dict exists $evt method] && [dict get $evt method] eq "Network.responseReceived"} {
-            set resp [dict get $evt params response]
-            set resp_url [dict get $resp url]
-            if {[string match "*quickreplies*" [string tolower $resp_url]] \
-                    && [string match "*/api/*" $resp_url]} {
-                set req_id [dict get $evt params requestId]
-                dict set pending $req_id [list url $resp_url status [dict get $resp status]]
-            }
-        }
-    }
-
-    # Fetch response bodies while they are still in the CDP network cache.
-    set captured {}
-    dict for {req_id meta} $pending {
-        set body_resp [$cdp cdp Network.getResponseBody [dict create requestId $req_id]]
+    # Filter to the quick-replies API responses and shape each entry: url,
+    # status, and the parsed data verbatim (or raw-wrapped when not JSON).
+    set entries {}
+    foreach triple $captured {
+        lassign $triple resp_url resp_status raw_body
+        if {![string match "*quickreplies*" [string tolower $resp_url]]} continue
+        if {![string match "*/api/*" $resp_url]} continue
         set entry [dict create \
-            url [json_str [dict get $meta url]] \
-            status [dict get $meta status]]
-        if {[dict exists $body_resp result body]} {
-            set raw_body [dict get $body_resp result body]
+            url [json_str $resp_url] \
+            status $resp_status]
+        if {$raw_body ne ""} {
             if {[catch {json::json2dict $raw_body}]} {
                 dict set entry raw [json_str $raw_body]
             } else {
                 dict set entry data $raw_body
             }
         }
-        lappend captured $entry
+        lappend entries $entry
     }
 
-    if {[llength $captured] > 0} {
+    if {[llength $entries] > 0} {
         # Build the JSON array verbatim from the per-entry documents.
         set items {}
-        foreach entry $captured {
+        foreach entry $entries {
             set pairs {}
             dict for {k v} $entry { lappend pairs "[json_str $k]:$v" }
             lappend items "\{[join $pairs ,]\}"
@@ -213,14 +156,18 @@ proc cmd_list {cdp product} {
     return [list raw "\{[json_str error]:[json_str {FetchQuickRepliesViaduct response not seen on the quick-replies page; the host app may have renamed the operation. Re-run, or capture the current request from the Network panel and update the match above.}]\}"]
 }
 
-# reservations [--filter past|upcoming|all]: navigate the reservations page to
-# establish the session, then replay /api/v2/reservations from the page context.
-proc cmd_reservations {cdp filter} {
-    $cdp cdpBuffered Network.enable
-    $cdp cdpBuffered Page.navigate [dict create url "https://www.airbnb.com/hosting/reservations"]
-    $cdp drainEvents 12
+# reservations [--filter past|upcoming|all]: navigate the reservations page (the
+# covering view for the declared /api/v2/reservations endpoint), then replay the
+# page-context fetch loop. The loop's per-page fetch is a declared private
+# endpoint (view-before-fetch satisfied by the preceding nav); the page
+# aggregates the pages and returns one document per filter, byte-identical to the
+# prior version.
+proc cmd_reservations {filter} {
+    # Covering view for the view-before-fetch declaration of /api/v2/reservations.
+    nav "https://www.airbnb.com/hosting/reservations" --wait 12
 
-    if {![check_logged_in $cdp]} {
+    set st [state]
+    if {[dict get $st terminal] ne ""} {
         return [list raw "\{[json_str error]:[json_str {Not logged in to Airbnb. Log in via your browser first, then close it before running this script.}]\}"]
     }
 
@@ -243,7 +190,9 @@ proc cmd_reservations {cdp filter} {
         set extra [dict get $cfg extra]
         set order [dict get $cfg order]
         set js [reservations_js $strategy $extra $order]
-        lassign [eval_js $cdp $js] kind doc
+        # The page-context loop replays the declared /api/v2/reservations
+        # endpoint; eval runs it in the page, where it is policed on the wire.
+        set doc [eval $js]
         dict set out $f $doc
     }
 
@@ -296,20 +245,20 @@ proc reservations_js {strategy extra order} {
         "})()"]
 }
 
-proc usage {} {
-    puts stderr "Airbnb hosting dashboard CDP helper"
-    puts stderr "Usage:"
-    puts stderr "  ... -- tclsh airbnb-cdp.tcl list \[--product STAYS|EXPERIENCES\]"
-    puts stderr "  ... -- tclsh airbnb-cdp.tcl reservations \[--filter past|upcoming|all\]"
-}
+# ---------------------------------------------------------------------------
+# Serialiser entry: the policed-surface path. The harness sources this file into
+# a safe interp and calls serialiser_run with the skill args. The command
+# shaping reuses cmd_list / cmd_reservations above, so the emitted bytes match
+# the prior raw-CDP version for the same intercepted data.
+# ---------------------------------------------------------------------------
 
-proc main {argv} {
-    if {[llength $argv] == 0} {
-        usage
-        exit 1
+proc serialiser_run {skillArgs} {
+    if {[llength $skillArgs] == 0} {
+        emit [json_pretty "\{[json_str error]:[json_str {Usage: airbnb.com/airbnb-cdp <list [--product STAYS|EXPERIENCES] | reservations [--filter past|upcoming|all]>}]\}"]
+        return
     }
-    set command [lindex $argv 0]
-    set rest [lrange $argv 1 end]
+    set command [lindex $skillArgs 0]
+    set rest [lrange $skillArgs 1 end]
 
     set product STAYS
     set filter past
@@ -321,14 +270,15 @@ proc main {argv} {
                     incr i
                     set product [lindex $rest $i]
                     if {$product ni {STAYS EXPERIENCES}} {
-                        puts stderr "--product must be STAYS or EXPERIENCES"
-                        exit 2
+                        emit [json_pretty "\{[json_str error]:[json_str {--product must be STAYS or EXPERIENCES}]\}"]
+                        return
                     }
                 } else {
-                    puts stderr "unknown argument: $a"
-                    exit 2
+                    emit [json_pretty "\{[json_str error]:[json_str "unknown argument: $a"]\}"]
+                    return
                 }
             }
+            lassign [cmd_list $product] kind doc
         }
         reservations {
             for {set i 0} {$i < [llength $rest]} {incr i} {
@@ -337,38 +287,21 @@ proc main {argv} {
                     incr i
                     set filter [lindex $rest $i]
                     if {$filter ni {past upcoming all}} {
-                        puts stderr "--filter must be past, upcoming or all"
-                        exit 2
+                        emit [json_pretty "\{[json_str error]:[json_str {--filter must be past, upcoming or all}]\}"]
+                        return
                     }
                 } else {
-                    puts stderr "unknown argument: $a"
-                    exit 2
+                    emit [json_pretty "\{[json_str error]:[json_str "unknown argument: $a"]\}"]
+                    return
                 }
             }
+            lassign [cmd_reservations $filter] kind doc
         }
         default {
-            usage
-            exit 1
+            emit [json_pretty "\{[json_str error]:[json_str "unknown command: $command"]\}"]
+            return
         }
     }
 
-    if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh airbnb-cdp.tcl ..."
-        exit 1
-    }
-
-    fconfigure stdout -encoding utf-8
-    set cdp [cdp::connect]
-    try {
-        switch -- $command {
-            list         { set res [cmd_list $cdp $product] }
-            reservations { set res [cmd_reservations $cdp $filter] }
-        }
-        lassign $res kind doc
-        puts [json_pretty $doc]
-    } finally {
-        $cdp close
-    }
+    emit [json_pretty $doc]
 }
-
-main $argv

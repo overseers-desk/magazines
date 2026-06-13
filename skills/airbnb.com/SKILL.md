@@ -7,21 +7,21 @@ allowed-tools: Bash, Read
 
 ## Execution model
 
-Spawn a **subagent** to run the CDP script, as each invocation launches a headless browser session (~15s overhead). Tell the subagent to use the script at `${CLAUDE_PLUGIN_ROOT}/skills/airbnb.com/airbnb-cdp.tcl`.
+Spawn a **subagent** to run the skill through `browser-serialiser`, as each invocation drives a browser session (~15s overhead). The serialiser resolves the skill by reference (`airbnb.com/airbnb-cdp`) in the trusted skill tree and runs it inside the policed safe interp; the skill drives the harness verbs (it does not open its own browser or CDP socket).
 
 ## Prerequisites
 
-- A Chrome-compatible browser with an active Airbnb hosting session. The user must be logged in to `airbnb.com/hosting` via their browser. See `BROWSER.md` for which browser `not-google-chrome` targets on each platform — this skill uses CDP, not `--dump-dom`, because Airbnb is a React SPA and the URL does not change on in-page navigation.
-- **Close the browser before running.** The headless instance and GUI browser share the same user-data-dir; if the GUI holds the user-data-dir lock, cookies will not be readable by the headless instance.
+- A Chrome-compatible browser with an active Airbnb hosting session. The user must be logged in to `airbnb.com/hosting` via their browser. The serialiser drives Airbnb over CDP (not a DOM dump) because Airbnb is a React SPA and the URL does not change on in-page navigation.
+- **Close the browser before running.** The serialiser's browser instance and the GUI browser share the same user-data-dir; if the GUI holds the user-data-dir lock, cookies will not be readable.
 
-If the script returns `{"error": "Not logged in..."}`, the user needs to log in to Airbnb in their browser first, then close it.
+If the skill returns `{"error": "Not logged in..."}`, the user needs to log in to Airbnb in their browser first, then close it.
 
 ## Capabilities
 
 ### 1. List quick replies
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/airbnb.com/airbnb-cdp.tcl list [--product STAYS|EXPERIENCES]
+browser-serialiser airbnb.com/airbnb-cdp list [--product STAYS|EXPERIENCES]
 ```
 
 Navigates to the quick replies settings page, intercepts the API response the page makes, and returns the quick replies as JSON. Default product is `STAYS`.
@@ -31,7 +31,7 @@ Returns a list with the intercepted response(s); each entry has `url`, `status`,
 ### 2. Reservations
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/airbnb.com/airbnb-cdp.tcl reservations [--filter past|upcoming|all]
+browser-serialiser airbnb.com/airbnb-cdp reservations [--filter past|upcoming|all]
 ```
 
 Returns `{"total_count": N, "returned": N, "reservations": [...]}` (for `--filter all`, an object keyed by `past` and `upcoming`). Each reservation includes `confirmation_code`, `listing_id`, `listing_name`, `start_date`, `end_date`, `nights`, `guest_user`, `earnings`, `user_facing_status_key` (`complete`, `current`, `canceled`, `denied`, `timedout`, etc.), and `is_check_in_today` / `is_check_out_today` flags.
@@ -40,9 +40,9 @@ Returns `{"total_count": N, "returned": N, "reservations": [...]}` (for `--filte
 
 ## How it works
 
-The `not-google-chrome --cdp` wrapper launches a headless browser with the user's logged-in user-data-dir and exports `CDP_WS_URL`; the script connects over Chrome DevTools Protocol (CDP), navigates to a hosting page to establish the authenticated session, and then either intercepts the React app's own API responses (quick replies) or issues further `/api/v2/...` calls from inside the page context via `Runtime.evaluate` (reservations). The CDP approach is necessary because the hosting dashboard is a React SPA whose URL does not change on in-page navigation, so `--dump-dom` would only capture the pre-hydration shell.
+The serialiser drives the user's logged-in browser session over Chrome DevTools Protocol (CDP). The skill navigates to a hosting page to establish the authenticated session, then either harvests the React app's own API responses from the network buffer via the `capture` verb (quick replies) or replays the `/api/v2/...` paging loop from inside the page context via `eval` (reservations). CDP is necessary because the hosting dashboard is a React SPA whose URL does not change on in-page navigation, so a plain DOM dump would only capture the pre-hydration shell.
 
-Session redirects to the host's locale domain (e.g. `airbnb.es`), so any URL substring filter should match `airbnb` rather than the literal `airbnb.com`.
+Session redirects to the host's locale domain (e.g. `airbnb.es`), so the quick-replies URL match keys on `airbnb`/`quickreplies` rather than the literal `airbnb.com`. The `/api/v2/reservations` endpoint is declared in the serialiser's view-before-fetch table (host `airbnb.com`), covered by the preceding navigation to `/hosting/reservations`.
 
 ## API endpoints
 
