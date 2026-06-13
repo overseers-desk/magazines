@@ -99,7 +99,7 @@ oo::class create cdp::Client {
 
         set resp ""
         while {[string first "\r\n\r\n" $resp] < 0} {
-            set c [read $Sock 1]
+            set c [my ReadN 1]
             if {$c eq ""} { error "CDP handshake: no response from $host:$port" }
             append resp $c
         }
@@ -143,21 +143,55 @@ oo::class create cdp::Client {
     # Returns "" on a close frame or EOF. Continuation/control frames other than
     # close are not expected from CDP, so opcode is not surfaced.
     method ReadFrame {} {
-        set hdr [read $Sock 2]
+        set hdr [my ReadN 2]
         if {[string length $hdr] < 2} { return "" }
         binary scan $hdr cucu b0 b1
         set opcode [expr {$b0 & 0x0f}]
         set len [expr {$b1 & 0x7f}]
         if {$len == 126} {
-            binary scan [read $Sock 2] Su len
+            binary scan [my ReadN 2] Su len
         } elseif {$len == 127} {
-            binary scan [read $Sock 8] Wu len
+            binary scan [my ReadN 8] Wu len
         }
         # Server->client frames are unmasked per RFC6455.
         set payload ""
-        if {$len > 0} { set payload [read $Sock $len] }
+        if {$len > 0} { set payload [my ReadN $len] }
         if {$opcode == 0x8} { return "" }
         return [encoding convertfrom utf-8 $payload]
+    }
+
+    # Read exactly $n bytes from the CDP socket. The same primitive serves both
+    # execution modes, branching on whether the caller runs inside a Tcl
+    # coroutine:
+    #   - In a coroutine (the overseer hosts the harness on its single event
+    #     loop): set the socket non-blocking, read what is available, and when
+    #     short of N, arm `fileevent` to resume this coroutine on readable and
+    #     `yield` so the event loop keeps running while we wait. No `vwait` here.
+    #   - Standalone (no coroutine): a plain blocking `read $Sock $n`, byte-for-
+    #     byte the behaviour before coroutines existed.
+    # EOF before N bytes is an error in both modes (a closed CDP socket).
+    method ReadN {n} {
+        set coro [info coroutine]
+        if {$coro eq ""} {
+            return [read $Sock $n]
+        }
+        # Coroutine mode: non-blocking accumulate, yielding on starvation.
+        fconfigure $Sock -blocking 0
+        set buf ""
+        try {
+            while {[string length $buf] < $n} {
+                append buf [read $Sock [expr {$n - [string length $buf]}]]
+                if {[string length $buf] >= $n} { break }
+                if {[eof $Sock]} { error "CDP socket closed mid-frame" }
+                fileevent $Sock readable [list $coro]
+                yield
+                fileevent $Sock readable {}
+            }
+        } finally {
+            fileevent $Sock readable {}
+            fconfigure $Sock -blocking 1
+        }
+        return $buf
     }
 
     # Send a CDP command (auto-incrementing id) and return the matched response

@@ -242,7 +242,7 @@ proc serialiser::Verb_nav {url args} {
     serialiser::Pace nav
     $Cdp cdp Page.enable
     $Cdp cdp Page.navigate [dict create url $url]
-    after [expr {int($wait * 1000)}]
+    serialiser::Sleep [expr {int($wait * 1000)}]
     set landing [serialiser::PageUrl]
     dict set Run lastNavUrl $landing
     serialiser::ClassifyWall $landing [serialiser::PageTitle]
@@ -382,7 +382,7 @@ proc serialiser::Verb_emit {result} {
 # reading-time between page views). The harness owns timing, so a skill asks for
 # a dwell rather than calling `after` itself. Returns "".
 proc serialiser::Verb_dwell {seconds} {
-    after [expr {int($seconds * 1000)}]
+    serialiser::Sleep [expr {int($seconds * 1000)}]
     return ""
 }
 
@@ -407,7 +407,21 @@ proc serialiser::Pace {verb} {
     set base [dict get $spec base]
     set jit [dict get $spec jitter]
     set ms [expr {$base + int(rand() * $jit)}]
-    after $ms
+    serialiser::Sleep $ms
+}
+
+# Sleep $ms milliseconds, coroutine-aware. Inside a Tcl coroutine (the overseer
+# hosts the harness on its single event loop) schedule the resume with `after`
+# and `yield`, so the event loop keeps running while the skill pauses; standalone
+# (no coroutine) a plain blocking `after $ms`, byte-for-byte as before.
+proc serialiser::Sleep {ms} {
+    set coro [info coroutine]
+    if {$coro eq ""} {
+        after $ms
+    } else {
+        after $ms $coro
+        yield
+    }
 }
 
 # The site host suffix the view-before-fetch table is keyed on. Returns the
@@ -478,7 +492,7 @@ proc serialiser::FetchPaced {path params headers} {
                 dict set Run terminal rate-limited
                 error "serialiser: rate-limited (429) after $BackoffMaxTries backoffs"
             }
-            after $delay
+            serialiser::Sleep $delay
             set delay [expr {min($delay * 2, $BackoffCapMs)}]
             continue
         }
