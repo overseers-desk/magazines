@@ -149,6 +149,14 @@ proc serialiser::run {skillPath cdp skillArgs} {
         ::safe::interpAddToAccessPath $interp [file dirname $skillPath]
         ::safe::interpAddToAccessPath $interp [file join $Root skills lib]
 
+        # The Safe Base removes stdin/stdout/stderr from the child, but a skill's
+        # diagnostics (the `log` verb, and bare `puts stderr` in skills carried
+        # over from the unsandboxed CDP path) expect stderr to exist. Share only
+        # stderr in (read-write), so diagnostic writes reach the real channel
+        # while stdout stays the harness's alone (emit is the skill's one result
+        # channel). File/exec/socket capability is still removed.
+        interp share {} stderr $interp
+
         serialiser::InjectVerbs $interp
 
         # tcllib json is pure-Tcl and safe; let the skill's parsers use it.

@@ -17,11 +17,13 @@
 #
 # Browser ownership (this phase: STANDALONE only):
 #   The serialiser launches its own headless Chromium on the user's REAL logged-in
-#   profile (flock /tmp/chromium.lock, --headless=new --remote-debugging-port,
-#   --user-data-dir=<profile>), polls /json for the page-target ws url, connects
-#   via cdp-client, runs the skill, and tears the browser down on every exit.
-#   Browser-launch logic is ported from bin/not-google-chrome (which still backs
-#   the unported skills and is left intact).
+#   profile (flock /tmp/chromium.lock, --headless=new --remote-debugging-port on a
+#   random port, --user-data-dir=<profile>), polls /json for the page-target ws
+#   url, connects via cdp-client, runs the skill, and tears the browser down on
+#   every exit. Launch/teardown mirrors the overseer's ov::launch_chromium /
+#   ov::release (random port, ~40s cold-start poll budget for snap Chromium, kill
+#   by launch PID AND by debug port plus a Singleton sweep so renderer children
+#   never orphan and hold the profile).
 #
 #   OVERSEER-DELEGATION SEAM (Phase 3, not built here): when the overseer browser
 #   broker answers on 127.0.0.1:11402, the serialiser will lease a browser by
@@ -233,9 +235,11 @@ proc lock_release {token} {
     }
 }
 
-# Launch headless Chromium on the real profile and return the page-target ws url.
-# Mirrors not-google-chrome: fixed debug port, about:blank so a page target
-# exists at once, UA/lang from config. Raises if the endpoint never appears.
+# Launch headless Chromium on the real profile and return a dict {pid <p> wsurl
+# <u>}. Mirrors the overseer's ov::launch_chromium: about:blank so a page target
+# exists at once, UA/lang from config, the launch PID captured so teardown can
+# kill it directly. Snap Chromium's cold start can take many seconds, so the
+# /json poll allows up to ~40s. Raises if the endpoint never appears.
 proc browser_launch {binary userDataDir ua lang port} {
     set cmd [list $binary \
         --user-data-dir=$userDataDir \
@@ -244,39 +248,39 @@ proc browser_launch {binary userDataDir ua lang port} {
         --user-agent=$ua --accept-lang=$lang \
         --window-size=1920,1080 --no-first-run --no-default-browser-check \
         about:blank]
-    # Detach: the browser reparents and is torn down by debug-port match, exactly
-    # as not-google-chrome does (a launch-time PID would go stale).
-    exec {*}$cmd >/dev/null 2>@1 &
+    set pid [exec {*}$cmd >/dev/null 2>@1 &]
 
     set wsUrl ""
-    for {set i 0} {$i < 60} {incr i} {
+    for {set i 0} {$i < 160} {incr i} {
         set wsUrl [browser_page_ws $port]
         if {$wsUrl ne ""} break
         after 250
     }
     if {$wsUrl eq ""} {
+        # Kill by PID, then by the unique debug port as the belt for any child the
+        # main process left behind, before raising.
+        catch {exec kill -KILL $pid}
+        catch {exec pkill -KILL -f "remote-debugging-port=$port"}
         error "CDP endpoint on port $port never came up" {} {SERIALISER_ENV 1}
     }
-    return $wsUrl
+    return [dict create pid $pid wsurl $wsUrl]
 }
 
 # Read /json from the debug port and return the first page target's ws url, or
-# "". Uses a short-lived raw HTTP/1.0 GET over a loopback socket (no http pkg
-# dependency, and the harness's own sockets are master-side, not in the sandbox).
+# "". Uses http::geturl (mirroring the overseer's ov::http_get_json): snap
+# Chromium's CDP HTTP server returns no body to a hand-rolled HTTP/1.0 raw-socket
+# GET, so the http package (which speaks the server's HTTP correctly) is the
+# only reader that recovers the target list.
 proc browser_page_ws {port} {
-    if {[catch {socket 127.0.0.1 $port} sock]} { return "" }
-    fconfigure $sock -translation crlf -blocking 1
-    puts $sock "GET /json HTTP/1.0"
-    puts $sock "Host: 127.0.0.1:$port"
-    puts $sock ""
-    flush $sock
-    fconfigure $sock -translation binary
-    set body [read $sock]
-    catch {close $sock}
-    set sep [string first "\r\n\r\n" $body]
-    if {$sep < 0} { return "" }
-    set json [string range $body [expr {$sep + 4}] end]
-    if {[catch {json::json2dict $json} targets]} { return "" }
+    package require http
+    if {[catch {http::geturl "http://127.0.0.1:$port/json" -timeout 2000} tok]} {
+        return ""
+    }
+    set code [http::ncode $tok]
+    set data [http::data $tok]
+    http::cleanup $tok
+    if {$code != 200} { return "" }
+    if {[catch {json::json2dict $data} targets]} { return "" }
     foreach t $targets {
         if {[dict exists $t type] && [dict get $t type] eq "page" \
                 && [dict exists $t webSocketDebuggerUrl]} {
@@ -286,24 +290,18 @@ proc browser_page_ws {port} {
     return ""
 }
 
-# Tear down the browser by its unique --remote-debugging-port (the launch PID
-# goes stale on reparent). SIGTERM, then SIGKILL after a grace period, then sweep
-# stale Singleton symlinks so the next launch is not blocked. Best-effort.
-proc browser_teardown {port userDataDir} {
-    set pkill [browser_which {pkill}]
-    set pgrep [browser_which {pgrep}]
-    if {$pkill ne "" && $pgrep ne ""} {
-        if {![catch {exec $pgrep -f -- "remote-debugging-port=$port"}]} {
-            catch {exec $pkill -TERM -f -- "remote-debugging-port=$port"}
-            for {set i 0} {$i < 6} {incr i} {
-                if {[catch {exec $pgrep -f -- "remote-debugging-port=$port"}]} break
-                after 500
-            }
-            if {![catch {exec $pgrep -f -- "remote-debugging-port=$port"}]} {
-                catch {exec $pkill -KILL -f -- "remote-debugging-port=$port"}
-            }
-        }
-    }
+# Tear down the browser, mirroring the overseer's ov::release: kill the launch
+# PID AND pkill by the unique --remote-debugging-port (the belt for any renderer
+# child the main process left behind, which carries --type=renderer not the port
+# flag), SIGTERM to flush then SIGKILL to be sure, then sweep stale Singleton
+# symlinks so the next launch is not blocked. Best-effort.
+proc browser_teardown {pid port userDataDir} {
+    catch {exec kill -TERM $pid}
+    catch {exec pkill -TERM -f "remote-debugging-port=$port"}
+    after 400
+    catch {exec kill -KILL $pid}
+    catch {exec pkill -KILL -f "remote-debugging-port=$port"}
+    after 200
     if {$::tcl_platform(platform) eq "unix" && $::tcl_platform(os) eq "Linux"} {
         foreach s {SingletonLock SingletonCookie SingletonSocket} {
             set link [file join $userDataDir $s]
@@ -349,14 +347,19 @@ proc run_standalone {skillRef skillArgs} {
     set binary [dict get $loc binary]
     set udd [dict get $loc userDataDir]
 
-    set port 9223   ;# fixed (the lock guarantees one browser) so teardown matches.
+    # Random debug port (mirrors the overseer's ov::launch_chromium) so a leftover
+    # process from a failed run on one port never blocks the next launch.
+    set port [expr {10000 + int(rand()*40000)}]
     set lockToken ""
     set launched 0
+    set launchPid ""
     set rc 0
     set out ""
     if {[catch {
         set lockToken [lock_acquire 30]
-        set wsUrl [browser_launch $binary $udd $ua $lang $port]
+        set br [browser_launch $binary $udd $ua $lang $port]
+        set launchPid [dict get $br pid]
+        set wsUrl [dict get $br wsurl]
         set launched 1
         set cdp [cdp::connect $wsUrl]
         try {
@@ -380,7 +383,7 @@ proc run_standalone {skillRef skillArgs} {
             set rc 65
         }
     }
-    if {$launched} { browser_teardown $port $udd }
+    if {$launched} { browser_teardown $launchPid $port $udd }
     lock_release $lockToken
     if {$rc == 0} { puts $out }
     return $rc
