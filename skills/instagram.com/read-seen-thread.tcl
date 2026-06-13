@@ -15,10 +15,15 @@
 # block list is also armed: a matching seen-mutation request is paused and never
 # released, so it cannot leave the browser.
 #
-# Usage:
-#     not-google-chrome --cdp -- tclsh read-seen-thread.tcl thread <thread_id> [--limit N]
-#     not-google-chrome --cdp -- tclsh read-seen-thread.tcl by-handle <handle> [--limit N]
-#     not-google-chrome --cdp -- tclsh read-seen-thread.tcl all-seen [--limit N]
+# Invoked by reference through the serialiser (see SKILL.md §9):
+#     browser-serialiser instagram.com/read-seen-thread thread <thread_id> [--limit N]
+#     browser-serialiser instagram.com/read-seen-thread by-handle <handle> [--limit N]
+#     browser-serialiser instagram.com/read-seen-thread all-seen [--limit N]
+#
+# The serialiser path (serialiser_run) declares the seen-mutation guard via the
+# `veto` verb, checks the seen gate against the inbox endpoint (api) BEFORE any
+# thread-content fetch, and reads thread content via the policed `api` verb. The
+# seen gate, parse, and render procs are shared with the legacy path.
 
 source [file dirname [info script]]/fetch-recent-posts.tcl
 
@@ -439,6 +444,165 @@ proc flat_node {d} {
         }
     }
     return [ig::n_obj $pairs]
+}
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: declare the seen-mutation veto, check the seen gate against
+# the inbox endpoint (api) BEFORE any thread-content fetch, then read thread
+# content via the policed `api` verb. find_thread, is_thread_unseen, seen_or_refuse,
+# parse_thread_items, and build_thread_result are shared with the legacy path.
+# ---------------------------------------------------------------------------
+
+# Fetch the inbox metadata over the policed `api` verb. Returns the parsed dict
+# or {error ...} on a non-JSON body.
+proc sv_fetch_inbox {} {
+    set params "visual_message_return_type=unseen&thread_message_limit=1&persistentBadging=true&limit=50"
+    set body [api "/api/v1/direct_v2/inbox/" --params $params --headers [ig::api_headers]]
+    if {[catch {json::json2dict $body} data]} {
+        return [dict create error "inbox response was not JSON"]
+    }
+    return $data
+}
+
+# Page a thread from newest backwards over the policed `api` verb. Same return
+# shape as fetch_thread_all (items, raw_items, pages_fetched, has_older_final),
+# so build_thread_result renders byte-identically. The raw body from `api` is the
+# byte-faithful page used for unknown-item-type passthrough.
+proc sv_fetch_thread_all {thread_id max_messages {page_size 100}} {
+    set all_items {}
+    set raw_items {}
+    set seen_ids {}
+    set cursor ""
+    set pages 0
+    set has_older "\x00null"
+    while {1} {
+        set params "visual_message_return_type=unseen&direction=older&limit=$page_size"
+        if {$cursor ne ""} { append params "&cursor=$cursor" }
+        set raw_page [api "/api/v1/direct_v2/threads/$thread_id/" \
+            --params $params --headers [ig::api_headers]]
+        if {[catch {json::json2dict $raw_page} msg_data]} {
+            return [dict create items $all_items raw_items $raw_items \
+                pages_fetched $pages has_older_final $has_older \
+                error "thread response was not JSON"]
+        }
+        if {[ig::dget $msg_data error ""] ne ""} {
+            return [dict create items $all_items raw_items $raw_items \
+                pages_fetched $pages has_older_final $has_older \
+                error [dict get $msg_data error]]
+        }
+        set thread [ig::dget $msg_data thread {}]
+        incr pages
+        set page_raw_items [ig::split_json_array \
+            [ig::extract_json_array_after_key $raw_page items]]
+        set parsed_items [ig::dget $thread items {}]
+        set k 0
+        foreach it $parsed_items {
+            set iid [ig::dget $it item_id ""]
+            if {$iid ne "" && [dict exists $seen_ids $iid]} { incr k; continue }
+            if {$iid ne ""} { dict set seen_ids $iid 1 }
+            lappend all_items $it
+            lappend raw_items [lindex $page_raw_items $k]
+            incr k
+        }
+        set has_older [ig::dget_null $thread has_older]
+        set oldest_cursor [ig::dget_null $thread oldest_cursor]
+        if {[llength $all_items] >= $max_messages || \
+            $has_older eq "\x00null" || $has_older eq "false" || \
+            $oldest_cursor eq "\x00null" || $oldest_cursor eq ""} { break }
+        set cursor $oldest_cursor
+    }
+    return [dict create items $all_items raw_items $raw_items \
+        pages_fetched $pages has_older_final $has_older]
+}
+
+proc sv_cmd_thread {thread_id max_messages} {
+    set inbox_data [sv_fetch_inbox]
+    if {[ig::dget $inbox_data error ""] ne ""} { return [flat_node $inbox_data] }
+    lassign [find_thread $inbox_data $thread_id] target viewer_id
+    set refused [seen_or_refuse $target $viewer_id]
+    if {$refused ne ""} { return $refused }
+    set paged [sv_fetch_thread_all $thread_id $max_messages]
+    return [build_thread_result $target $paged $viewer_id]
+}
+
+proc sv_cmd_by_handle {handle max_messages} {
+    set inbox_data [sv_fetch_inbox]
+    if {[ig::dget $inbox_data error ""] ne ""} { return [flat_node $inbox_data] }
+    lassign [find_thread $inbox_data "" $handle] target viewer_id
+    set refused [seen_or_refuse $target $viewer_id]
+    if {$refused ne ""} { return $refused }
+    set paged [sv_fetch_thread_all [ig::dget $target thread_id ""] $max_messages]
+    return [build_thread_result $target $paged $viewer_id]
+}
+
+proc sv_cmd_all_seen {max_messages} {
+    set inbox_data [sv_fetch_inbox]
+    if {[ig::dget $inbox_data error ""] ne ""} { return [flat_node $inbox_data] }
+    set viewer_id [viewer_id_of [ig::dget $inbox_data viewer {}]]
+    set inbox [ig::dget $inbox_data inbox $inbox_data]
+    set threads [ig::dget $inbox threads {}]
+
+    set threadNodes {}
+    set refusedNodes {}
+    foreach t $threads {
+        set users [ig::dget $t users {}]
+        set username ""
+        if {[llength $users]} { set username [ig::dget [lindex $users 0] username ""] }
+        set tid [ig::dget $t thread_id ""]
+        if {[is_thread_unseen $t $viewer_id]} {
+            lappend refusedNodes [ig::n_obj [list \
+                thread_id [ig::n_str $tid] \
+                other_party [ig::n_str $username] \
+                reason [ig::n_str unread] \
+                marked_as_unread [ig::n_bool [ig::truthy [ig::dget $t marked_as_unread false]]]]]
+            continue
+        }
+        set paged [sv_fetch_thread_all $tid $max_messages]
+        lappend threadNodes [build_thread_result $t $paged $viewer_id]
+    }
+    return [ig::n_obj [list \
+        viewer_id [ig::n_str $viewer_id] \
+        threads [ig::n_arr $threadNodes] \
+        refused [ig::n_arr $refusedNodes]]]
+}
+
+proc serialiser_run {skillArgs} {
+    global SEEN_BLOCK_PATTERNS
+    if {![llength $skillArgs]} {
+        emit [ig::jenc [ig::n_obj [list error [ig::n_str "Usage: instagram.com/read-seen-thread thread|by-handle|all-seen ..."]]]]
+        return
+    }
+    set command [lindex $skillArgs 0]
+    set rest [lrange $skillArgs 1 end]
+    set limit 2000
+    set positional {}
+    for {set i 0} {$i < [llength $rest]} {incr i} {
+        set a [lindex $rest $i]
+        switch -- $a {
+            --limit { incr i; set limit [lindex $rest $i] }
+            default { lappend positional $a }
+        }
+    }
+    if {$command ni {thread by-handle all-seen}} {
+        emit [ig::jenc [ig::n_obj [list error [ig::n_str "Usage: instagram.com/read-seen-thread thread|by-handle|all-seen ..."]]]]
+        return
+    }
+
+    # Declare the seen-mutation guard BEFORE any navigation.
+    foreach p $SEEN_BLOCK_PATTERNS { veto $p }
+
+    nav "https://www.instagram.com/" --wait 4
+    if {[dict get [state] terminal] ne ""} {
+        emit [ig::jenc [ig::n_obj [list error [ig::n_str "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]]]
+        return
+    }
+
+    switch -- $command {
+        thread    { set node [sv_cmd_thread [lindex $positional 0] $limit] }
+        by-handle { set node [sv_cmd_by_handle [lindex $positional 0] $limit] }
+        all-seen  { set node [sv_cmd_all_seen $limit] }
+    }
+    emit [ig::jenc $node]
 }
 
 proc main {} {

@@ -1,7 +1,9 @@
 #!/usr/bin/env tclsh
 # Parse an Instagram profile page HTML.
 #
-# Usage: tclsh parse-profile.tcl [--json] <html-file>
+# Serialiser path (see SKILL.md §3-4): browser-serialiser instagram.com/parse-profile <handle>
+#   navigates to the profile, dumps the rendered DOM, and emits the JSON form.
+# Direct path (legacy, file-fed): tclsh parse-profile.tcl [--json] <html-file>
 #
 # With --json, emit one JSON object (handle, name, followers_raw/following_raw/
 # posts_raw, avatar, caption_snippet, and the hydrated fields when present) for
@@ -347,19 +349,56 @@ proc commafy {n} {
     return "$s$out"
 }
 
-# Argument handling: an optional --json flag plus one path, in any order.
-set as_json 0
-set rest {}
-foreach a $argv {
-    if {$a eq "--json"} {
-        set as_json 1
-    } else {
-        lappend rest $a
+# ---------------------------------------------------------------------------
+# Serialiser entry: the policed-surface path. nav to the profile, dump the
+# rendered DOM, and run the identical build_profile_json over the in-memory HTML
+# (no file read; Plane 1 removes file access). Emits the JSON form.
+#
+# Invoked by reference through the serialiser (see SKILL.md §3-4):
+#     browser-serialiser instagram.com/parse-profile <handle>
+# ---------------------------------------------------------------------------
+proc serialiser_run {skillArgs} {
+    set handle ""
+    foreach a $skillArgs {
+        if {[string match "--*" $a]} continue
+        set handle [string trimleft $a @]
+        break
     }
+    if {$handle eq ""} {
+        emit {{"error": "Usage: instagram.com/parse-profile <handle>"}}
+        return
+    }
+    nav "https://www.instagram.com/$handle/" --wait 6
+    if {[dict get [state] terminal] ne ""} {
+        emit {{"error": "login_redirect"}}
+        return
+    }
+    set html [dump]
+    set head50 [string range $html 0 49999]
+    if {[string first "/accounts/login" [string range $html 0 29999]] >= 0 && \
+        [string first "og:url" $head50] < 0} {
+        emit {{"error": "login_redirect"}}
+        return
+    }
+    emit [build_profile_json $html]
 }
-if {[llength $rest] != 1} {
-    puts "Usage: parse-profile.tcl \[--json\] <profile.html>"
-    exit 1
+
+# Direct-tclsh entry: an optional --json flag plus one path, in any order. Skipped
+# when this file is sourced as a serialiser skill (no argv0 match).
+if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
+    set as_json 0
+    set rest {}
+    foreach a $argv {
+        if {$a eq "--json"} {
+            set as_json 1
+        } else {
+            lappend rest $a
+        }
+    }
+    if {[llength $rest] != 1} {
+        puts "Usage: parse-profile.tcl \[--json\] <profile.html>"
+        exit 1
+    }
+    fconfigure stdout -encoding utf-8
+    main [lindex $rest 0] $as_json
 }
-fconfigure stdout -encoding utf-8
-main [lindex $rest 0] $as_json

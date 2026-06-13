@@ -15,9 +15,12 @@
 # Shortcode-to-media-id conversion is local (base64 decoding of the
 # shortcode alphabet), so no extra fetch is needed to resolve.
 #
-# Usage:
-#     not-google-chrome --cdp -- tclsh fetch-post-comments.tcl comments DXsPrn5AvNH
-#     not-google-chrome --cdp -- tclsh fetch-post-comments.tcl comments 3893054209352269936_1746949701 --limit 100
+# Invoked by reference through the serialiser (see SKILL.md §8):
+#     browser-serialiser instagram.com/fetch-post-comments comments <shortcode|post_id|media_id> [--limit N]
+#
+# The serialiser path (serialiser_run) navigates to the post permalink (the
+# covering view) and reads the declared comments endpoint via the policed `api`
+# verb. Parsing/rendering reuse the identical helpers, so output is byte-faithful.
 
 source [file dirname [info script]]/fetch-recent-posts.tcl
 
@@ -181,6 +184,86 @@ proc render_comments {result} {
         comment_count_returned [ig::n_int [dict get $result comment_count_returned]] \
         has_more [ig::n_bool [dict get $result has_more]] \
         comments [ig::n_arr $commentElems]]]]
+}
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: nav to the post permalink (the covering view), then read the
+# declared comments endpoint via the policed `api` verb. The shortcode-to-media-id
+# resolution, parse, and render reuse the identical procs above.
+# ---------------------------------------------------------------------------
+
+# Build the post permalink for the covering nav. A shortcode gives the natural
+# /p/<code>/ page; a bare post_id/media_id has no permalink we can form locally,
+# so the IG home is the covering view in that case.
+proc sv_cover_url {post_ref} {
+    if {[string first "_" $post_ref] < 0 && ![is_digits $post_ref]} {
+        return "https://www.instagram.com/p/$post_ref/"
+    }
+    return "https://www.instagram.com/"
+}
+
+# Fetch and parse first-page comments over the policed surface. Returns the same
+# result dict cmd_comments returns, so render_comments renders byte-identically.
+proc sv_cmd_comments {post_ref limit} {
+    if {[catch {resolve_post_ref $post_ref} media_id]} {
+        return [dict create error $media_id]
+    }
+    set body [api "/api/v1/media/$media_id/comments/" \
+        --params "can_support_threading=true&permalink_enabled=false" \
+        --headers [ig::api_headers]]
+    if {[catch {json::json2dict $body} result]} {
+        return [dict create error "comments response was not JSON"]
+    }
+    if {[ig::dget $result error ""] ne ""} { return $result }
+
+    set comments [parse_comments_response $result]
+    set total [ig::dget $result comment_count ""]
+    if {$total eq "" || $total eq "null"} { set total [llength $comments] }
+    if {[llength $comments] > $limit} {
+        set comments [lrange $comments 0 [expr {$limit - 1}]]
+    }
+    return [dict create \
+        post_ref $post_ref \
+        media_id $media_id \
+        comment_count_total $total \
+        comment_count_returned [llength $comments] \
+        has_more [ig::truthy [ig::dget $result has_more_comments false]] \
+        comments $comments]
+}
+
+proc serialiser_run {skillArgs} {
+    if {![llength $skillArgs] || [lindex $skillArgs 0] ne "comments"} {
+        emit [ig::render_flat [dict create error "Usage: instagram.com/fetch-post-comments comments <shortcode|post_id|media_id> \[--limit N\]"]]
+        return
+    }
+    set rest [lrange $skillArgs 1 end]
+    set limit 50
+    set positional {}
+    for {set i 0} {$i < [llength $rest]} {incr i} {
+        set a [lindex $rest $i]
+        switch -- $a {
+            --limit { incr i; set limit [lindex $rest $i] }
+            default { lappend positional $a }
+        }
+    }
+    set post_ref [lindex $positional 0]
+    if {$post_ref eq ""} {
+        emit [ig::render_flat [dict create error "No post reference. Usage: instagram.com/fetch-post-comments comments <shortcode|post_id|media_id> \[--limit N\]"]]
+        return
+    }
+
+    nav [sv_cover_url $post_ref] --wait 4
+    if {[dict get [state] terminal] ne ""} {
+        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]
+        return
+    }
+
+    set result [sv_cmd_comments $post_ref $limit]
+    if {[dict exists $result comments]} {
+        emit [render_comments $result]
+    } else {
+        emit [ig::render_flat $result]
+    }
 }
 
 proc main {} {

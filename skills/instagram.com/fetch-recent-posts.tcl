@@ -9,17 +9,18 @@
 # Usage:
 #     not-google-chrome --cdp -- tclsh fetch-recent-posts.tcl posts <handle> [--limit N]
 #
-# This file is also sourced by collab-expand.tcl and fetch-followers.tcl, which
-# reuse the ig:: helpers (CDP eval, login check, user-id resolution, feed paging).
+# This file is the shared IG library: every sibling sources it for the ig::
+# helpers (JSON eval, user-id resolution, feed paging, the typed-JSON encoder).
+# The serialiser path of each sibling reuses ig::sv_resolve_user_id /
+# ig::sv_fetch_feed / ig::parse_media_items so byte-output matches this keystone.
 
 package require json
 
-# Legacy CDP engine, for the still-unported siblings that source this file as a
-# library and call cdp::connect (collab-expand, fetch-followers,
-# fetch-post-comments). Sourced only when not already present, so loading this
-# file under the serialiser harness (where the policed verbs replace raw CDP) is
-# a no-op rather than a re-definition. The harness path uses serialiser_run; the
-# direct/legacy path uses ig::main.
+# Legacy CDP engine, kept for the direct-tclsh path (ig::main and each sibling's
+# own main, which call cdp::connect when run as `tclsh X.tcl ...` outside the
+# serialiser). Sourced only when not already present, so loading this file under
+# the serialiser harness (where the policed verbs replace raw CDP) is a no-op
+# rather than a re-definition. The harness path uses serialiser_run.
 if {![namespace exists cdp]} {
     catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
 }

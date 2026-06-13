@@ -15,9 +15,12 @@
 #   user_id, username, full_name, is_verified, is_private,
 #   has_default_avatar, profile_pic_url
 #
-# Usage:
-#     not-google-chrome --cdp -- tclsh fetch-followers.tcl followers <handle> [--limit N] [--csv PATH]
-#     not-google-chrome --cdp -- tclsh fetch-followers.tcl following <handle> [--limit N] [--csv PATH]
+# Invoked by reference through the serialiser (see SKILL.md §10):
+#     browser-serialiser instagram.com/fetch-followers followers <handle> [--limit N]
+#     browser-serialiser instagram.com/fetch-followers following <handle> [--limit N]
+#
+# The serialiser path (serialiser_run) drives the policed verbs; the friendships
+# endpoint is a declared private endpoint (api), covered by the profile nav.
 
 source [file dirname [info script]]/fetch-recent-posts.tcl
 
@@ -202,6 +205,93 @@ proc user_node {r} {
         is_private [ig::n_bool [dict get $r is_private]] \
         has_default_avatar [ig::n_bool [dict get $r has_default_avatar]] \
         profile_pic_url [ig::n_str [dict get $r profile_pic_url]]]]
+}
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: the policed-surface path. nav to the profile (the covering
+# view for the friendships api), then page the declared friendships endpoint via
+# the policed `api` verb. Parsing/rendering reuse the identical helpers above, so
+# the byte-output matches the legacy path for the same response.
+# ---------------------------------------------------------------------------
+
+# Page the friendships endpoint over the policed api verb (the harness paces and
+# bounds it). Returns {rows stop_reason}, identical in shape to the legacy
+# paginator, so render_friendships renders byte-identically.
+proc sv_fetch_friendships {user_id kind limit} {
+    set rows {}
+    set max_id ""
+    set page_num 0
+    while {[llength $rows] < $limit} {
+        incr page_num
+        set params "count=25"
+        if {$max_id ne ""} { append params "&max_id=$max_id" }
+        set body [api "/api/v1/friendships/$user_id/$kind/" \
+            --params $params --headers [ig::api_headers]]
+        if {[catch {json::json2dict $body} page]} {
+            puts stderr "Page $page_num: response was not JSON; stopping."
+            return [list $rows "error:not-json"]
+        }
+        set users [ig::dget $page users {}]
+        if {![llength $users]} {
+            puts stderr "Page $page_num returned no users; stopping."
+            return [list $rows "exhausted"]
+        }
+        foreach u $users {
+            lappend rows [parse_user_row $u]
+            if {[llength $rows] >= $limit} { break }
+        }
+        puts stderr "Page $page_num: [llength $users] users (cumulative [llength $rows])"
+        if {[llength $rows] >= $limit} { return [list $rows "limit"] }
+        set next_max [ig::dget $page next_max_id ""]
+        if {$next_max eq ""} { return [list $rows "exhausted"] }
+        set max_id $next_max
+    }
+    return [list $rows "limit"]
+}
+
+proc serialiser_run {skillArgs} {
+    set command [lindex $skillArgs 0]
+    if {$command ni {followers following}} {
+        emit [ig::render_flat [dict create error "Usage: instagram.com/fetch-followers followers|following <handle> \[--limit N\]"]]
+        return
+    }
+    set rest [lrange $skillArgs 1 end]
+    set limit 500
+    set positional {}
+    for {set i 0} {$i < [llength $rest]} {incr i} {
+        set a [lindex $rest $i]
+        switch -- $a {
+            --limit { incr i; set limit [lindex $rest $i] }
+            default { lappend positional $a }
+        }
+    }
+    set handle [lindex $positional 0]
+    if {$handle eq ""} {
+        emit [ig::render_flat [dict create error "No handle. Usage: instagram.com/fetch-followers followers|following <handle> \[--limit N\]"]]
+        return
+    }
+
+    nav "https://www.instagram.com/" --wait 3
+    if {[dict get [state] terminal] ne ""} {
+        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]
+        return
+    }
+
+    set uid [ig::sv_resolve_user_id $handle]
+    if {[ig::dget $uid error ""] ne ""} {
+        emit [ig::render_flat $uid]
+        return
+    }
+    set user_id $uid
+
+    lassign [sv_fetch_friendships $user_id $command $limit] rows stop_reason
+    set result [dict create \
+        handle $handle user_id $user_id kind $command \
+        count_returned [llength $rows] \
+        limit_requested $limit \
+        stop_reason $stop_reason \
+        rows $rows]
+    emit [render_friendships $result]
 }
 
 proc main {} {

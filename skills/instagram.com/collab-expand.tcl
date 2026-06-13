@@ -17,9 +17,14 @@
 # This script does single-level expansion; recursive "spider" expansion is the
 # orchestrator's call (feed top-N candidates back as the next run's input).
 #
-# Usage:
-#     not-google-chrome --cdp -- tclsh collab-expand.tcl expand handle1,handle2 [--posts-per-handle N]
-#     not-google-chrome --cdp -- tclsh collab-expand.tcl expand --from /path/to/handles.txt
+# Invoked by reference through the serialiser (see SKILL.md §7):
+#     browser-serialiser instagram.com/collab-expand expand handle1,handle2 [--posts-per-handle N]
+#
+# The serialiser path (serialiser_run) walks each handle over the policed verbs,
+# reusing the library's sv_resolve_user_id / sv_fetch_feed; the ranking and
+# rendering procs are shared with the legacy path, so output is byte-faithful.
+# (--from <file> is a legacy-only convenience; file reads are a host capability
+# the safe interp removes, so the serialiser form takes the CSV positional.)
 
 source [file dirname [info script]]/fetch-recent-posts.tcl
 
@@ -32,11 +37,58 @@ array set SIGNAL_TO_COL {
     mentions     mention
 }
 
+# Accumulate one handle's parsed posts into the candidate dict (passed by name).
+# Shared by the legacy and serialiser walkers so the signal-accumulation logic
+# has a single home. $input_lower is the case-folded input set; $handle is the
+# source handle whose posts these are.
+proc accumulate_post_signals {candidatesVar input_lower handle posts} {
+    global SIGNAL_FIELDS SIGNAL_TO_COL
+    upvar 1 $candidatesVar candidates
+    foreach post $posts {
+        foreach field $SIGNAL_FIELDS {
+            set col $SIGNAL_TO_COL($field)
+            foreach cand [ig::dget $post $field {}] {
+                set cand_lower [string tolower $cand]
+                if {[dict exists $input_lower $cand_lower] || \
+                    $cand_lower eq [string tolower $handle]} {
+                    continue
+                }
+                if {![dict exists $candidates $cand_lower]} {
+                    dict set candidates $cand_lower [dict create \
+                        handle $cand_lower tagged 0 coauthor 0 sponsor 0 \
+                        mention 0 total 0 sources {}]
+                }
+                set entry [dict get $candidates $cand_lower]
+                dict incr entry $col
+                dict incr entry total
+                set srcs [dict get $entry sources]
+                if {[lsearch -exact $srcs $handle] < 0} {
+                    lappend srcs $handle
+                    dict set entry sources $srcs
+                }
+                dict set candidates $cand_lower $entry
+            }
+        }
+    }
+}
+
+# Sort and finalise the accumulated candidate dict into a ranked list.
+proc finalise_candidates {candidates} {
+    set out {}
+    dict for {k entry} $candidates {
+        dict set entry sources [lsort [dict get $entry sources]]
+        lappend out $entry
+    }
+    # Rank: explicit-collab signals first, then mentions, then breadth of
+    # sources, then handle (tie-break). Python sorts on a tuple of negatives;
+    # mirror with a custom comparator.
+    return [lsort -command rank_candidates $out]
+}
+
 # Walk input handles; return a list of ranked candidate dicts. Each candidate
 # carries per-signal counts plus a sorted `sources` list of input handles whose
 # posts surfaced it.
 proc expand_handles {c handles posts_per_handle {pause_between_handles 2}} {
-    global SIGNAL_FIELDS SIGNAL_TO_COL
     set input_lower {}
     foreach h $handles { dict set input_lower [string tolower $h] 1 }
     set candidates [dict create]
@@ -55,45 +107,10 @@ proc expand_handles {c handles posts_per_handle {pause_between_handles 2}} {
         set posts [ig::parse_media_items $items]
         puts stderr "  fetched [llength $posts] posts"
 
-        foreach post $posts {
-            foreach field $SIGNAL_FIELDS {
-                set col $SIGNAL_TO_COL($field)
-                foreach cand [ig::dget $post $field {}] {
-                    set cand_lower [string tolower $cand]
-                    if {[dict exists $input_lower $cand_lower] || \
-                        $cand_lower eq [string tolower $handle]} {
-                        continue
-                    }
-                    if {![dict exists $candidates $cand_lower]} {
-                        dict set candidates $cand_lower [dict create \
-                            handle $cand_lower tagged 0 coauthor 0 sponsor 0 \
-                            mention 0 total 0 sources {}]
-                    }
-                    set entry [dict get $candidates $cand_lower]
-                    dict incr entry $col
-                    dict incr entry total
-                    set srcs [dict get $entry sources]
-                    if {[lsearch -exact $srcs $handle] < 0} {
-                        lappend srcs $handle
-                        dict set entry sources $srcs
-                    }
-                    dict set candidates $cand_lower $entry
-                }
-            }
-        }
+        accumulate_post_signals candidates $input_lower $handle $posts
         after [expr {int($pause_between_handles * 1000)}]
     }
-
-    set out {}
-    dict for {k entry} $candidates {
-        dict set entry sources [lsort [dict get $entry sources]]
-        lappend out $entry
-    }
-    # Rank: explicit-collab signals first, then mentions, then breadth of
-    # sources, then handle (tie-break). Python sorts on a tuple of negatives;
-    # mirror with a custom comparator.
-    set out [lsort -command rank_candidates $out]
-    return $out
+    return [finalise_candidates $candidates]
 }
 
 # Comparator implementing Python's sort key:
@@ -135,6 +152,91 @@ proc render_expand {input_handles posts_per_handle candidates} {
         candidate_count [ig::n_int [llength $candidates]]]]]
 }
 
+# ---------------------------------------------------------------------------
+# Serialiser entry: walk each handle over the policed surface, reusing the
+# library's sv_resolve_user_id / sv_fetch_feed, and the shared accumulate/rank
+# helpers. nav to the IG home is the session check; each handle's profile nav is
+# the covering view for that handle's feed api (inside sv_resolve_user_id).
+# ---------------------------------------------------------------------------
+
+proc sv_expand_handles {handles posts_per_handle} {
+    set input_lower {}
+    foreach h $handles { dict set input_lower [string tolower $h] 1 }
+    set candidates [dict create]
+
+    foreach handle $handles {
+        puts stderr "\n=== $handle ==="
+        set uid [ig::sv_resolve_user_id $handle]
+        if {[ig::dget $uid error ""] ne ""} {
+            puts stderr "  skipped: [dict get $uid error]"
+            continue
+        }
+        set user_id $uid
+        set items [ig::sv_fetch_feed $user_id $posts_per_handle]
+        set posts [ig::parse_media_items $items]
+        puts stderr "  fetched [llength $posts] posts"
+        accumulate_post_signals candidates $input_lower $handle $posts
+    }
+    return [finalise_candidates $candidates]
+}
+
+# De-dupe a handle list preserving order, case-insensitively. Single home for
+# the dedup shared by the legacy file/CSV path and the serialiser CSV path.
+proc dedup_handles {handles} {
+    set seen {}
+    set deduped {}
+    foreach h $handles {
+        set lo [string tolower $h]
+        if {![dict exists $seen $lo]} {
+            dict set seen $lo 1
+            lappend deduped $h
+        }
+    }
+    return $deduped
+}
+
+# Parse a CSV handle string into a de-duped (case-insensitive, order-preserving)
+# list with leading @ stripped.
+proc parse_handles_csv {handles_csv} {
+    set handles {}
+    foreach h [split $handles_csv ","] {
+        set h [string trim $h]
+        if {$h ne ""} { lappend handles [string trimleft $h @] }
+    }
+    return [dedup_handles $handles]
+}
+
+proc serialiser_run {skillArgs} {
+    if {![llength $skillArgs] || [lindex $skillArgs 0] ne "expand"} {
+        emit [ig::render_flat [dict create error "Usage: instagram.com/collab-expand expand <handle1,handle2,...> \[--posts-per-handle N\]"]]
+        return
+    }
+    set rest [lrange $skillArgs 1 end]
+    set posts_per_handle 24
+    set positional {}
+    for {set i 0} {$i < [llength $rest]} {incr i} {
+        set a [lindex $rest $i]
+        switch -- $a {
+            --posts-per-handle { incr i; set posts_per_handle [lindex $rest $i] }
+            default { lappend positional $a }
+        }
+    }
+    set handles [parse_handles_csv [lindex $positional 0]]
+    if {![llength $handles]} {
+        emit [ig::render_flat [dict create error "No input handles. Pass as positional CSV (handle1,handle2,...)."]]
+        return
+    }
+
+    nav "https://www.instagram.com/" --wait 3
+    if {[dict get [state] terminal] ne ""} {
+        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]
+        return
+    }
+
+    set candidates [sv_expand_handles $handles $posts_per_handle]
+    emit [render_expand $handles $posts_per_handle $candidates]
+}
+
 proc main {} {
     global argv
     if {![llength $argv] || [lindex $argv 0] ne "expand"} {
@@ -174,21 +276,11 @@ proc main {} {
         }
         close $f
     }
-    # De-dupe preserving order (case-insensitive).
-    set seen {}
-    set deduped {}
-    foreach h $handles {
-        set lo [string tolower $h]
-        if {![dict exists $seen $lo]} {
-            dict set seen $lo 1
-            lappend deduped $h
-        }
-    }
-    if {![llength $deduped]} {
+    set handles [dedup_handles $handles]
+    if {![llength $handles]} {
         puts [ig::render_flat [dict create error "No input handles. Pass as positional CSV or --from <file>."]]
         exit 1
     }
-    set handles $deduped
 
     if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
         puts stderr "ERROR: CDP_WS_URL not set; run via: not-google-chrome --cdp -- tclsh collab-expand.tcl ..."

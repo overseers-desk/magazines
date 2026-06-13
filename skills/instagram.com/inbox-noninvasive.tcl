@@ -18,9 +18,13 @@
 # never released, so it cannot leave the browser. The inbox-metadata endpoint
 # this script calls does not match those patterns and is itself read-only.
 #
-# Usage:
-#     not-google-chrome --cdp -- tclsh inbox-noninvasive.tcl list
-#     not-google-chrome --cdp -- tclsh inbox-noninvasive.tcl verify-noninvasive
+# Invoked by reference through the serialiser (see SKILL.md §5):
+#     browser-serialiser instagram.com/inbox-noninvasive list
+#
+# The serialiser path (serialiser_run) declares the seen-mutation guard via the
+# `veto` verb (the harness refuses any matching request before it leaves the
+# browser), then reads the inbox-metadata endpoint via the policed `api` verb.
+# Parsing/rendering reuse the identical procs, so output is byte-faithful.
 
 source [file dirname [info script]]/fetch-recent-posts.tcl
 
@@ -366,6 +370,114 @@ proc render_verify {result} {
         result [ig::n_str FAIL] \
         message [ig::n_str [dict get $result message]] \
         flipped_threads [ig::n_arr $flippedElems]]]]
+}
+
+# ---------------------------------------------------------------------------
+# Serialiser entry: declare the seen-mutation veto guard, nav to the IG home
+# (covering view + session check; this script never navigates to /direct/), then
+# page the inbox-metadata endpoint via the policed `api` verb. parse_inbox_response
+# and render_list are shared with the legacy path, so output is byte-faithful.
+# ---------------------------------------------------------------------------
+
+# Fetch one inbox-metadata page over the policed `api` verb. Returns the parsed
+# response dict (the raw inbox JSON), or {error ...} on a non-JSON body.
+proc sv_fetch_inbox_page {{cursor ""} {limit 20}} {
+    set params "visual_message_return_type=unseen&thread_message_limit=1&persistentBadging=true&limit=$limit"
+    if {$cursor ne ""} { append params "&cursor=$cursor" }
+    set body [api "/api/v1/direct_v2/inbox/" --params $params --headers [ig::api_headers]]
+    if {[catch {json::json2dict $body} data]} {
+        return [dict create error "inbox response was not JSON"]
+    }
+    return $data
+}
+
+# Enumerate the whole DM inbox (metadata only) over the policed surface. Mirrors
+# cmd_list's paging and dedup, feeding the shared parse_inbox_response.
+proc sv_cmd_list {{max_threads 2000} {start_cursor ""}} {
+    set all_threads {}
+    set seen_ids {}
+    set viewer_id ""
+    set cursor $start_cursor
+    set pages 0
+    set has_older "\x00null"
+    set oldest_cursor "\x00null"
+    while {1} {
+        set data [sv_fetch_inbox_page $cursor]
+        if {[ig::dget $data error ""] ne ""} {
+            if {[llength $all_threads]} { break }
+            return $data
+        }
+        set inbox [ig::dget $data inbox $data]
+        if {$viewer_id eq ""} {
+            set viewer_id [viewer_id_of [ig::dget $data viewer {}]]
+        }
+        incr pages
+        set before [llength $all_threads]
+        foreach t [parse_inbox_response $data] {
+            set tid [dict get $t thread_id]
+            if {$tid ne "" && [dict exists $seen_ids $tid]} { continue }
+            if {$tid ne ""} { dict set seen_ids $tid 1 }
+            lappend all_threads $t
+        }
+        set has_older [ig::dget_null $inbox has_older]
+        set oldest_cursor [ig::dget_null $inbox oldest_cursor]
+        if {[llength $all_threads] == $before} { break }
+        if {[llength $all_threads] >= $max_threads || \
+            $has_older eq "\x00null" || $has_older eq "false" || \
+            $oldest_cursor eq "\x00null" || $oldest_cursor eq ""} { break }
+        set cursor $oldest_cursor
+    }
+    set complete [expr {$has_older eq "false"}]
+    return [dict create \
+        viewer_id $viewer_id \
+        threads $all_threads \
+        thread_count [llength $all_threads] \
+        pages_fetched $pages \
+        has_older_final $has_older \
+        oldest_cursor_final $oldest_cursor \
+        complete $complete]
+}
+
+proc serialiser_run {skillArgs} {
+    global SEEN_BLOCK_PATTERNS
+    set command "list"
+    set max_threads 2000
+    set start_cursor ""
+    if {[llength $skillArgs]} {
+        set command [lindex $skillArgs 0]
+        set rest [lrange $skillArgs 1 end]
+        for {set i 0} {$i < [llength $rest]} {incr i} {
+            set a [lindex $rest $i]
+            switch -- $a {
+                --max { incr i; set max_threads [lindex $rest $i] }
+                --cursor { incr i; set start_cursor [lindex $rest $i] }
+            }
+        }
+    }
+
+    # Declare the seen-mutation guard BEFORE any navigation: a matching request
+    # is refused by the harness and never leaves the browser.
+    foreach p $SEEN_BLOCK_PATTERNS { veto $p }
+
+    nav "https://www.instagram.com/" --wait 5
+    if {[dict get [state] terminal] ne ""} {
+        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]
+        return
+    }
+
+    switch -- $command {
+        list {
+            set result [sv_cmd_list $max_threads $start_cursor]
+            if {[dict exists $result threads]} {
+                emit [render_list $result]
+            } else {
+                emit [ig::render_flat $result]
+            }
+        }
+        default {
+            emit [ig::render_flat [dict create error "Unknown command: $command (the serialiser path supports 'list')"]]
+        }
+    }
 }
 
 proc main {} {

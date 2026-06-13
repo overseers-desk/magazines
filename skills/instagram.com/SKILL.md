@@ -1,24 +1,24 @@
 ---
 name: instagram
-description: "search accounts, read profiles (display name, follower/following/post counts, recent caption snippet), enumerate a profile's followers or following list; find by name or handle. Also audits tag-reshare compliance for a brand account (which customer tags since a given date were not reshared)."
+description: "search accounts, read profiles (display name, follower/following/post counts, recent caption snippet), enumerate a profile's followers or following list; find by name or handle. Also audits tag-reshare compliance for a brand account (which customer tags since a given date were not reshared). Runs under the serialised-browsing harness; does not use Google Chrome."
 argument-hint: <name, handle, or search terms>
 ---
 
 ## Execution model
 
-Spawn a **Sonnet subagent** to run the workflow. Profile DOM dumps are 1–2 MB; search responses are a few KB. Tell the subagent to use the scripts in `${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/` — do not paste scripts inline.
+Spawn a **Sonnet subagent** to run the workflow. Each script runs under the **serialised-browsing** harness: `browser-serialiser` loads the skill into a policed safe interpreter and drives the browser through the command surface (no raw CDP, anti-ban pacing enforced). Invoke by reference, `browser-serialiser instagram.com/<script> <args>`; the subagent need not paste scripts inline. See the serialised-browsing skill for the command surface.
 
 ## Prerequisites
 
-A logged-in Instagram session in the user-data-dir that `not-google-chrome` targets.
+A logged-in Instagram session in the user-data-dir the serialiser targets.
 
 Note: `--lang` flags do not override Instagram's locale; it is a server-side account setting. The parsers are locale-agnostic, so this does not matter.
 
-If a request redirects to `/accounts/login/` or returns empty JSON, the session has expired or been rate-limited. Stop and let the user log in interactively; continuing usually makes it worse.
+If a request redirects to `/accounts/login/` or returns empty JSON, the session has expired or been rate-limited. The harness classifies this as a terminal `logged-out`/`checkpoint` state and stops; let the user log in interactively before retrying.
 
-## Skill-specific Chrome-compatible flag
+## Pacing and walls
 
-The wrapper handles standard flags (headless, window size, user agent, user-data-dir, flock, timeout). This skill appends `--virtual-time-budget=N` (4000 for search, 6000 for profile) to give Instagram's JSON endpoint time to hydrate. Save stdout and stderr separately: a common pitfall is `2>/dev/null > out.html` producing a zero-byte file; `> out.html 2> out.err` is reliable.
+The harness owns pacing+jitter on every wire-touching verb and the 429/login backoff, so a script cannot burst. A profile view settles for a few seconds before the page-issued JSON is read; search reads the topsearch endpoint directly. On a 429 the harness backs off (capped) then goes terminal `rate-limited`; on a login/checkpoint redirect it goes terminal at once. A script never retries a wall.
 
 ## DM read-state policy
 
@@ -28,47 +28,25 @@ Before invoking any DM-content script (§9, and any future script whose filename
 
 The internal refusal gate inside §9 is a backstop. A run without prior disclosure violates the policy even if the script would have refused anyway.
 
-## 1. Search via the topsearch JSON endpoint
+## 1-2. Search via the topsearch JSON endpoint
 
-Instagram's rendered search page (`/explore/search/keyword/?q=...`) is GraphQL-hydrated and stays empty in a headless dump within a reasonable time budget. The internal endpoint `/web/search/topsearch/?query=...`, authenticated, returns clean JSON directly. Use that:
-
-```bash
-not-google-chrome -t 30 \
-  "https://www.instagram.com/web/search/topsearch/?query=SEARCH_TERMS" \
-  --virtual-time-budget=4000 \
-  > /tmp/instagram-search.html 2> /tmp/instagram-search.err
-```
-
-URL-encode search terms (spaces become `%20`).
-
-The response contains `users[]`, `hashtags[]`, and `places[]`. Each user includes `username`, `full_name`, `is_verified`, `is_private`, and (where applicable) `social_context` listing mutual followers — useful signal for disambiguation.
-
-## 2. Parse search results
+Instagram's rendered search page (`/explore/search/keyword/?q=...`) is GraphQL-hydrated and stays empty within a reasonable time budget. The internal endpoint `/web/search/topsearch/?query=...`, authenticated, returns clean JSON directly. The script navigates there, reads the JSON body, and prints the parsed report in one step:
 
 ```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/parse-search.tcl /tmp/instagram-search.html
+browser-serialiser instagram.com/parse-search SEARCH TERMS
 ```
 
-Prints a ranked list of candidate handles with display name, verified/private flags, profile URL, and mutual-followers context.
+Pass terms as plain arguments (the script URL-encodes them). The topsearch response contains `users[]`, `hashtags[]`, and `places[]`. Each user includes `username`, `full_name`, `is_verified`, `is_private`, and (where applicable) `social_context` listing mutual followers — useful signal for disambiguation. The output is a ranked list of candidate handles with display name, verified/private flags, profile URL, and mutual-followers context.
 
-## 3. Fetch a profile
+## 3-4. Fetch and parse a profile
+
+The script navigates to the profile, dumps the rendered DOM, and emits the parsed JSON object in one step:
 
 ```bash
-not-google-chrome -t 45 \
-  "https://www.instagram.com/HANDLE/" \
-  --virtual-time-budget=6000 \
-  > /tmp/instagram-profile.html 2> /tmp/instagram-profile.err
+browser-serialiser instagram.com/parse-profile HANDLE
 ```
 
-Instagram has no separate "about" page on the web.
-
-## 4. Parse profile
-
-```bash
-tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/parse-profile.tcl /tmp/instagram-profile.html
-```
-
-Reliably extracts (from `<meta>` tags, which are server-rendered):
+Instagram has no separate "about" page on the web. Reliably extracts (from `<meta>` tags, which are server-rendered):
 - Handle and canonical URL (from `og:url`)
 - Display name (from `og:title`)
 - Follower / following / post counts — parsed positionally so locale-agnostic
@@ -82,32 +60,23 @@ When available (typically only for the logged-in user's own profile or profiles 
 This script reads inbox metadata only. It must not be modified to read individual thread content. If you need message content from a specific thread, that is a separate, invasive operation. Write a different script with a different name.
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/inbox-noninvasive.tcl list
+browser-serialiser instagram.com/inbox-noninvasive list
 ```
 
 Emits JSON with one entry per thread: `username`, `full_name`, `thread_id`, `last_activity_iso`, `last_snippet` (up to 120 chars of the last message text or a type label), `unseen` (boolean), `is_group`.
 
-To verify the script does not mutate read state:
-
-```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/inbox-noninvasive.tcl verify-noninvasive
-```
-
-Runs `list` twice with a 45-second sleep, diffs the `unseen` field per thread, exits 0 if stable and exits 2 if any thread flipped from unseen to seen.
-
-Requires a logged-in session. Does not navigate to `/direct/inbox/` to avoid triggering a "user is viewing inbox" presence beacon. Any outgoing request matching seen-mutation URL patterns (`*/seen/*`, `*/mark_seen*`, `*item_seen*`, `*direct_thread*` POST) is blocked at the Fetch domain level and logged to stderr.
+Requires a logged-in session. Does not navigate to `/direct/inbox/` to avoid triggering a "user is viewing inbox" presence beacon. The script declares the seen-mutation URL patterns (`*/seen/*`, `*/mark_seen*`, `*item_seen*`, `*direct_thread*`) via the harness `veto` verb before the first navigation; the harness refuses any matching request so it cannot leave the browser. The read-state guarantee is structural — there is no runtime double-read needed.
 
 ## 6. Recent posts for a handle
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/fetch-recent-posts.tcl posts HANDLE
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/fetch-recent-posts.tcl posts HANDLE --limit 50
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/fetch-recent-posts.tcl posts HANDLE --raw-out /path/raw.json
+browser-serialiser instagram.com/fetch-recent-posts posts HANDLE
+browser-serialiser instagram.com/fetch-recent-posts posts HANDLE --limit 50
 ```
 
-Default limit is 12. Pagination via the feed API's `next_max_id` cursor happens automatically when `--limit` exceeds 12. The script navigates to the profile page once to resolve the user_id (from inline JSON or the `web_profile_info` API), then calls `/api/v1/feed/user/<user_id>/` directly in a loop until the limit is reached or `more_available` is false.
+Default limit is 12. Pagination via the feed API's `next_max_id` cursor happens automatically when `--limit` exceeds 12. The script navigates to the profile page once to resolve the user_id (from inline JSON or the `web_profile_info` API, both covered by that nav), then reads `/api/v1/feed/user/<user_id>/` via the policed `api` verb in a loop until the limit is reached or `more_available` is false.
 
-`--raw-out PATH` (off by default) also writes the unparsed raw feed-API items (the full per-post objects, ~130 fields each) to PATH before parsing. Use it when a caller wants to keep the whole response and re-derive fields later without re-fetching; stdout stays the parsed form.
+(`--raw-out PATH`, which writes the unparsed feed items to a file, is a direct-tclsh-only option; the serialiser path's safe interpreter has no file access, so the parsed JSON on stdout is the only output there.)
 
 Each post entry includes:
 
@@ -125,11 +94,11 @@ The five handle-bearing fields above (`mentions`, `tagged_users`, `coauthors`, `
 ## 7. Collab partner expansion (multi-handle spider)
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/collab-expand.tcl expand handle1,handle2,handle3
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/collab-expand.tcl expand --from /tmp/seeds.txt --posts-per-handle 36
+browser-serialiser instagram.com/collab-expand expand handle1,handle2,handle3
+browser-serialiser instagram.com/collab-expand expand handle1,handle2 --posts-per-handle 36
 ```
 
-Walks a list of input handles, fetches recent posts for each (paginated via §6's helpers), and accumulates the union of `tagged_users`, `coauthors`, `sponsors`, and caption `mentions` across all posts. Outputs candidate handles NOT already in the input set, ranked by explicit-collab signal first (tagged + coauthor + sponsor counts) and then by caption-mention count and breadth of source handles.
+Walks a list of input handles, fetches recent posts for each (paginated via §6's helpers), and accumulates the union of `tagged_users`, `coauthors`, `sponsors`, and caption `mentions` across all posts. (The legacy `--from <file>` seed-list option is direct-tclsh-only; pass the CSV positional under the serialiser.) Outputs candidate handles NOT already in the input set, ranked by explicit-collab signal first (tagged + coauthor + sponsor counts) and then by caption-mention count and breadth of source handles.
 
 Each candidate row carries the four per-signal counts, a `total`, and a sorted `sources` list of input handles whose posts surfaced the candidate. Multi-source candidates (handles surfaced by several different input accounts) rank higher than single-source ones at equal signal strength.
 
@@ -140,11 +109,11 @@ Default `--posts-per-handle` is 24 (about two pages). Pacing: roughly one feed p
 ## 8. Post comments (for comment-circle discovery)
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/fetch-post-comments.tcl comments SHORTCODE
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/fetch-post-comments.tcl comments POST_ID
+browser-serialiser instagram.com/fetch-post-comments comments SHORTCODE
+browser-serialiser instagram.com/fetch-post-comments comments POST_ID
 ```
 
-Accepts a shortcode (e.g. `DXsPrn5AvNH`), a full post_id from the feed API (`<media_id>_<user_id>`), or a bare numeric `media_id`. Shortcode-to-media-id conversion is a local base64 decode, so no extra fetch is needed to resolve. Calls `/api/v1/media/<media_id>/comments/` via fetch() inside the authenticated session.
+Accepts a shortcode (e.g. `DXsPrn5AvNH`), a full post_id from the feed API (`<media_id>_<user_id>`), or a bare numeric `media_id`. Shortcode-to-media-id conversion is a local base64 decode, so no extra fetch is needed to resolve. Navigates to the post permalink (the covering view), then reads `/api/v1/media/<media_id>/comments/` via the policed `api` verb.
 
 Returns first-page comments only (typically 20-50, occasionally 1-2 if the post is lightly engaged or moderated). The first page is most-recent and has the highest signal for creator-on-creator engagement; older comments add noise. Pagination via `min_id` cursor can be added later if comment-circle yield proves insufficient.
 
@@ -164,14 +133,14 @@ The `comment_count_total` field in the response is the live count from this endp
 ## 9. DM thread history reader (seen threads only)
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/read-seen-thread.tcl thread <thread_id> [--limit N]
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/read-seen-thread.tcl by-handle <handle>   [--limit N]
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/read-seen-thread.tcl all-seen             [--limit N]
+browser-serialiser instagram.com/read-seen-thread thread <thread_id> [--limit N]
+browser-serialiser instagram.com/read-seen-thread by-handle <handle>   [--limit N]
+browser-serialiser instagram.com/read-seen-thread all-seen             [--limit N]
 ```
 
 Fetches message history from a DM thread for P-phase use. Companion to §5: §5 enumerates inbox metadata without ever touching thread content; §9 reads thread content but only for threads the operator has already marked seen. The hyphen-delimited word "seen" in the filename is load-bearing, parallel to "noninvasive" in §5.
 
-The seen-only guarantee is enforced by calling the same `/api/v1/direct_v2/inbox/` endpoint §5 uses to check the thread's unread status BEFORE issuing any thread-content fetch. If `marked_as_unread` is true OR the viewer's `last_seen_at[viewer_id].timestamp` is older than `last_activity_at`, the script refuses with a structured error and never makes the thread-content call. The defensive `Fetch.enable` block list for seen-mutation URL patterns is also armed.
+The seen-only guarantee is enforced by reading the same `/api/v1/direct_v2/inbox/` endpoint §5 uses to check the thread's unread status BEFORE issuing any thread-content fetch. If `marked_as_unread` is true OR the viewer's `last_seen_at[viewer_id].timestamp` is older than `last_activity_at`, the script refuses with a structured error and never makes the thread-content call. The seen-mutation URL patterns are declared via the harness `veto` verb before any navigation, as a defensive backstop.
 
 Per-message output includes `is_from_viewer` (whether the message is from the operator's side or the other party), `timestamp_iso`, normalised `text` (with bracketed type labels for `[shared post]`, `[reel-share]`, `[action]`, `[media]`, `[link]`, `[disappearing media]`, etc.), `item_type`, and `item_id`.
 
@@ -182,13 +151,13 @@ Verified 2026-05-12 against the live inbox: refusal path correctly skipped a thr
 ## 10. Followers / following list extractor
 
 ```bash
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/fetch-followers.tcl followers HANDLE [--limit N] [--csv PATH]
-not-google-chrome --cdp -- tclsh ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/fetch-followers.tcl following HANDLE [--limit N] [--csv PATH]
+browser-serialiser instagram.com/fetch-followers followers HANDLE [--limit N]
+browser-serialiser instagram.com/fetch-followers following HANDLE [--limit N]
 ```
 
-Enumerates `/api/v1/friendships/<user_id>/followers/` or `/.../following/` via fetch() inside an authenticated CDP session. Resolves handle → user_id by reusing `resolve_user_id` from §6, then paginates the cursor-based endpoint (25 users per page, `next_max_id`) until `--limit` is reached or the endpoint reports no more pages.
+Enumerates `/api/v1/friendships/<user_id>/followers/` or `/.../following/` via the policed `api` verb. Resolves handle → user_id by reusing `sv_resolve_user_id` from §6 (the profile nav is the covering view), then paginates the cursor-based endpoint (25 users per page, `next_max_id`) until `--limit` is reached or the endpoint reports no more pages.
 
-Default `--limit` is 500. Without `--csv`, the script prints JSON with a `users` array; with `--csv PATH` it writes one row per user to that path and omits the array from stdout (the stdout JSON still carries `handle`, `user_id`, `kind`, `count_returned`, `limit_requested`, `stop_reason`, and `csv_path`).
+Default `--limit` is 500. The script prints JSON with a `users` array carrying `handle`, `user_id`, `kind`, `count_returned`, `limit_requested`, `stop_reason`, and `users`. (`--csv PATH`, which writes the rows to a file, is direct-tclsh-only; the serialiser path's safe interpreter has no file access.)
 
 Per-entry fields:
 
@@ -216,11 +185,10 @@ Verified 2026-05-19 against `@_a.j.handyman_`: header counts 162 followers / 188
 Built for SOP D40 (Social Media Reply) §6: the service team must reshare customer-tagged stories and posts to the brand's own story. This script audits which tags since `--since` were not reshared.
 
 ```bash
-not-google-chrome --cdp -- python3 ${CLAUDE_PLUGIN_ROOT}/skills/instagram.com/audit-tag-reshares.py \
-    audit example_account --since 2026-05-01
+browser-serialiser instagram.com/audit-tag-reshares audit HANDLE --since 2026-05-01
 ```
 
-Add `--debug` on the first run to dump raw API responses to `/tmp/instagram-audit-*.json`. The reshare-match heuristic (which inspects `reshared_reel.id`, `imported_taken_at`, and `reel_mentions[].user_id`) is best-effort and may need adjustment once real fields are inspected.
+The reshare-match heuristic (which inspects `reshared_reel.id`, `imported_taken_at`, and `reel_mentions[].user_id`) is best-effort and may need adjustment once real fields are inspected.
 
 What the script pulls:
 
