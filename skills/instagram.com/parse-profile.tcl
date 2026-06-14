@@ -27,25 +27,11 @@
 
 package require json::write
 
-# Minimal HTML entity unescape mirroring Python's html.unescape for the entities
-# Instagram emits in meta content. Named entities plus numeric (decimal/hex).
-proc html_unescape {s} {
-    set s [string map {&lt; < &gt; > &quot; \" &#39; ' &apos; ' &nbsp; " "} $s]
-    # Numeric decimal entities: &#NNN;
-    while {[regexp {&#(\d+);} $s -> num]} {
-        set ch [format %c $num]
-        regsub -all "&#$num;" $s $ch s
-    }
-    # Numeric hex entities: &#xHH;
-    while {[regexp -nocase {&#x([0-9a-f]+);} $s -> hx]} {
-        scan $hx %x code
-        set ch [format %c $code]
-        regsub -all -nocase "&#x$hx;" $s $ch s
-    }
-    # &amp; last so it does not double-decode the above.
-    set s [string map {&amp; &} $s]
-    return $s
-}
+# Shared IG-page helpers (html_unescape, meta extraction, count parsing) live in
+# ig-html.tcl beside this skill; the serialiser harness puts the skill's own dir on
+# the safe-interp access path, so this `source` resolves inside the sandbox too. The
+# direct-tclsh path below runs in a full interp where source is unrestricted.
+source [file join [file dirname [info script]] ig-html.tcl]
 
 # Quote a string for use as a literal inside a Tcl regexp.
 proc re_escape {s} {
