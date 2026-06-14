@@ -1,6 +1,6 @@
 ---
 name: instagram
-description: "search accounts, read profiles (display name, follower/following/post counts, recent caption snippet), enumerate a profile's followers or following list; find by name or handle. Also audits tag-reshare compliance for a brand account (which customer tags since a given date were not reshared). Runs under the serialised-browsing harness; does not use Google Chrome."
+description: "Search Instagram accounts, read profiles, and enumerate a profile's followers or following; find someone by name or handle. Also audits brand-account tag-reshare compliance."
 argument-hint: <name, handle, or search terms>
 ---
 

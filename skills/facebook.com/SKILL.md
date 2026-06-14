@@ -1,6 +1,6 @@
 ---
 name: facebook
-description: "search people, read profiles, extract posts with hashtags and tagged people, check keywords, dump reel comments to markdown; find someone's posts/activity. Runs under the serialised-browsing harness; does not use Google Chrome."
+description: "search people, read profiles, extract posts with hashtags and tagged people, check keywords, dump reel comments to markdown; find someone's posts/activity."
 argument-hint: <name, URL, or search terms>
 ---
 
