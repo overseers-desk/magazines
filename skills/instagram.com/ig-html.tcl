@@ -1,12 +1,9 @@
 # ig-html.tcl - shared helpers for reading Instagram HTML pages: meta-tag
 # extraction, HTML entity decoding, and follower/following/post count parsing.
 #
-# This is the home of these helpers for the instagram.com primitives. The
-# serialiser harness puts a skill's own directory on the safe-interp access path
-# (serialiser-harness Plane 1), so parse-profile.tcl `source`s this sibling. The
-# overseer carries a vendored copy beside its playbooks for machines that run the
-# overseer but not this plugin; that copy is derived from this file, not edited in
-# place.
+# Shared verbatim by the overseer-toolbox skills and the BI overseer's playbooks:
+# both folders carry a byte-identical copy. Edit the home and re-vendor.
+# Home: overseer-toolbox/skills/instagram.com/ig-html.tcl
 #
 # Pure Tcl (no socket / exec / file), so it runs unchanged inside the safe interp.
 

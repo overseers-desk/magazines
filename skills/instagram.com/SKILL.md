@@ -40,20 +40,23 @@ Pass terms as plain arguments (the script URL-encodes them). The topsearch respo
 
 ## 3-4. Fetch and parse a profile
 
-The script navigates to the profile, dumps the rendered DOM, and emits the parsed JSON object in one step:
+The script navigates to the profile, dumps the rendered DOM, and emits the canonical envelope in one step:
 
 ```bash
-browser-serialiser instagram.com/parse-profile HANDLE
+browser-serialiser instagram.com/ig-profile HANDLE
 ```
 
-Instagram has no separate "about" page on the web. Reliably extracts (from `<meta>` tags, which are server-rendered):
-- Handle and canonical URL (from `og:url`)
-- Display name (from `og:title`)
-- Follower / following / post counts — parsed positionally so locale-agnostic
-- Avatar URL (from `og:image`)
-- A snippet of the most recent post's caption (from `meta name=description`)
+The output is the canonical envelope `{result, cursor, hasMore, fault}`. A profile is a single read, so `cursor` is null and `hasMore` is false. On success `fault` is null and `result` is the superset object — the server validates its required subset against `social/api/contracts/ig-profile.schema.json` and discards the rest, while a skill caller reads whichever fields it wants:
 
-When available (typically only for the logged-in user's own profile or profiles the viewer already follows closely), the parser also pulls JSON-hydrated fields: `biography`, `external_url`, `category_name`, `is_verified`, `is_private`, and exact counts. For most third-party profiles these JSON fields are absent — the og:description counts are the source of truth.
+- `username`, `full_name`, `pk`
+- `is_private` (boolean)
+- `follower_count`, `following_count`, `media_count` — integers, or null when the page did not render them
+- `category_name`, `biography`, `external_url`
+- the extras `url`, `followers_raw`, `following_raw`, `posts_raw` (the rounded count strings as the header shows them, e.g. `27K`), `avatar`, `caption_snippet`, `og_description`, `meta_description`, `html_size`, `is_verified`, `business_category_name`
+
+Instagram has no separate "about" page on the web; the counts, display name, avatar and recent-caption snippet come from the server-rendered `<meta>` tags (`og:title`, `og:image`, `og:description`, `meta name=description`), parsed positionally so they stay locale-agnostic. The exact follower count comes from the rendered header's `title=` attribute when present. `is_verified`, `business_category_name`, `biography` and `external_url` are pulled from inline-hydrated JSON when the page carries it — typically the viewer's own profile or one the viewer follows closely — and are null otherwise.
+
+A removed or non-existent profile sets `result` to null and `fault` to `{shape:"removed", detail}`; a login wall (session expired or never logged in) sets `result` to null and `fault` to `{shape:"login_wall", detail}`.
 
 ## 5. DM inbox metadata (noninvasive)
 
@@ -126,7 +129,7 @@ Each comment row carries the four free significance signals:
 
 Plus `username`, `full_name`, `text`, `created_at`, `comment_id`.
 
-Workflow: comment-circle discovery promotes a commenter handle to a sweep candidate only if at least one of (`is_verified`, `text_length_words >= 3`, `has_default_avatar == false`) holds. This drops 80 to 95 percent of typical commenter sets before any profile fetch happens. Surviving handles enter the standard sweep pipeline (parse-profile then fetch-recent-posts), so the per-commenter profile fetch is just sweep doing its normal work, not a dedicated enumeration job. Instagram does not distinguish the request pattern.
+Workflow: comment-circle discovery promotes a commenter handle to a sweep candidate only if at least one of (`is_verified`, `text_length_words >= 3`, `has_default_avatar == false`) holds. This drops 80 to 95 percent of typical commenter sets before any profile fetch happens. Surviving handles enter the standard sweep pipeline (ig-profile then fetch-recent-posts), so the per-commenter profile fetch is just sweep doing its normal work, not a dedicated enumeration job. Instagram does not distinguish the request pattern.
 
 The `comment_count_total` field in the response is the live count from this endpoint, which can differ from the cached count in the feed API. Treat the comments endpoint as authoritative.
 
