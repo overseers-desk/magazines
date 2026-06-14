@@ -1,6 +1,6 @@
 ---
 name: sorry-im-late
-description: Run before sending or publishing a draft written during a conversation, so it reads for someone who has the project; catches what only the two parties to the conversation share.
+description: Run before sending or publishing a draft written during a conversation, so it stands on its own for a reader who has the project but wasn't there. Catches missing context, leftover deliberation, and insider framing the two parties never noticed.
 ---
 
 # sorry-im-late
