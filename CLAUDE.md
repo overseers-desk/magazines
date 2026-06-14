@@ -19,6 +19,13 @@ marketplace: `.claude-plugin/` holds `plugin.json` and `marketplace.json` (sourc
   in the scripts and the wrapper, so it does not move with the plugin. The file is
   gitignored; do not commit it. Each skill's SKILL.md lists its keys under
   `Prerequisites`.
+- A SKILL.md `description` is a discovery surface, not documentation: its only job
+  is to make the model invoke the skill when the situation calls for it. How the
+  skill works belongs in the body and scripts, which the model reads after it
+  decides to call, with all the time it needs then. Writing the description as a
+  how-it-works account is the failure AI-written READMEs share. Keep it to 25
+  words; 40 in exceptional cases; anything longer is a bug to cut, not a richer
+  description.
 
 ## Testing
 
