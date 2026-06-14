@@ -1,6 +1,6 @@
 ---
 name: edit-email
-description: Polish an email draft via a fresh-context subeditor spawned with the Agent tool. The caller passes the draft inline (no file). Counters the predictable failure modes of AI-drafted email: project-shaped to-do lists, session-anchored timestamps, defending arguments the reader has not raised, inferred facts smuggled in as paraphrase, missing identity-first lead. The subeditor returns a reading log (what landed and how, where the reader paused or had to infer) alongside POLISHED and QUERIES, so confident wrong-readings surface even when no rule fires. The `--director` flag adds director-to-staff register checks (decisions stay decisions, no soft closes, don't decide in the recipient's domain, no deliberation-narrative defence). The `--Liansu` flag loads a voice guide derived from Liansu Yu's sent mail and switches the subeditor from cold reader to impersonator: the agent adopts Liansu's identity, edits in place as her, and returns first-person friction notes rather than rule citations.
+description: Polish an email draft, passed inline, against the failure modes of AI-drafted mail: project-shaped to-do lists, session-anchored dates, arguments the reader never raised, smuggled inferences, a missing identity-first lead. Optional flags add director register and voice impersonation.
 argument-hint: [--director] [--Liansu]
 ---
 
