@@ -152,9 +152,11 @@ whose title is not already a done-signal: skip titles matching
 6. **Write** two files in the target repo:
    - `knowledge-capture/incoming/<name>.txt` — the corrected transcript with the
      frontmatter.
-   - `knowledge-capture/staging/<name>.md` — a clean prose summary per that repo's
-     `README.md` (decisions, facts, names, numbers, reasoning; British English; no
-     "uncertain words" section).
+   - `knowledge-capture/staging/<name>.md` — a clean prose summary, topic sections
+     with line ranges back to the incoming file, covering decisions, facts, names,
+     numbers, methods, and reasoning, in British English, with no "uncertain words"
+     section. If the repo's `knowledge-capture/README.md` documents a staging format
+     or domain-specific things to capture, follow it.
 7. **Commit** both into that repo: `git add` the two paths, then
    `git commit -m "Add <name>"`. If the commit fails, stop for this recording (do
    not rename).
