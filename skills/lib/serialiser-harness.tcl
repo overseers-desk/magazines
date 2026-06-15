@@ -120,7 +120,6 @@ variable serialiser::ViewBeforeFetch {
         */forward/api/v1/speeches*          *otter.ai/*
         */forward/api/v1/set_speech_title*  *otter.ai/*
         */forward/api/v1/move_to_trash_bin* *otter.ai/*
-        */forward/api/v1/dropbox_speech_*   *otter.ai/*
         */forward/api/v1/user*              *otter.ai/*
     }
 }
