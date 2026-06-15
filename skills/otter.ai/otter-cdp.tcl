@@ -4,20 +4,19 @@
 # The harness sources this file into a per-run safe interpreter and calls
 # serialiser_run with the subcommand args. The flow navigates to otter.ai (the
 # covering view for the /forward/api/v1/* endpoints) and runs Otter's internal
-# API through the policed `eval` verb — reads (list, dropbox-status) and writes
-# (rename, trash, export-dropbox) alike are page-context fetch() calls carried by
-# the session's own cookies + CSRF token. Each subcommand emits a JSON document.
+# API through the policed `eval` verb — reads (list, fetch) and writes (rename,
+# trash) alike are page-context fetch() calls carried by the session's own
+# cookies + CSRF token. Each subcommand emits a JSON document.
 #
 # Invoked by reference through the serialiser (see SKILL.md):
 #   browser-serialiser otter.ai/otter-cdp list [--page-size N] [--last-load-ts TS]
 #   browser-serialiser otter.ai/otter-cdp rename <otid> <new_title>
 #   browser-serialiser otter.ai/otter-cdp trash <otid>
-#   browser-serialiser otter.ai/otter-cdp export-dropbox <otid> [--format txt|pdf|docx|srt]
-#   browser-serialiser otter.ai/otter-cdp dropbox-status
+#   browser-serialiser otter.ai/otter-cdp fetch <otid>
 #
-# fetch-via-dropbox needs rclone (a host tool) and so cannot run over the policed
-# surface; the direct-tclsh `main` below keeps it for host-side use. The legacy
-# CDP-client path (main + cdp::connect) is retained for direct `tclsh` runs.
+# fetch returns a recording's transcript from the /forward/api/v1/speech endpoint.
+# The legacy CDP-client path (main + cdp::connect) is retained for direct `tclsh`
+# runs.
 #
 # Note: `trash` moves the recording to Otter Trash (recoverable via the web UI
 # for ~30 days). There is deliberately no `delete` subcommand. See the DANGER
@@ -398,223 +397,55 @@ proc cmd_trash {cdp argsd} {
     return [list json $body]
 }
 
-# JS snippet that fetches the Dropbox account ID from synced_accounts, binding
-# `csrf` and `dropboxId` for the caller's continuation. Returns early with an
-# {error} document if Dropbox is not connected.
-proc get_dropbox_id_js {} {
-    return "
-        const csrf = document.cookie.match(/csrftoken=(\[^;\]+)/)?.\[1\] || '';
-        const userResp = await fetch('/forward/api/v1/user', {
-            credentials: 'include',
-            headers: {'x-csrftoken': csrf}
-        });
-        const userData = await userResp.json();
-        const synced = userData.user?.synced_accounts || \[\];
-        const dbAccount = synced.find(a => a.source === 'DropBox');
-        if (!dbAccount) {
-            return JSON.stringify({error: 'Dropbox is not connected. Connect at otter.ai Settings > Apps & Integrations > Dropbox.'});
-        }
-        const dropboxId = dbAccount.dropbox_account_id;
-    "
-}
-
-proc cmd_export_dropbox {cdp argsd} {
+# Fetch a recording's transcript directly from /forward/api/v1/speech?otid= (the
+# call the recording page itself makes to render). Reconstructs a speaker-labelled
+# transcript from speech.transcripts[] — joining each segment's text, grouping
+# consecutive same-speaker turns, naming speakers via speech.speakers[] (segment
+# speaker_id -> speaker_name), falling back to the diarisation label otherwise.
+# Output: {"otid","title","created_at","duration","segments","transcript"} or {"error"}.
+# The JS is a braced literal (no Tcl substitution); the otid is injected via string map.
+proc cmd_fetch {cdp argsd} {
     set otid [dict get $argsd otid]
-    set fmt [dict get $argsd format]
-
-    set endpoint_map [dict create \
-        txt dropbox_speech_txt \
-        pdf dropbox_speech_pdf \
-        docx dropbox_speech_word \
-        srt dropbox_speech_srt]
-    set endpoint [expr {[dict exists $endpoint_map $fmt] ? [dict get $endpoint_map $fmt] : "dropbox_speech_txt"}]
-    set get_db_id [get_dropbox_id_js]
-
-    if {$fmt eq "txt"} {
-        set js "
-        (async () => {
-            $get_db_id
-            const fd = new FormData();
-            fd.append('speaker_names', 'true');
-            fd.append('speaker_timestamps', 'true');
-            fd.append('dropbox_account_id', dropboxId);
-            fd.append('branding', 'true');
-            fd.append('merge_same_speaker_segments', 'false');
-            fd.append('otids', [json_str $otid]);
-            fd.append('highlight_only', 'false');
-            const resp = await fetch('/forward/api/v1/$endpoint', {
-                method: 'POST',
-                credentials: 'include',
-                headers: {'x-csrftoken': csrf},
-                body: fd,
-            });
-            return await resp.text();
-        })()
-        "
-    } elseif {$fmt eq "srt"} {
-        set js "
-        (async () => {
-            $get_db_id
-            const fd = new FormData();
-            fd.append('speaker_names', 'true');
-            fd.append('dropbox_account_id', dropboxId);
-            fd.append('otids', [json_str $otid]);
-            fd.append('advanced_srt', 'false');
-            fd.append('max_lines', '2');
-            fd.append('char_per_line', '42');
-            const resp = await fetch('/forward/api/v1/$endpoint', {
-                method: 'POST',
-                credentials: 'include',
-                headers: {'x-csrftoken': csrf},
-                body: fd,
-            });
-            return await resp.text();
-        })()
-        "
-    } else {
-        # pdf or docx share the same parameter pattern
-        set js "
-        (async () => {
-            $get_db_id
-            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-            const fd = new FormData();
-            fd.append('speaker_names', 'true');
-            fd.append('speaker_timestamps', 'true');
-            fd.append('dropbox_account_id', dropboxId);
-            fd.append('inline_pictures', 'false');
-            fd.append('merge_same_speaker_segments', 'false');
-            fd.append('otids', [json_str $otid]);
-            fd.append('highlight_only', 'false');
-            fd.append('show_highlights', 'true');
-            fd.append('monologue', 'false');
-            fd.append('time_zone', tz);
-            const resp = await fetch('/forward/api/v1/$endpoint', {
-                method: 'POST',
-                credentials: 'include',
-                headers: {'x-csrftoken': csrf},
-                body: fd,
-            });
-            return await resp.text();
-        })()
-        "
-    }
-    return [eval_js $cdp $js]
-}
-
-set DROPBOX_OTTER_REMOTE "Dropbox:Apps/Otter"
-
-# Return the set (as a sorted unique list) of filenames in Dropbox:Apps/Otter,
-# or "" with found=0 on rclone failure. Result is {found names}.
-proc rclone_lsf_otter {} {
-    global DROPBOX_OTTER_REMOTE
-    if {[catch {exec rclone lsf $DROPBOX_OTTER_REMOTE} out]} {
-        puts stderr "rclone lsf failed: $out"
-        return [list 0 {}]
-    }
-    set names {}
-    foreach line [split $out "\n"] {
-        set line [string trim $line]
-        if {$line ne ""} { lappend names $line }
-    }
-    return [list 1 [lsort -unique $names]]
-}
-
-# Export <otid> as txt to Dropbox, wait for the file to appear, read it, delete
-# it from Dropbox, and return its content.
-# Output: {"otid", "dropbox_filename", "content"} on success, {"error", ...} on failure.
-proc cmd_fetch_via_dropbox {cdp argsd} {
-    global DROPBOX_OTTER_REMOTE
-    set otid [dict get $argsd otid]
-    set timeout [dict get $argsd timeout]
-    set extended_timeout [dict get $argsd extended_timeout]
-
-    lassign [rclone_lsf_otter] ok initial
-    if {!$ok} {
-        return [list json "\{[json_str error]:[json_str "rclone lsf $DROPBOX_OTTER_REMOTE failed (is rclone configured?)"]\}"]
-    }
-
-    dict set argsd format txt
-    lassign [cmd_export_dropbox $cdp $argsd] ekind edoc
-    if {![catch {json::json2dict $edoc} ed]} {
-        if {[dict exists $ed error]} { return [list $ekind $edoc] }
-        if {[dict exists $ed failed_speeches]} {
-            # Carry the failed_speeches array through verbatim from the export
-            # document rather than re-serialising the parsed dict.
-            set fs "\[\]"
-            regexp {"failed_speeches"\s*:\s*(\[[^\]]*\])} $edoc -> fs
-            return [list json "\{[json_str error]:[json_str {Otter.ai export reported failure}],[json_str failed_speeches]:$fs\}"]
-        }
-    }
-
-    set poll_interval 5
-    set start [clock seconds]
-    set initial_deadline [expr {$start + $timeout}]
-    set extended_deadline [expr {$start + $extended_timeout}]
-    set extended_logged 0
-    set new_files {}
-
-    while 1 {
-        after [expr {$poll_interval * 1000}]
-        lassign [rclone_lsf_otter] ok current
-        if {!$ok} {
-            return [list json "\{[json_str error]:[json_str "rclone lsf $DROPBOX_OTTER_REMOTE failed during poll"]\}"]
-        }
-        set new_files {}
-        foreach f $current {
-            if {[lsearch -exact $initial $f] < 0} { lappend new_files $f }
-        }
-        if {[llength $new_files] > 0} { break }
-        set now [clock seconds]
-        if {$now >= $extended_deadline} {
-            return [list json "\{[json_str error]:[json_str {Timeout waiting for Dropbox export}],[json_str otid]:[json_str $otid],[json_str elapsed]:[expr {$now - $start}]\}"]
-        }
-        if {$now >= $initial_deadline && !$extended_logged} {
-            puts stderr "Initial timeout (${timeout}s) exceeded, extending to ${extended_timeout}s"
-            set extended_logged 1
-        }
-    }
-
-    if {[llength $new_files] > 1} {
-        set items {}
-        foreach f [lsort $new_files] { lappend items [json_str $f] }
-        return [list json "\{[json_str error]:[json_str {Multiple new files in Dropbox:Apps/Otter; cannot disambiguate}],[json_str files]:\[[join $items ,]\]\}"]
-    }
-
-    set filename [lindex $new_files 0]
-    set remote_path "$DROPBOX_OTTER_REMOTE/$filename"
-
-    if {[catch {exec rclone cat $remote_path} content]} {
-        return [list json "\{[json_str error]:[json_str {rclone cat failed}],[json_str remote_path]:[json_str $remote_path],[json_str stderr]:[json_str [string trim $content]]\}"]
-    }
-
-    if {[catch {exec rclone delete $remote_path} delout]} {
-        puts stderr "Warning: rclone delete $remote_path failed: [string trim $delout]"
-    }
-
-    return [list json "\{[json_str otid]:[json_str $otid],[json_str dropbox_filename]:[json_str $filename],[json_str content]:[json_str $content]\}"]
-}
-
-proc cmd_dropbox_status {cdp argsd} {
-    set js "
+    set js {
     (async () => {
-        const csrf = document.cookie.match(/csrftoken=(\[^;\]+)/)?.\[1\] || '';
-        const resp = await fetch('/forward/api/v1/user', {
-            credentials: 'include',
-            headers: {'x-csrftoken': csrf}
-        });
-        const data = await resp.json();
-        const u = data.user || {};
-        const synced = u.synced_accounts || \[\];
-        const dbAccount = synced.find(a => a.source === 'DropBox');
-        return JSON.stringify({
-            connected: !!dbAccount,
-            dropbox_account_id: dbAccount?.dropbox_account_id || null,
-            auto_export: dbAccount?.auto_export || false,
-            auto_import: dbAccount?.auto_import || false,
-            export_format: dbAccount?.export_format || null,
-        });
+        try {
+            const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+            const resp = await fetch('/forward/api/v1/speech?otid=@OTID@', {
+                credentials: 'include',
+                headers: {'x-csrftoken': csrf}
+            });
+            if (!resp.ok) return JSON.stringify({error: 'speech fetch HTTP ' + resp.status});
+            const data = await resp.json();
+            const sp = (data && data.speech) || data;
+            const segs = sp.transcripts || sp.monologues || [];
+            const names = {};
+            (sp.speakers || []).forEach(s => { names[s.id] = s.speaker_name || ('Speaker ' + s.id); });
+            const out = [];
+            let curSpk = null, buf = [];
+            const flush = () => { if (buf.length) { out.push(curSpk + ': ' + buf.join(' ')); buf = []; } };
+            for (const seg of segs) {
+                const t = (seg.transcript || seg.text || '').trim();
+                if (!t) continue;
+                let spk;
+                if (seg.speaker_id != null && names[seg.speaker_id]) spk = names[seg.speaker_id];
+                else if (seg.speaker_id != null) spk = 'Speaker ' + seg.speaker_id;
+                else spk = 'Speaker ' + (seg.label != null ? seg.label : '?');
+                if (spk !== curSpk) { flush(); curSpk = spk; }
+                buf.push(t);
+            }
+            flush();
+            return JSON.stringify({
+                otid: sp.otid,
+                title: sp.title,
+                created_at: sp.created_at,
+                duration: sp.duration,
+                segments: segs.length,
+                transcript: out.join('\n\n')
+            });
+        } catch (e) { return JSON.stringify({error: String(e)}); }
     })()
-    "
+    }
+    set js [string map [list @OTID@ $otid] $js]
     return [eval_js $cdp $js]
 }
 
@@ -624,9 +455,7 @@ proc usage {} {
     puts stderr "  ... -- tclsh otter-cdp.tcl list \[--page-size N\] \[--last-load-ts TS\]"
     puts stderr "  ... -- tclsh otter-cdp.tcl rename <otid> <new_title>"
     puts stderr "  ... -- tclsh otter-cdp.tcl trash <otid>"
-    puts stderr "  ... -- tclsh otter-cdp.tcl export-dropbox <otid> \[--format txt|pdf|docx|srt\]"
-    puts stderr "  ... -- tclsh otter-cdp.tcl fetch-via-dropbox <otid> \[--timeout N\] \[--extended-timeout N\]"
-    puts stderr "  ... -- tclsh otter-cdp.tcl dropbox-status"
+    puts stderr "  ... -- tclsh otter-cdp.tcl fetch <otid>"
 }
 
 # Parse argv into {command argsd}. argsd is a dict of the resolved options.
@@ -659,40 +488,9 @@ proc parse_args {argv} {
             if {[llength $rest] < 1} { puts stderr "trash requires <otid>"; exit 2 }
             return [list trash [dict create otid [lindex $rest 0]]]
         }
-        export-dropbox {
-            if {[llength $rest] < 1} { puts stderr "export-dropbox requires <otid>"; exit 2 }
-            set d [dict create otid [lindex $rest 0] format txt]
-            for {set i 1} {$i < [llength $rest]} {incr i} {
-                set a [lindex $rest $i]
-                switch -- $a {
-                    --format {
-                        incr i
-                        set fmt [lindex $rest $i]
-                        if {$fmt ni {txt pdf docx srt}} {
-                            puts stderr "--format must be txt, pdf, docx or srt"; exit 2
-                        }
-                        dict set d format $fmt
-                    }
-                    default { puts stderr "unknown argument: $a"; exit 2 }
-                }
-            }
-            return [list export-dropbox $d]
-        }
-        fetch-via-dropbox {
-            if {[llength $rest] < 1} { puts stderr "fetch-via-dropbox requires <otid>"; exit 2 }
-            set d [dict create otid [lindex $rest 0] timeout 60 extended_timeout 120]
-            for {set i 1} {$i < [llength $rest]} {incr i} {
-                set a [lindex $rest $i]
-                switch -- $a {
-                    --timeout          { incr i; dict set d timeout [lindex $rest $i] }
-                    --extended-timeout { incr i; dict set d extended_timeout [lindex $rest $i] }
-                    default            { puts stderr "unknown argument: $a"; exit 2 }
-                }
-            }
-            return [list fetch-via-dropbox $d]
-        }
-        dropbox-status {
-            return [list dropbox-status [dict create]]
+        fetch {
+            if {[llength $rest] < 1} { puts stderr "fetch requires <otid>"; exit 2 }
+            return [list fetch [dict create otid [lindex $rest 0]]]
         }
         default {
             usage
@@ -723,9 +521,7 @@ proc main {argv} {
             list              { set res [cmd_list $cdp $argsd] }
             rename            { set res [cmd_rename $cdp $argsd] }
             trash             { set res [cmd_trash $cdp $argsd] }
-            export-dropbox    { set res [cmd_export_dropbox $cdp $argsd] }
-            fetch-via-dropbox { set res [cmd_fetch_via_dropbox $cdp $argsd] }
-            dropbox-status    { set res [cmd_dropbox_status $cdp $argsd] }
+            fetch             { set res [cmd_fetch $cdp $argsd] }
         }
         lassign $res kind doc
         puts [json_pretty $doc]
@@ -749,7 +545,7 @@ proc main {argv} {
 # Returns "" on a parse error after emitting. argsd dict shapes mirror parse_args.
 proc sv_parse_args {skillArgs} {
     if {![llength $skillArgs]} {
-        emit [json_pretty "\{[json_str error]:[json_str {Usage: otter.ai/otter-cdp <list|rename|trash|export-dropbox|fetch-via-dropbox|dropbox-status> ...}]\}"]
+        emit [json_pretty "\{[json_str error]:[json_str {Usage: otter.ai/otter-cdp <list|rename|trash|fetch> ...}]\}"]
         return ""
     }
     set command [lindex $skillArgs 0]
@@ -775,40 +571,9 @@ proc sv_parse_args {skillArgs} {
             if {[llength $rest] < 1} { emit [json_pretty "\{[json_str error]:[json_str {trash requires <otid>}]\}"]; return "" }
             return [list trash [dict create otid [lindex $rest 0]]]
         }
-        export-dropbox {
-            if {[llength $rest] < 1} { emit [json_pretty "\{[json_str error]:[json_str {export-dropbox requires <otid>}]\}"]; return "" }
-            set d [dict create otid [lindex $rest 0] format txt]
-            for {set i 1} {$i < [llength $rest]} {incr i} {
-                set a [lindex $rest $i]
-                switch -- $a {
-                    --format {
-                        incr i
-                        set fmt [lindex $rest $i]
-                        if {$fmt ni {txt pdf docx srt}} {
-                            emit [json_pretty "\{[json_str error]:[json_str {--format must be txt, pdf, docx or srt}]\}"]; return ""
-                        }
-                        dict set d format $fmt
-                    }
-                    default { emit [json_pretty "\{[json_str error]:[json_str "unknown argument: $a"]\}"]; return "" }
-                }
-            }
-            return [list export-dropbox $d]
-        }
-        fetch-via-dropbox {
-            if {[llength $rest] < 1} { emit [json_pretty "\{[json_str error]:[json_str {fetch-via-dropbox requires <otid>}]\}"]; return "" }
-            set d [dict create otid [lindex $rest 0] timeout 60 extended_timeout 120]
-            for {set i 1} {$i < [llength $rest]} {incr i} {
-                set a [lindex $rest $i]
-                switch -- $a {
-                    --timeout          { incr i; dict set d timeout [lindex $rest $i] }
-                    --extended-timeout { incr i; dict set d extended_timeout [lindex $rest $i] }
-                    default            { emit [json_pretty "\{[json_str error]:[json_str "unknown argument: $a"]\}"]; return "" }
-                }
-            }
-            return [list fetch-via-dropbox $d]
-        }
-        dropbox-status {
-            return [list dropbox-status [dict create]]
+        fetch {
+            if {[llength $rest] < 1} { emit [json_pretty "\{[json_str error]:[json_str {fetch requires <otid>}]\}"]; return "" }
+            return [list fetch [dict create otid [lindex $rest 0]]]
         }
         default {
             emit [json_pretty "\{[json_str error]:[json_str "unknown command: $command"]\}"]
@@ -822,15 +587,6 @@ proc serialiser_run {skillArgs} {
     if {$parsed eq ""} { return }
     lassign $parsed command argsd
 
-    # fetch-via-dropbox's round-trip reads and deletes files via rclone (a host
-    # exec). The safe interp removes exec, so that half cannot run here; surface
-    # it plainly rather than fail opaquely. The browser-side export it wraps is
-    # reached directly through export-dropbox.
-    if {$command eq "fetch-via-dropbox"} {
-        emit [json_pretty "\{[json_str error]:[json_str {fetch-via-dropbox needs rclone (a host tool) and is not available over the policed surface; use export-dropbox for the browser-side export, then read the file from Dropbox host-side.}]\}"]
-        return
-    }
-
     # Covering view: navigate to my-notes (the view-before-fetch view for the
     # /forward/api/v1/* endpoints), then read the harness's wall classification.
     nav "https://otter.ai/my-notes" --wait 6
@@ -843,8 +599,7 @@ proc serialiser_run {skillArgs} {
         list              { set res [cmd_list serialiser $argsd] }
         rename            { set res [cmd_rename serialiser $argsd] }
         trash             { set res [cmd_trash serialiser $argsd] }
-        export-dropbox    { set res [cmd_export_dropbox serialiser $argsd] }
-        dropbox-status    { set res [cmd_dropbox_status serialiser $argsd] }
+        fetch             { set res [cmd_fetch serialiser $argsd] }
     }
     lassign $res kind doc
     emit [json_pretty $doc]
