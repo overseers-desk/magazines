@@ -1,10 +1,14 @@
 ---
 name: ihg.com
-description: "hotel availability, pricing, search."
+description: "Anonymous hotel availability, pricing and search; plus logged-in IHG One Rewards member data (your own stays, bookings, points and reward activity) via login.tcl."
 allowed-tools: Bash, Read
 ---
 
 # IHG Hotel Search
+
+The anonymous capabilities below need no login (pure curl against the public
+availability API). For the member's own account (stays, bookings, points), see
+[Member account (logged in)](#member-account-logged-in).
 
 ## Capabilities
 
@@ -14,6 +18,28 @@ allowed-tools: Bash, Read
 4. **Destination resolution** — resolves a place name to coordinates. May return 403 on some IPs. Tested, works on some machines.
 5. **Hotel details (names, addresses, brand info)** — given one or more hotel mnemonics, returns hotel name, full GDS name, brand, address, and more. Pure curl. The `profiles/details` host (`apis.ihg.com/hotels/v1/...`) is Akamai-WAF'd and returns `Access Denied` from some IPs for every method and fieldset (observed blocked 2026-06 while the availability host kept working). When blocked, fall back to `browser-serialiser --dump` on the public `ihg.com/.../<mnemonic>/hoteldetail` page for the name/area.
 6. **Room-type / suite availability and refundable-rate check** — given one mnemonic and a date, lists each room type with its live availability tonight and flags which rate plans are refundable. Single property only. Pure curl. Tested and working.
+
+## Member account (logged in)
+
+`login.tcl` signs in to IHG One Rewards and reads the member's own data, driven through `browser-serialiser` (the serialised-browsing skill). IHG ends the session when the browser closes, so each run logs in fresh; there is no token to cache, and crude (pure-Python login) is not viable here.
+
+Credentials live in `~/.claude/skills/config.ini` under `[ihg.com]` (`username`, `password`; the username may be a member number, an email, or a username). The safe interpreter cannot read that file, so the caller reads it and passes the values as arguments:
+
+```bash
+browser-serialiser ihg.com/login "$user" "$pass"            # account summary (name, tier, points)
+browser-serialiser ihg.com/login "$user" "$pass" --stays    # + stays and points-activity JSON
+browser-serialiser ihg.com/login --check                    # probe the sign-in form, do not submit
+```
+
+`--stays` returns two raw JSON blocks: `members/v2/profiles/me/stays` (every booking, ordered oldest-first: `confirmationNumber`, check-in/out dates, `hotelMnemonic`, `roomTypeCode`, `rateCode`, `stayId`) and `members/v1/profiles/me/activities` (the points ledger).
+
+### How it works, and what it cannot get
+
+- Sign-in is a SAP CDC (Gigya) widget inside an Angular app. Fill the *visible* widget inputs through the React native-value setter (CDP `Input.insertText` doubles the value in Gigya's password field, which fails login); submit with the policed `click` verb (a trusted CDP mouse click — a synthetic in-page `click()` does not fire Gigya's login). Click the Gigya form's own `input.gigya-input-submit`, not the header "Sign in" link (an `<a>` earlier in the DOM that only toggles a panel).
+- The member APIs on `apis.ihg.com` require a bearer (`x-ihg-sso-token`) the app holds in memory plus its `x-cdc-api-key`; neither is reconstructable from storage. The skill captures them from the app's own first authenticated XHR, triggered by clicking a past stay's "View Hotel Bill", then replays the member endpoints with those headers.
+- **Points & Cash vs points-only**: the activities ledger distinguishes them. A Points & Cash reward shows a `displayCategory: "Points and Cash Activity"` entry ("Points and Cash Points Purchased – N Night(s)", the points bought with the cash) alongside the `REWARD_NIGHTS_REDEMPTION` points redemption; a points-only reward shows only the redemption.
+- **The cash amount is not in any member API.** The stays, folio and reservation endpoints return points and metadata only (folio comes back empty; reservation-detail paths 404). The cash figure lives solely in the booking-confirmation email (from `tx.ihg.com`), charged in USD — fields "Nightly cash amount" / "Total credit card charge". Use the mailroom skill for that.
+- Pace logins. After several rapid sign-ins, Gigya begins returning a transient "We're sorry, something went wrong. Please contact Customer Care" (distinct from the credential-mismatch message); it clears after a few minutes.
 
 ## Brand codes
 
