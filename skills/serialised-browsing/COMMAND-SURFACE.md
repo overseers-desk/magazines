@@ -61,7 +61,7 @@ with `dwell` instead.
 
 | Verb | Signature | Returns | Notes |
 |------|-----------|---------|-------|
-| `nav` | `nav <url> ?--wait seconds?` | landing URL | Navigate and settle. Paced. Records the landing for view-before-fetch; classifies a login/checkpoint redirect into a terminal state. |
+| `nav` | `nav <url> ?--wait seconds? ?--expect-login?` | landing URL | Navigate and settle. Paced. Records the landing for view-before-fetch; classifies a login/checkpoint redirect into a terminal state. `--expect-login` suppresses that classification for this one navigation, for a login skill that deliberately lands on the sign-in page (its title/URL would otherwise read as a logged-out wall); later navigations are still classified, so a failed login bouncing back to sign-in still walls. |
 | `dump` | `dump` | outerHTML string | The current page's rendered DOM. |
 | `eval` | `eval <jsExpr>` | JS value | `Runtime.evaluate` in the page (returnByValue, awaitPromise). General by design: it runs in the page, not the host; any fetch the JS triggers is policed on the wire. Raises `JS exception: ...` on a page-side error. |
 | `api` | `api <path> ?--params str? ?--site host? ?--headers {k v ...}?` | raw body string | A **declared** private fetch replayed from the page context (cookies + CSRF included). Allowed only when the last `nav` covered a page matching the site's view-before-fetch entry. Paced, size-bounded; a 429 backs off (capped) then goes terminal `rate-limited`; a 401/403 goes terminal `logged-out`. |
