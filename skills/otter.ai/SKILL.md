@@ -120,7 +120,24 @@ whose title is not already a done-signal: skip titles matching
    - **>1 co-equal subjects** (genuinely shared): halt and ask the user which
      business owns it. Unattended: pick the most-central subject and record the
      secondary business in the staging frontmatter and the report.
-3. **Correct** the transcript against that business's
+3. **Already-captured check (by date, timezone-aware) — rename only if found.**
+   Step 2's title filter catches only recordings *this* pipeline has renamed; one
+   transcribed by an earlier run, or saved under a different filename, still looks
+   new, and re-capturing it duplicates the transcript. Before correcting, look in
+   the owning repo for an existing capture of this recording, keyed on date.
+   `created_at` is a UTC epoch, but filenames carry the *local* Australian date
+   (AEST/AEDT, UTC+10/+11), so the day can shift by one across midnight: derive the
+   local date and also test the day before and the day after. List
+   `knowledge-capture/incoming/` and `knowledge-capture/staging/` for files whose
+   `YYYY-MM-DD` prefix is any of those three dates and read each candidate — a
+   single day holds several meetings, so confirm identity by participants, topic,
+   and distinctive facts against the transcript, never by date alone. If one is the
+   same meeting it is already transcribed: do **not** correct, write, or commit;
+   skip to the rename (step 9) and point the done-signal at the existing file's
+   stem (`<business-folder>/<existing-stem>.txt`). Report "already captured:
+   <existing-file>". Only when no candidate is the same meeting do you continue to
+   step 4.
+4. **Correct** the transcript against that business's
    `knowledge-capture/capture-correction-index.md`:
    - Read the whole index and the whole transcript; correct holistically. **Never
      grep** for terms — mistranscriptions vary without limit, so a search for the
@@ -132,7 +149,7 @@ whose title is not already a done-signal: skip titles matching
      Only mark a term uncertain after a search fails; list unresolved terms in the
      run report, not in the files.
    - Strip any `_otter_ai` suffix the recording carried.
-4. **Frontmatter** — prepend a YAML problem-statement header to the corrected
+5. **Frontmatter** — prepend a YAML problem-statement header to the corrected
    transcript:
    ```yaml
    ---
@@ -147,9 +164,9 @@ whose title is not already a done-signal: skip titles matching
    One entry per distinct problem discussed. The `<taxonomy>` key and its codes
    belong to the target repo: use whatever its correction-index defines, and omit
    the line for a repo that defines no taxonomy.
-5. **Filename**: `YYYY-MM-DD-topic-key-people` — lowercase kebab-case, the
+6. **Filename**: `YYYY-MM-DD-topic-key-people` — lowercase kebab-case, the
    `created_at` date unless the content clearly indicates another, 2–3 key people.
-6. **Write** two files in the target repo:
+7. **Write** two files in the target repo:
    - `knowledge-capture/incoming/<name>.txt` — the corrected transcript with the
      frontmatter.
    - `knowledge-capture/staging/<name>.md` — a clean prose summary, topic sections
@@ -157,12 +174,15 @@ whose title is not already a done-signal: skip titles matching
      numbers, methods, and reasoning, in British English, with no "uncertain words"
      section. If the repo's `knowledge-capture/README.md` documents a staging format
      or domain-specific things to capture, follow it.
-7. **Commit** both into that repo: `git add` the two paths, then
+8. **Commit** both into that repo: `git add` the two paths, then
    `git commit -m "Add <name>"`. If the commit fails, stop for this recording (do
    not rename).
-8. **Rename** in Otter to mark done:
-   `rename <otid> "<business-folder>/<name>.txt"`. The next run sees the prefix and
-   skips it.
+9. **Rename** in Otter to mark done. For a freshly written capture the title is
+   `<business-folder>/<name>.txt`; for an already-captured recording (step 3) use
+   the existing file's stem, `<business-folder>/<existing-stem>.txt`. The next run
+   sees the prefix and skips it. Read-back verification only scans the recent
+   recordings page, so renaming an older recording can report a false failure —
+   confirm by fetching the recording's title rather than trusting the verify flag.
 
 ### Step 4 — report
 
