@@ -237,14 +237,27 @@ proc serialiser::Verb_nav {url args} {
     variable Cdp
     variable Run
     set wait 4
-    foreach {k v} $args { if {$k eq "--wait"} { set wait $v } }
+    set expectLogin 0
+    for {set i 0} {$i < [llength $args]} {incr i} {
+        switch -- [lindex $args $i] {
+            --wait         { incr i; set wait [lindex $args $i] }
+            --expect-login { set expectLogin 1 }
+        }
+    }
     serialiser::Pace nav
     $Cdp cdp Page.enable
     $Cdp cdp Page.navigate [dict create url $url]
     serialiser::Sleep [expr {int($wait * 1000)}]
     set landing [serialiser::PageUrl]
     dict set Run lastNavUrl $landing
-    serialiser::ClassifyWall $landing [serialiser::PageTitle]
+    # --expect-login: a login skill deliberately lands on the sign-in page, whose
+    # title/URL would otherwise read as a logged-out wall. Skip classification for
+    # this one navigation only; every other nav (e.g. the post-login move to the
+    # account page) is still classified, so a failed login that bounces back to
+    # sign-in is correctly walled.
+    if {!$expectLogin} {
+        serialiser::ClassifyWall $landing [serialiser::PageTitle]
+    }
     return $landing
 }
 
@@ -343,14 +356,34 @@ proc serialiser::Verb_type {text} {
     return ""
 }
 
-# click <selector>  -- click the first element matching a CSS selector, in-page.
-# Paced+jittered. Returns 1 if an element was found and clicked, 0 otherwise.
+# click <selector>  -- click the first element matching a CSS selector.
+# Paced+jittered. A laid-out element gets a TRUSTED click (a real CDP mouse event
+# at its centre); an in-page e.click() is isTrusted=false and bot-protected
+# widgets (e.g. Gigya) ignore it. A hidden/zero-box element falls back to the
+# synthetic e.click(), preserving prior behaviour. Returns 1 if clicked, else 0.
+#
+# The ["[SEL]"][0] placeholder is a braced literal so Tcl does not command-
+# substitute the inner [SEL] before the string map injects the JSON-quoted
+# selector; a double-quoted string would run a nonexistent command "SEL".
 proc serialiser::Verb_click {selector} {
     variable Cdp
     serialiser::Pace click
-    set js "(function(){var e=document.querySelector([\"[SEL]\"][0]);if(e){e.click();return true;}return false;})()"
-    set js [string map [list {["[SEL]"][0]} [json::write string $selector]] $js]
-    set r [$Cdp evaluate $js]
+    # Resolve, scroll into view, report viewport-centre "x y" (""=not found,
+    # "ZERO"=no layout box).
+    set locate {(function(){var e=document.querySelector(["[SEL]"][0]);if(!e)return "";e.scrollIntoView({block:"center",inline:"center"});var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)return "ZERO";return (r.left+r.width/2)+" "+(r.top+r.height/2);})()}
+    set locate [string map [list {["[SEL]"][0]} [json::write string $selector]] $locate]
+    set box [$Cdp evaluate $locate]
+    if {$box eq ""} { return 0 }
+    if {$box ne "ZERO"} {
+        lassign [split $box] cx cy
+        $Cdp cdp Input.dispatchMouseEvent [dict create type mouseMoved x $cx y $cy]
+        $Cdp cdp Input.dispatchMouseEvent [dict create type mousePressed x $cx y $cy button left clickCount 1]
+        $Cdp cdp Input.dispatchMouseEvent [dict create type mouseReleased x $cx y $cy button left clickCount 1]
+        return 1
+    }
+    set syn {(function(){var e=document.querySelector(["[SEL]"][0]);if(e){e.click();return true;}return false;})()}
+    set syn [string map [list {["[SEL]"][0]} [json::write string $selector]] $syn]
+    set r [$Cdp evaluate $syn]
     return [expr {$r eq "true" || $r eq 1 ? 1 : 0}]
 }
 
