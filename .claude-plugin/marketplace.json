@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "ot",
-      "source": ".",
+      "source": "./",
       "description": "Skills that drive the user's logged-in browser and site APIs: social, travel and award search, editorial review, research."
     }
   ]

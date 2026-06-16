@@ -3,7 +3,7 @@
 This repo is one Claude Code plugin. Skills live in `skills/<skill>/`, the
 `browser-serialiser` harness sits in `bin/` (on PATH while the plugin is enabled),
 `config.ini.example` and both manifests sit in the root. The repo is also its own
-marketplace: `.claude-plugin/` holds `plugin.json` and `marketplace.json` (source `.`).
+marketplace: `.claude-plugin/` holds `plugin.json` and `marketplace.json` (source `./`).
 
 ## Conventions
 
