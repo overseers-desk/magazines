@@ -5,6 +5,7 @@ A Claude Code plugin of AI-executed skills. Each skill drives the user's own log
 ## What's inside
 
 - **Logged-in site access:** LinkedIn, Instagram, Facebook, Reddit, Airbnb, Otter, DeviantArt, Clover, GetYourGuide.
+- **Cloud storage:** OneDrive via rclone — list, browse, download, and reach shared folders.
 - **Travel and award search:** Qantas Classic Rewards, RENFE, Interline cruises, IHG, Marriott, Premier Inn, Flightnetwork, SerpApi.
 - **Editorial review:** edit-email, edit-economistly, sorry-im-late, quote-me.
 - **Research and rendering:** build-dossier, typst-pdf, and the shared serialised-browsing harness.
@@ -23,6 +24,17 @@ claude plugin install ot@ot
 ```sh
 claude --plugin-dir /path/to/overseer-toolbox
 ```
+
+## Update
+
+Already have it installed? Pull the latest skills, then restart Claude Code:
+
+```sh
+claude plugin marketplace update ot
+claude plugin update ot
+```
+
+If you added the marketplace under a different name, find it with `claude plugin marketplace list` — or refresh them all with a bare `claude plugin marketplace update`.
 
 ## Prerequisites
 
