@@ -53,6 +53,15 @@ proc user_pk {u} {
     set id [dstr $u id]; if {$id ne ""} { return $id }
     return ""
 }
+# Why an IG response carried no payload. A failure body leads with a `message`
+# (login_required / checkpoint_required / feedback_required) and a `status`; a
+# missing-field fault appends this so it says WHY, not merely that the field was
+# absent. Empty when the response looks normal (the field was genuinely missing).
+proc ig_fail_reason {d} {
+    set parts {}
+    foreach k {message status} { set v [dstr $d $k]; if {$v ne ""} { lappend parts $v } }
+    return [join $parts " "]
+}
 # IG µs since epoch -> ISO-8601 with millis (parity with lib/ig.js microsToIso).
 # Returns "" when there is no timestamp; the caller emits JSON null for "".
 proc micros_to_iso {us} {

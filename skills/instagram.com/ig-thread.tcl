@@ -29,7 +29,8 @@ proc pb_ig_thread {a} {
         if {$cursor ne ""} { append q "&cursor=$cursor" }
         set data [::json::json2dict [api "/api/v1/direct_v2/threads/$igThreadId/?$q"]]
         if {![dict exists $data thread] || ![dict exists $data thread items]} {
-            error "no thread.items in response"
+            set why [ig_fail_reason $data]
+            error "no thread.items in response[expr {$why ne "" ? " (IG: $why)" : ""}]"
         }
         set thread [dict get $data thread]
         set added 0

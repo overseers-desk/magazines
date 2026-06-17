@@ -21,7 +21,10 @@ proc pb_ig_inbox {a} {
     if {$cursor ne ""} { append q "&cursor=$cursor" }
     set data [::json::json2dict [api "/api/v1/direct_v2/inbox/?$q"]]
     set inbox [expr {[dict exists $data inbox] ? [dict get $data inbox] : $data}]
-    if {![dict exists $inbox threads]} { error "no inbox.threads in response" }
+    if {![dict exists $inbox threads]} {
+        set why [ig_fail_reason $data]
+        error "no inbox.threads in response[expr {$why ne "" ? " (IG: $why)" : ""}]"
+    }
     set viewerId [user_pk [dict_get_or $data viewer {}]]
     set tin {}
     foreach t [dict get $inbox threads] { lappend tin [inbox_thread_input $t $viewerId] }
