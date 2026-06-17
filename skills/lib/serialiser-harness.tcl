@@ -521,6 +521,20 @@ proc serialiser::FetchPaced {path params headers} {
     while 1 {
         serialiser::Pace api
         set body [serialiser::DoFetch $path $params $headers status]
+        # Per-fetch diagnostic: path, the header NAMES sent (DoFetch's two defaults
+        # plus any caller header; names only, so the CSRF token never lands in a
+        # log), and the HTTP status. A non-2xx that is not 429/401/403 (e.g. 400
+        # "useragent mismatch" from a missing X-IG-App-ID) otherwise stays invisible
+        # until a downstream parse fails far from the cause; this names it at the
+        # fetch. On a non-2xx the body head is logged too, capped, since that is
+        # where IG states the reason.
+        set hnames [list X-Requested-With X-CSRFToken]
+        foreach {hk hv} $headers { lappend hnames $hk }
+        if {$status >= 200 && $status < 300} {
+            puts stderr "  \[api\] $status $path hdrs=\[[join $hnames { }]\]"
+        } else {
+            puts stderr "  \[api\] $status $path hdrs=\[[join $hnames { }]\] body=[string range $body 0 200]"
+        }
         if {$status == 429} {
             incr try
             if {$try > $BackoffMaxTries} {
