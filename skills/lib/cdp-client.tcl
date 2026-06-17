@@ -63,14 +63,7 @@ proc cdp::connect {{url ""}} {
         }
         set url $::env(CDP_WS_URL)
     }
-    set client [cdp::Client new $url]
-    # Align the client hints with the spoofed User-Agent before any navigation
-    # (see matchClientHints): the --user-agent launch flag rewrites the UA header
-    # but leaves Sec-CH-UA reporting the real Chromium build, the split a private
-    # API reads as a useragent mismatch. Best-effort: a target that cannot evaluate
-    # yet keeps the unaligned hints rather than failing the connect.
-    catch { $client matchClientHints }
-    return $client
+    return [cdp::Client new $url]
 }
 
 oo::class create cdp::Client {
@@ -269,24 +262,6 @@ oo::class create cdp::Client {
         }
     }
 
-    # Like cdp, but params is a pre-built JSON object string, for commands whose
-    # params nest objects or arrays (ToJson is deliberately shallow). Same
-    # id-matched response handling.
-    method cdpRaw {method jsonParams} {
-        incr NextId
-        set id $NextId
-        set msg [subst {{"id":$id,"method":[json::write string $method],"params":$jsonParams}}]
-        my WireLog to-browser $msg
-        puts -nonewline $Sock [my FrameMasked $msg]
-        flush $Sock
-        while 1 {
-            set r [my ReadFrame]
-            if {$r eq ""} { error "CDP connection closed awaiting id $id" }
-            set d [json::json2dict $r]
-            if {[dict exists $d id] && [dict get $d id] == $id} { return $d }
-        }
-    }
-
     # Read one frame, but give up after $ms milliseconds. Returns the decoded
     # payload, or "" on timeout/close/EOF. Used by the event-draining methods so
     # a quiet socket does not block. Toggles non-blocking around a fileevent so
@@ -405,36 +380,6 @@ oo::class create cdp::Client {
             return [dict get $result result value]
         }
         return ""
-    }
-
-    # Make the client hints (the Sec-CH-UA request headers and navigator.userAgentData)
-    # agree with the spoofed User-Agent string. Chromium's --user-agent launch flag
-    # rewrites the UA header only; the hints keep reporting the real build, which on a
-    # Chromium snap is "Chromium";v="N", "Not.A/Brand";v="8" with NO "Google Chrome"
-    # brand. A UA claiming Chrome beside hints that omit Google Chrome is the split
-    # Instagram's private API rejects as "useragent mismatch", and a general headless
-    # tell. CDP is the only way to set hints (no launch flag exists). The brands track
-    # whatever Chrome major the live UA carries, so this follows the configured UA
-    # rather than pinning a version. Returns 1 when applied, 0 if the UA is unparseable.
-    method matchClientHints {} {
-        set ua [my evaluate {navigator.userAgent}]
-        if {![regexp {Chrome/(\d+)} $ua -> major]} { return 0 }
-        set brands [json::write array \
-            [json::write object brand [json::write string Chromium] version [json::write string $major]] \
-            [json::write object brand [json::write string "Google Chrome"] version [json::write string $major]] \
-            [json::write object brand [json::write string "Not.A/Brand"] version [json::write string 8]]]
-        set meta [json::write object \
-            brands $brands \
-            fullVersion [json::write string "$major.0.0.0"] \
-            platform [json::write string Linux] \
-            platformVersion [json::write string ""] \
-            architecture [json::write string x86] \
-            bitness [json::write string 64] \
-            model [json::write string ""] \
-            mobile false]
-        my cdpRaw Emulation.setUserAgentOverride [json::write object \
-            userAgent [json::write string $ua] userAgentMetadata $meta]
-        return 1
     }
 
     method close {} {
