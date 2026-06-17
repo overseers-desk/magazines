@@ -19,7 +19,7 @@ proc pb_ig_inbox {a} {
     set cursor [dict_get_or $a cursor ""]
     set q "visual_message_return_type=unseen&persistentBadging=true&limit=20"
     if {$cursor ne ""} { append q "&cursor=$cursor" }
-    set data [::json::json2dict [api "/api/v1/direct_v2/inbox/?$q"]]
+    set data [::json::json2dict [api "/api/v1/direct_v2/inbox/?$q" --headers [ig_api_headers]]]
     set inbox [expr {[dict exists $data inbox] ? [dict get $data inbox] : $data}]
     if {![dict exists $inbox threads]} {
         set why [ig_fail_reason $data]

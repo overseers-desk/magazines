@@ -62,6 +62,12 @@ proc ig_fail_reason {d} {
     foreach k {message status} { set v [dstr $d $k]; if {$v ne ""} { lappend parts $v } }
     return [join $parts " "]
 }
+# The web private API (/api/v1/...) identifies the caller by the Instagram web app
+# id. Without this header the endpoint rejects a browser-UA request with HTTP 400
+# "useragent mismatch". Pass it through the api verb's --headers on every /api/v1
+# fetch. (The standalone skills inline the same constant; this is the shared home
+# for the type-B primitives that source ig-canonical.)
+proc ig_api_headers {} { return [list X-IG-App-ID 936619743392459] }
 # IG µs since epoch -> ISO-8601 with millis (parity with lib/ig.js microsToIso).
 # Returns "" when there is no timestamp; the caller emits JSON null for "".
 proc micros_to_iso {us} {

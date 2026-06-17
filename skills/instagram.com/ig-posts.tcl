@@ -13,7 +13,7 @@ source [file join [file dirname [info script]] ig-canonical.tcl]
 proc pb_ig_posts {a} {
     set userId [dict_get_or $a userId ""]
     set limit [dict_get_or $a limit 12]
-    set data [::json::json2dict [api "/api/v1/feed/user/$userId/?count=$limit"]]
+    set data [::json::json2dict [api "/api/v1/feed/user/$userId/?count=$limit" --headers [ig_api_headers]]]
     if {![dict exists $data items]} { error "no items array in feed response" }
     set pj {}
     foreach item [dict get $data items] { lappend pj [post_json $item] }
