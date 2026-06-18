@@ -126,96 +126,78 @@ proc browser_is_snap {binary} {
     return 0
 }
 
-# Acquire the single-browser lock so two serialiser instances never share the
-# profile concurrently. The lock is the OS flock on /tmp/chromium.lock, plus an
-# exclusive-create lock DIR fallback for hosts without flock; any other launcher
-# that flocks the same file interlocks with us:
-#   - flock on /tmp/chromium.lock is the shared OS lock. We hold it for our run
-#     with a background `flock` holder whose stdout signals "acquired"; the holder
-#     process is killed at teardown.
-#   - On a host without flock, fall back to the exclusive-create dir lock with a
-#     bounded wait and stale-PID sweep.
-# Returns a token dict consumed by lock_release.
+# Acquire the single-browser lock so two serialiser runs never drive the shared
+# profile at once. The lock is a plain advisory lockfile at /tmp/chromium.lock,
+# claimed by an atomic exclusive-create and stamped with the holder's PID; any
+# co-launcher using the same path and protocol interlocks with us. Returns a token
+# dict consumed by lock_release.
+#
+# Why this shape, and not the alternatives (read before changing it, so the next
+# reader does not relitigate a decision already made on the evidence):
+#   - WEIGHTED / RANDOM fairness is accepted here, on purpose. Waiters poll; the
+#     one that wins the next exclusive-create proceeds, so a client with more
+#     queued jobs wins proportionally more turns. That is fine: this lock only has
+#     to keep two browsers off one profile, not schedule fairly.
+#   - PER-CLIENT fairness (round-robin across agents, a cross-job rate budget)
+#     deliberately does NOT live here -- it is the overseer's job (its ov::wait_*
+#     fair-waiter registry, documented in the overseer project's docs/overseer.md).
+#     Standalone is a best-effort lock; the overseer is the real arbiter when one
+#     is running.
+#   - SELF-HEALING is the property that earns this shape. The agent running a skill
+#     can kill it mid-wait, so a holder may die without releasing. The PID stamp
+#     lets the next waiter detect a dead holder (kill -0) and sweep the lockfile
+#     instead of deadlocking. A blocking `flock` holder was tried and rejected for
+#     the opposite behaviour: its lock is held by a child `sleep` that a killed
+#     parent orphans, wedging everyone until a long timeout; and `flock(1)` is
+#     absent on macOS, so that path never ran there at all. `open {CREAT EXCL}` is
+#     atomic on macOS and Linux and needs no external binary, so one path serves
+#     both. (Best-effort residual: a holder that died in the sub-microsecond gap
+#     between create and PID-stamp leaves an empty lockfile a waiter may sweep; the
+#     window is negligible against the 250ms poll, and the overseer is the real
+#     guard where it matters.)
 proc lock_acquire {waitSecs} {
     set lockPath /tmp/chromium.lock
-    set flockBin [browser_which {flock}]
-    if {$flockBin ne ""} {
-        # A single background holder process queues on /tmp/chromium.lock (the
-        # shared OS lock file, so any co-launcher that flocks it interlocks) with a
-        # BLOCKING flock, so concurrent serialiser runs wait their turn in the
-        # kernel's lock queue rather than racing a non-blocking poll (which under
-        # load starved a waiter and timed it out instead of serialising it). The
-        # holder is a shell that opens fd 9 on the lock file, blocks in `flock 9`
-        # until granted, prints "acquired" to signal us, then EXECs sleep -- exec so
-        # the shell is replaced, leaving exactly one process whose death (and fd-9
-        # close) drops the lock at teardown. We read the channel for the "acquired"
-        # line up to waitSecs; on timeout we kill the still-queued holder so it
-        # leaves the queue cleanly (a blocking holder, unlike the old -n one, would
-        # otherwise acquire later with nobody to use or release it). open's LIST
-        # form execs without a shell re-split.
-        set holderScript "exec 9>$lockPath; $flockBin 9; echo acquired; exec sleep 100000"
-        set chan [open [list | sh -c $holderScript] r]
-        set pids [pid $chan]
-        fconfigure $chan -blocking 0
-        set deadline [expr {[clock milliseconds] + $waitSecs * 1000}]
-        while 1 {
-            set line [gets $chan]
-            if {![fblocked $chan] && $line eq "acquired"} {
-                return [dict create kind flock chan $chan pids $pids]
-            }
-            if {[eof $chan]} {
-                catch {close $chan}
-                error "lock holder exited before acquiring $lockPath" {} {SERIALISER_LOCK 1}
-            }
-            if {[clock milliseconds] >= $deadline} {
-                foreach p $pids { catch {exec kill -TERM $p} }
-                catch {close $chan}
-                error "lock-wait timeout after ${waitSecs}s on $lockPath" {} {SERIALISER_LOCK 1}
-            }
-            after 100
-        }
-    }
-    # No flock: exclusive-create dir lock with bounded wait + stale sweep.
-    set dir /tmp/chromium.serialiser.lock
     set deadline [expr {[clock milliseconds] + $waitSecs * 1000}]
     while 1 {
-        if {![catch {file mkdir $dir; file attributes $dir} ] && [lock_dir_claim $dir]} {
-            return [dict create kind dir dir $dir]
+        # Atomic exclusive create: exactly one waiter wins, the rest get EEXIST.
+        # Stamp the PID at once so a later waiter can judge our liveness.
+        if {![catch {open $lockPath {WRONLY CREAT EXCL}} fh]} {
+            puts -nonewline $fh [pid]
+            close $fh
+            return [dict create kind file path $lockPath]
+        }
+        # The lockfile exists. While it sits there every exclusive-create fails, so
+        # no live holder can slip in beneath us between this check and the sweep:
+        # sweep it only if its holder is gone (killed without releasing) or its PID
+        # is unreadable, otherwise wait our turn.
+        if {[lock_holder_dead $lockPath]} {
+            catch {file delete -- $lockPath}
+            continue
         }
         if {[clock milliseconds] >= $deadline} {
-            error "lock-wait timeout after ${waitSecs}s on $dir" {} {SERIALISER_LOCK 1}
+            error "lock-wait timeout after ${waitSecs}s on $lockPath" {} {SERIALISER_LOCK 1}
         }
         after 250
     }
 }
 
-# Try to claim the dir lock by writing our PID iff it is unclaimed or stale.
-proc lock_dir_claim {dir} {
-    set pidFile [file join $dir pid]
-    if {[file exists $pidFile]} {
-        set f [open $pidFile r]; set held [string trim [read $f]]; close $f
-        if {[string is integer -strict $held] && [file exists /proc/$held]} {
-            return 0   ;# a live holder
-        }
-    }
-    set f [open $pidFile w]; puts -nonewline $f [pid]; close $f
-    return 1
+# True if the lockfile names a PID that is no longer alive, or holds no readable
+# PID. `kill -0` is the portable liveness probe (macOS and Linux); /proc would be
+# Linux-only.
+proc lock_holder_dead {lockPath} {
+    if {[catch {open $lockPath r} fh]} { return 0 }  ;# vanished: let the create retry decide
+    set held [string trim [read $fh]]
+    close $fh
+    if {![string is integer -strict $held]} { return 1 }
+    if {[catch {exec kill -0 $held}]} { return 1 }
+    return 0
 }
 
 # Release the browser lock acquired by lock_acquire.
 proc lock_release {token} {
     if {$token eq ""} return
     switch -- [dict get $token kind] {
-        flock {
-            # Kill the holder so the flock is dropped (sleep never writes again,
-            # so closing the pipe alone would not signal it). SIGTERM the holder
-            # pids, then close the pipe.
-            foreach p [dict get $token pids] {
-                catch {exec kill -TERM $p}
-            }
-            catch {close [dict get $token chan]}
-        }
-        dir { catch {file delete -force [dict get $token dir]} }
+        file { catch {file delete -- [dict get $token path]} }
     }
 }
 
