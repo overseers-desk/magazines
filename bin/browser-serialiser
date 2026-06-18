@@ -453,30 +453,96 @@ proc overseer_up {} {
     return [expr {$code == 200}]
 }
 
+# Reset the silence-watchdog: a fresh frame proves the overseer is alive and working
+# its queue, so we restart the bail timer. It fires only after a stretch of total
+# silence (no progress frame, no heartbeat, no terminal), which is the one thing we
+# read as a hang. While frames flow we wait unbounded - a long queue or a long run is
+# not a failure, it is the overseer doing its job and telling us so.
+proc overseer_wd_reset {} {
+    catch {after cancel $::ovsd(wd)}
+    set ::ovsd(wd) [after 90000 {set ::ovsd(done) timeout}]
+}
+
+# Drive one readable event on the streamed /run socket: accumulate bytes, split into
+# newline-framed lines, and hand each to overseer_stream_line. On EOF, flush any
+# trailing unterminated line first (so an old single-reply overseer, or a terminal
+# frame that arrived without its newline, is still parsed) before declaring the stream
+# closed. Mirrors the reader in the overseer's desktop/lib/sse.tcl.
+proc overseer_stream_read {} {
+    if {[catch {read $::ovsd(sock)} chunk]} { set ::ovsd(done) error; return }
+    if {$chunk eq "" && [eof $::ovsd(sock)]} {
+        if {$::ovsd(buf) ne ""} { overseer_stream_line [string trimright $::ovsd(buf) "\r\n"]; set ::ovsd(buf) "" }
+        if {$::ovsd(done) eq ""} { set ::ovsd(done) closed }
+        return
+    }
+    append ::ovsd(buf) $chunk
+    while {[set nl [string first "\n" $::ovsd(buf)]] >= 0} {
+        set line [string trimright [string range $::ovsd(buf) 0 $nl] "\r\n"]
+        set ::ovsd(buf) [string range $::ovsd(buf) [expr {$nl + 1}] end]
+        overseer_stream_line $line
+        if {$::ovsd(done) ne ""} return
+    }
+}
+
+# One line of the streamed response. Skip the HTTP status line and headers until the
+# blank line; after that each non-blank line is one ndjson frame. A frame tagged
+# "type" is a progress or heartbeat keepalive - reset the watchdog and keep waiting.
+# An untagged frame is the terminal {result,fault} envelope; capture it and stop.
+proc overseer_stream_line {line} {
+    if {!$::ovsd(inbody)} {
+        if {[string match "HTTP/*" $line]} {
+            set code [lindex [split $line " "] 1]
+            if {$code ne "200"} { set ::ovsd(code) $code; set ::ovsd(done) http }
+        } elseif {$line eq ""} {
+            set ::ovsd(inbody) 1
+        }
+        return
+    }
+    if {$line eq ""} return
+    overseer_wd_reset
+    if {[catch {json::json2dict $line} obj]} { return }
+    if {[dict exists $obj type]} { return }
+    set ::ovsd(env) $obj
+    set ::ovsd(done) terminal
+}
+
 # Try to run the skill via the overseer broker. Returns {delegated 1 result <emit>}
 # on success, {delegated 0} to fall through to standalone when the overseer is
 # absent. When the overseer IS up it owns the outcome: a skill fault from /run is
 # returned as a delegated error (we do NOT silently re-launch our own Chromium and
-# contend with the overseer for the shared profile). POST /run carries the skill ref
-# and its args as a JSON array string; the overseer leases a browser, runs the skill
-# in a coroutine, and replies {result:<emit>} or {fault:{shape,detail}}.
+# contend with the overseer for the shared profile). POST /run carries the skill ref,
+# its args as a JSON array string, and our pid as the clientId - the rotation key the
+# overseer fairly queues us by, and its presence is what opts us into the streamed
+# reply: progress/heartbeat frames while we queue and run, then the terminal
+# {result:<emit>} or {fault:{shape,detail}} frame. We wait as long as frames arrive and
+# bail only on ~90s of silence.
 proc serialiser_delegate {skillRef skillArgs} {
     if {![overseer_up]} { return [dict create delegated 0] }
-    package require http
     set port [overseer_port]
     set argsJson [args_to_json $skillArgs]
-    set body "{\"skillRef\":[json::write string $skillRef],\"argsJson\":[json::write string $argsJson]}"
-    if {[catch {
-        http::geturl "http://127.0.0.1:$port/run" \
-            -method POST -type application/json -query $body -timeout 600000
-    } tok]} {
-        die 65 "overseer /run failed: $tok"
+    set body "{\"skillRef\":[json::write string $skillRef],\"argsJson\":[json::write string $argsJson],\"clientId\":[json::write string [pid]]}"
+    set bodyBytes [encoding convertto utf-8 $body]
+    if {[catch {socket 127.0.0.1 $port} sock]} { die 65 "overseer /run connect failed: $sock" }
+    array unset ::ovsd
+    array set ::ovsd {buf "" inbody 0 done "" env "" code "" wd ""}
+    set ::ovsd(sock) $sock
+    fconfigure $sock -blocking 0 -buffering none -translation binary
+    set req "POST /run HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+    append req "Content-Length: [string length $bodyBytes]\r\nConnection: close\r\n\r\n"
+    if {[catch { puts -nonewline $sock $req$bodyBytes; flush $sock }]} { catch {close $sock}; die 65 "overseer /run write failed" }
+    overseer_wd_reset
+    fileevent $sock readable overseer_stream_read
+    vwait ::ovsd(done)
+    catch {after cancel $::ovsd(wd)}
+    catch {fileevent $sock readable {}}
+    catch {close $sock}
+    switch -- $::ovsd(done) {
+        timeout { die 65 "overseer /run: no frame for 90s, treating as hung" }
+        http    { die 65 "overseer /run HTTP $::ovsd(code)" }
+        closed  { die 65 "overseer /run closed before a result" }
+        error   { die 65 "overseer /run read error" }
     }
-    set code [http::ncode $tok]
-    set data [http::data $tok]
-    http::cleanup $tok
-    if {$code != 200} { die 65 "overseer /run HTTP $code: $data" }
-    set resp [json::json2dict $data]
+    set resp $::ovsd(env)
     if {[dict exists $resp fault] && [dict get $resp fault] ne "null" && [dict get $resp fault] ne ""} {
         set f [dict get $resp fault]
         set shape [expr {[dict exists $f shape] ? [dict get $f shape] : "skill"}]
