@@ -140,32 +140,39 @@ proc lock_acquire {waitSecs} {
     set lockPath /tmp/chromium.lock
     set flockBin [browser_which {flock}]
     if {$flockBin ne ""} {
-        # A single background holder process takes /tmp/chromium.lock (the shared
-        # OS lock file, so any co-launcher that flocks it interlocks) and blocks
-        # holding it until we kill that ONE pid at teardown. The holder is a shell that
-        # opens fd 9 on the lock file, flocks fd 9 non-blocking, and then EXECs
-        # sleep -- exec so the shell is replaced, leaving exactly one process whose
-        # death (and fd-9 close) drops the lock cleanly. flock -n either grabs the
-        # lock (the holder lives, blocking in sleep) or fails and the holder exits
-        # at once; we poll for acquisition by holder LIVENESS (a failed holder is
-        # a reaped/zombie pid, which holder_alive rejects). Bounded retry up to
-        # waitSecs. open's LIST form execs without a shell re-split.
-        set holderScript "exec 9>$lockPath; $flockBin -n 9 || exit 1; exec sleep 100000"
+        # A single background holder process queues on /tmp/chromium.lock (the
+        # shared OS lock file, so any co-launcher that flocks it interlocks) with a
+        # BLOCKING flock, so concurrent serialiser runs wait their turn in the
+        # kernel's lock queue rather than racing a non-blocking poll (which under
+        # load starved a waiter and timed it out instead of serialising it). The
+        # holder is a shell that opens fd 9 on the lock file, blocks in `flock 9`
+        # until granted, prints "acquired" to signal us, then EXECs sleep -- exec so
+        # the shell is replaced, leaving exactly one process whose death (and fd-9
+        # close) drops the lock at teardown. We read the channel for the "acquired"
+        # line up to waitSecs; on timeout we kill the still-queued holder so it
+        # leaves the queue cleanly (a blocking holder, unlike the old -n one, would
+        # otherwise acquire later with nobody to use or release it). open's LIST
+        # form execs without a shell re-split.
+        set holderScript "exec 9>$lockPath; $flockBin 9; echo acquired; exec sleep 100000"
+        set chan [open [list | sh -c $holderScript] r]
+        set pids [pid $chan]
+        fconfigure $chan -blocking 0
         set deadline [expr {[clock milliseconds] + $waitSecs * 1000}]
         while 1 {
-            set chan [open [list | sh -c $holderScript] r]
-            set pids [pid $chan]
-            set holder [lindex $pids 0]
-            after 200
-            if {[holder_alive $holder]} {
-                fconfigure $chan -blocking 0
+            set line [gets $chan]
+            if {![fblocked $chan] && $line eq "acquired"} {
                 return [dict create kind flock chan $chan pids $pids]
             }
-            catch {close $chan}
+            if {[eof $chan]} {
+                catch {close $chan}
+                error "lock holder exited before acquiring $lockPath" {} {SERIALISER_LOCK 1}
+            }
             if {[clock milliseconds] >= $deadline} {
+                foreach p $pids { catch {exec kill -TERM $p} }
+                catch {close $chan}
                 error "lock-wait timeout after ${waitSecs}s on $lockPath" {} {SERIALISER_LOCK 1}
             }
-            after 300
+            after 100
         }
     }
     # No flock: exclusive-create dir lock with bounded wait + stale sweep.
@@ -180,30 +187,6 @@ proc lock_acquire {waitSecs} {
         }
         after 250
     }
-}
-
-# True if process $pid is a LIVE holder (running/sleeping), not a zombie.
-#
-# When flock -n loses the race it exits non-zero at once, but Tcl has not yet
-# reaped the pipeline child, so /proc/<pid> lingers as a DEFUNCT (zombie) entry.
-# A bare "/proc exists" check would mistake that loser for a live holder, so the
-# zombie state (stat field 3 == Z) is excluded explicitly. On Linux we read
-# /proc/<pid>/stat; elsewhere kill -0 reports liveness (zombies are rarer and the
-# flock path is Linux in practice).
-proc holder_alive {pid} {
-    if {![string is integer -strict $pid]} { return 0 }
-    set statf /proc/$pid/stat
-    if {[file exists $statf]} {
-        if {[catch {
-            set f [open $statf r]; set line [read $f]; close $f
-        }]} { return 0 }
-        # ... (comm) State ...  -- State is the token after the closing paren.
-        set after [string range $line [expr {[string last ")" $line] + 1}] end]
-        set state [lindex $after 0]
-        return [expr {$state ne "Z" && $state ne ""}]
-    }
-    if {![catch {exec kill -0 $pid}]} { return 1 }
-    return 0
 }
 
 # Try to claim the dir lock by writing our PID iff it is unclaimed or stale.
@@ -413,7 +396,7 @@ proc render_session {timeoutSecs cfg body} {
     set launchPid ""
     set rc 0
     if {[catch {
-        set lockToken [lock_acquire 30]
+        set lockToken [lock_acquire 600]
         set br [browser_launch $binary $udd $ua $lang $port]
         set launchPid [dict get $br pid]
         set wsUrl [dict get $br wsurl]
@@ -544,7 +527,7 @@ proc run_standalone {skillRef skillArgs} {
     set rc 0
     set out ""
     if {[catch {
-        set lockToken [lock_acquire 30]
+        set lockToken [lock_acquire 600]
         set br [browser_launch $binary $udd $ua $lang $port]
         set launchPid [dict get $br pid]
         set wsUrl [dict get $br wsurl]
