@@ -1,6 +1,6 @@
 ---
 name: serialised-browsing
-description: "Policed browser access through `browser-serialiser`: drives the user's logged-in Chromium for any skill that reads or acts on a logged-in site, and fetches a page when curl or WebFetch cannot. Site skills invoke it by reference; the wrapper, the command surface, and the browser rationale live here."
+description: "Activated when a website blocks fetching or gives 403, or a meaningful fetch requires a logged-in session: use a headless Chromium to fetch a page when curl or WebFetch cannot. Also accepts CDP."
 allowed-tools: Bash, Read
 argument-hint: <skill-ref and args, or a URL>
 ---
