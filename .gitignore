@@ -1,0 +1,23 @@
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+*.swp
+*~
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Logs and temp runtime artifacts
+*.log
+*.tmp
+*.pid
+
+# Local site credentials. The real file lives in $HOME/.claude/skills/config.ini.
+# Never commit a copy; config.ini.example is the tracked template.
+config.ini
