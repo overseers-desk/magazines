@@ -5,6 +5,8 @@ This repo is one Claude Code plugin. Skills live in `skills/<skill>/`, the
 `config.ini.example` and both manifests sit in the root. The repo is also its own
 marketplace: `.claude-plugin/` holds `plugin.json` and `marketplace.json` (source `./`).
 
+**Before any web-access work** (writing a new browser skill, or repairing one that broke), read the diagnosis methodology at [`../aesop/webworks/`](../aesop/webworks/README.md). It is the standing antidote to the firemaning, the premature commitment to "profile corrupt / fingerprint detected / we are rate-limited", that derails this work; the procedure and the case studies (`STORY.md`) live there.
+
 ## Conventions
 
 - Inside a SKILL.md, reference sibling scripts and assets as
@@ -12,9 +14,12 @@ marketplace: `.claude-plugin/` holds `plugin.json` and `marketplace.json` (sourc
   `${CLAUDE_PLUGIN_ROOT}` with the install path when the plugin loads. Prefer this
   over a hardcoded `$HOME/.claude/skills/...` for skill files.
 - The harness and the policed command surface for authenticated SPAs live in the
-  serialised-browsing skill (`skills/serialised-browsing/COMMAND-SURFACE.md`) and
-  the `BROWSER.md` beside it. Invoke a skill by reference through `browser-serialiser`;
-  do not write a raw `flock ... chromium` invocation inline.
+  serialised-browsing skill: [`COMMAND-SURFACE.md`](skills/serialised-browsing/COMMAND-SURFACE.md)
+  is the contract a new TCL skill is written against (the verbs, view-before-fetch,
+  the per-call required headers, the type-B envelope), and
+  [`BROWSER.md`](skills/serialised-browsing/BROWSER.md) is beside it. Invoke a skill by
+  reference through `browser-serialiser`; do not write a raw `flock ... chromium`
+  invocation inline.
 - Site credentials live in `$HOME/.claude/skills/config.ini`. The path is absolute
   in the scripts and the wrapper, so it does not move with the plugin. The file is
   gitignored; do not commit it. Each skill's SKILL.md lists its keys under
