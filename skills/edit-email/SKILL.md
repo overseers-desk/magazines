@@ -1,6 +1,6 @@
 ---
 name: edit-email
-description: Polish an email draft, passed inline, against the failure modes of AI-drafted mail: project-shaped to-do lists, session-anchored dates, arguments the reader never raised, smuggled inferences, a missing identity-first lead. Optional flags add director register and voice impersonation.
+description: Polish or compose an email so it reads as a person wrote it, not a project: fixes AI tells (to-do lists, session dates, smuggled inferences, buried lead) and applies a standing like-human-do pass. Flags add director register and voice impersonation.
 argument-hint: [--director] [--Liansu]
 ---
 
@@ -14,9 +14,15 @@ A general newspaper maxim in CLAUDE.md is not enough on its own: the drafting ag
 
 The rules the drafting agent and the subeditor both work to are in `email-rulebook.md` alongside this file.
 
+## Standing step: like-human-do
+
+Every email this skill touches passes through `${CLAUDE_PLUGIN_ROOT}/skills/edit-email/like-human-do.md`. This is not a flag and not optional; it runs on warm follow-ups, cold first-contacts, and everything between. Read it before you draft.
+
+It is compose-time work, done by you the caller before you assemble the draft, because the thing it fixes (an ask wrapped in warmth, a business takeaway where a real shared moment belongs) lives in the structure of the email, and the subeditor, polishing prose, cannot remove it. The subeditor remains the backstop, not the cure.
+
 ## Procedure
 
-1. Assemble the draft as a text block with the YAML-style header preamble (`to:`, `cc:`, `from:`, `subject:`) and the body below.
+1. Apply like-human-do first, as silent working before you write a word of the draft: from the conversation log, list the concrete non-business things this recipient personally said or shared, and separately name what the email wants from them. Sort the want into a grab (cut it) or a genuine humble ask (keep it bare). Decide the give. Lead with a real shared moment only if one exists; never force one. Then assemble the draft as a text block with the YAML-style header preamble (`to:`, `cc:`, `from:`, `subject:`) and the body below.
 1a. If the draft relies on prior correspondence (a reply, or a fresh message that picks up an unresolved ask from earlier mail), assemble a THREAD block of the relevant prior messages. One issue often spans several threads: include every thread the draft draws on, not only the one the headers say it replies to. Each message in the block carries its own from/date/subject and body. The subeditor cannot fetch mail; whatever the cold reader needs to judge whether the draft omits a fact the recipient is waiting on must be in this block. If the draft stands on its own, the THREAD value is `(none)`.
 2. Spawn a fresh-context agent. Use the prompt template at `${CLAUDE_PLUGIN_ROOT}/skills/edit-email/editor-prompt.md`; substitute `$RULEBOOK_PATH` with the rulebook path, `$EMAIL` with the draft text, `$THREAD` with the THREAD block (or `(none)`), `$REGISTER` with the register tag (`general` by default; `director-to-staff` when the caller invokes with `--director`), and `$VOICE_GUIDE` with the content of the named voice guide file (`(none)` when no voice flag is given; the content of `liansu-voice.md` when `--Liansu` is given). When `--Liansu` is given, use Opus as the agent model. Pass the result as the agent prompt.
 3. When `$VOICE_GUIDE` is `(none)`: the agent is a cold subeditor. It returns READING (paragraph-by-paragraph log of how the draft landed), POLISHED (mechanical fixes applied), and QUERIES (rule citations for things needing the brief).
@@ -29,6 +35,7 @@ The rules the drafting agent and the subeditor both work to are in `email-rulebo
 
 `${CLAUDE_PLUGIN_ROOT}/skills/edit-email/`:
 
+- `like-human-do.md` — the standing compose-time pass: give don't grab, real connection point, person's voice
 - `email-rulebook.md` — the rules
 - `editor-prompt.md` — the subeditor prompt template
 - `liansu-voice.md` — voice guide for `--Liansu`; derived from Liansu Yu's sent mail corpus
