@@ -718,10 +718,45 @@ proc parse_profile {html_path url_arg} {
 #
 #     browser-serialiser linkedin.com/parse-profile <slug-or-url>
 # ---------------------------------------------------------------------------
+# The Experience section is lazy-mounted below the fold and so never reaches the
+# header record's evidence_blocks (texts[:15] off the top of the page). The
+# dedicated details page carries the full position list; this extracts its visible
+# text (employers, titles, dates) reusing the header parser's noise filtering,
+# deduped and capped.
+proc extract_experience_texts {html} {
+    set texts [extract_visible_texts [strip_viewer_content $html]]
+    set out {}
+    foreach t $texts {
+        # Stop at the page footer / language switcher that follows the positions.
+        if {[string match "Questions?*" $t] || $t eq "Visit our Help Center." \
+            || [string match "Select language*" $t] || [string match "Manage your account*" $t]} {
+            break
+        }
+        lappend out $t
+        if {[llength $out] >= 60} { break }
+    }
+    return $out
+}
+
+# Render the experience text list as a YAML block appended to the header record.
+proc render_experience_block {exp} {
+    if {![llength $exp]} { return "experience: \[\]" }
+    set lines {experience:}
+    foreach e $exp {
+        lappend lines "- [yaml_scalar $e]"
+    }
+    return [join $lines "\n"]
+}
+
 proc serialiser_run {skillArgs} {
-    set arg [lindex $skillArgs 0]
+    set want_exp 0
+    set arg ""
+    foreach a $skillArgs {
+        if {$a eq "--experience"} { set want_exp 1; continue }
+        if {$arg eq ""} { set arg $a }
+    }
     if {$arg eq ""} {
-        emit "ERROR: usage: linkedin.com/parse-profile <slug-or-url>"
+        emit "ERROR: usage: linkedin.com/parse-profile <slug-or-url> \[--experience\]"
         return
     }
     set slug [slug_from_arg $arg]
@@ -741,6 +776,20 @@ proc serialiser_run {skillArgs} {
     if {$record eq "@@LOGIN@@"} {
         emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
         return
+    }
+    # Opt-in: a second navigation to the details page for the work history. Kept
+    # behind the flag so the default read stays single-navigation (rate-sensitive
+    # host).
+    if {$want_exp} {
+        nav "https://www.linkedin.com/in/$slug/details/experience/" --wait 5
+        if {[dict get [state] terminal] eq ""} {
+            for {set i 0} {$i < 4} {incr i} {
+                eval {window.scrollTo(0, document.body.scrollHeight)}
+                dwell 1
+            }
+            set exp [extract_experience_texts [dump]]
+            append record "\n[render_experience_block $exp]"
+        }
     }
     emit $record
 }

@@ -76,6 +76,23 @@ browser-serialiser linkedin.com/keyword-search USERNAME keyword1 keyword2 ...
 
 Navigates to `/in/USERNAME/`, dumps the DOM, and reports whether the profile mentions specific terms with surrounding context.
 
+## 3a. List a person's connections visible to you
+
+See who you could reach through a given person — mutual connections, and (when they allow it) their wider network:
+
+```bash
+browser-serialiser linkedin.com/connections-of <profile-id-or-urn> [network]
+```
+
+`profile-id` is the `ACoAA...` token from parse-profile's `urn` field (the full URN works too; the prefix is stripped). This drives the faceted people-search `connectionOf` facet and parses the result with the same extractor as parse-search.
+
+What LinkedIn exposes is gated, not arbitrary:
+
+- `network` `F` (default) — people in **your** 1st-degree who are connected to the target, i.e. your **mutual** connections with them. Available for any target whose profile you can open.
+- `network` `FS` — also requests the target's 2nd-degree connections visible to you. Populated only when the target is your 1st-degree **and** has not hidden their connection list; otherwise it degrades to the mutuals-only set.
+
+Workflow: run parse-profile first to get the `urn`, then pass its id here. The facet name (`connectionOf`) and `origin=FACETED_SEARCH` follow the URL shape in BUGS.md; verify the result against a known person on first live run, as LinkedIn's facet params shift.
+
 ## 4. Verify connect eligibility
 
 The connection invite page is at a constructable URL. Navigating there with the parser dumps the modal that renders:

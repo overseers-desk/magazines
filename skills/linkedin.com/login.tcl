@@ -46,14 +46,26 @@ proc js_bool {c expr} {
 }
 
 # Markers that distinguish logged-in from logged-out on the LinkedIn homepage.
+# Detection rests on signals that survive LinkedIn's class-name randomisation:
+# the landing URL (a logged-in `/` redirects into `/feed/`), the semantic
+# `#global-nav` id and a `/feed/` nav link (authed chrome only), and the page
+# title. The definitive logged-out sub-states (fastrack remember-me CTA, login
+# form) are checked first so a stray authed-looking link cannot mask them.
 proc login_state {c} {
-    set has_nav [js_bool $c {!!document.querySelector("[class*=\"global-nav__me\"], a[href*=\"/in/\"][class*=\"global-nav\"]")}]
-    set has_feed [js_bool $c {!!document.querySelector("main [class*=\"feed\"], div[class*=\"feed-shared\"]")}]
-    set has_fastrack [js_bool $c {!!document.querySelector(".fastrack-sign-in-cta")}]
-    set has_login_form [js_bool $c {!!document.querySelector("form[action*=\"login\"], form[action*=\"authenticate\"]")}]
-    if {$has_nav || $has_feed} { return "logged_in" }
-    if {$has_fastrack} { return "logged_out_remember_me" }
-    if {$has_login_form} { return "logged_out" }
+    if {[js_bool $c {!!document.querySelector(".fastrack-sign-in-cta")}]} {
+        return "logged_out_remember_me"
+    }
+    if {[js_bool $c {!!document.querySelector("form[action*=\"login\"], form[action*=\"authenticate\"]")}]} {
+        return "logged_out"
+    }
+    if {[string match "*/feed*" [js $c {document.location.href}]]} { return "logged_in" }
+    if {[js_bool $c {!!document.querySelector("#global-nav, a[href^=\"/feed/\"]")}]} {
+        return "logged_in"
+    }
+    set tl [string tolower [js $c {document.title}]]
+    foreach m {"sign in" "log in" "iniciar" "sign up"} {
+        if {[string first $m $tl] >= 0} { return "logged_out" }
+    }
     return "unknown"
 }
 
@@ -230,13 +242,20 @@ proc sv_js_bool {expr} {
 # legacy login_state). Returns logged_in / logged_out_remember_me / logged_out /
 # unknown.
 proc sv_login_state {} {
-    set has_nav [sv_js_bool {!!document.querySelector("[class*=\"global-nav__me\"], a[href*=\"/in/\"][class*=\"global-nav\"]")}]
-    set has_feed [sv_js_bool {!!document.querySelector("main [class*=\"feed\"], div[class*=\"feed-shared\"]")}]
-    set has_fastrack [sv_js_bool {!!document.querySelector(".fastrack-sign-in-cta")}]
-    set has_login_form [sv_js_bool {!!document.querySelector("form[action*=\"login\"], form[action*=\"authenticate\"]")}]
-    if {$has_nav || $has_feed} { return "logged_in" }
-    if {$has_fastrack} { return "logged_out_remember_me" }
-    if {$has_login_form} { return "logged_out" }
+    if {[sv_js_bool {!!document.querySelector(".fastrack-sign-in-cta")}]} {
+        return "logged_out_remember_me"
+    }
+    if {[sv_js_bool {!!document.querySelector("form[action*=\"login\"], form[action*=\"authenticate\"]")}]} {
+        return "logged_out"
+    }
+    if {[string match "*/feed*" [eval {document.location.href}]]} { return "logged_in" }
+    if {[sv_js_bool {!!document.querySelector("#global-nav, a[href^=\"/feed/\"]")}]} {
+        return "logged_in"
+    }
+    set tl [string tolower [eval {document.title}]]
+    foreach m {"sign in" "log in" "iniciar" "sign up"} {
+        if {[string first $m $tl] >= 0} { return "logged_out" }
+    }
     return "unknown"
 }
 
@@ -297,7 +316,9 @@ proc serialiser_run {skillArgs} {
         return
     }
     if {$check_only} {
-        emit [result_json [dict create status $st]]
+        emit [result_json [dict create status $st \
+            url [eval {document.location.href}] \
+            title [eval {document.title}]]]
         return
     }
     if {$st ne "logged_out_remember_me"} {
