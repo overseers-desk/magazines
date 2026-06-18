@@ -23,9 +23,16 @@ marketplace: `.claude-plugin/` holds `plugin.json` and `marketplace.json` (sourc
   is to make the model invoke the skill when the situation calls for it. How the
   skill works belongs in the body and scripts, which the model reads after it
   decides to call, with all the time it needs then. Writing the description as a
-  how-it-works account is the failure AI-written READMEs share. Keep it to 25
-  words; 40 in exceptional cases; anything longer is a bug to cut, not a richer
-  description.
+  how-it-works account is the failure AI-written READMEs share. Write it as the
+  trigger instead: name the problem or symptom that should make the model reach
+  for the skill — a 403, a blocked fetch, a login-walled page — not what the
+  skill is or does, since the model matches on its own situation, not on the
+  skill's machinery. Do not restate the skill's name or open with a
+  self-referential preamble ("this skill uses a headless browser to ..."): the
+  description always renders after the name, so the model already knows it is a
+  skill and what it is called. Cut to the bare offer — "headless browser for X",
+  not "this skill browses X with a headless browser". Keep it to 25 words; 40 in
+  exceptional cases; anything longer is a bug to cut, not a richer description.
 
 ## Testing
 
