@@ -19,7 +19,11 @@ marketplace: `.claude-plugin/` holds `plugin.json` and `marketplace.json` (sourc
   the per-call required headers, the type-B envelope), and
   [`BROWSER.md`](skills/serialised-browsing/BROWSER.md) is beside it. Invoke a skill by
   reference through `browser-serialiser`; do not write a raw `flock ... chromium`
-  invocation inline.
+  invocation inline. The same harness also runs under an external host, the
+  overseer (a per-desktop daemon in a separate project); it is a compatibility
+  target, not a runtime dependency, and standalone `browser-serialiser` needs no
+  overseer installed (see COMMAND-SURFACE.md, "Why the sandbox holds with no
+  overseer present").
 - Site credentials live in `$HOME/.claude/skills/config.ini`. The path is absolute
   in the scripts and the wrapper, so it does not move with the plugin. The file is
   gitignored; do not commit it. Each skill's SKILL.md lists its keys under
