@@ -191,13 +191,23 @@ proc serialiser_run {skillArgs} {
 
     if {!$stays} {
         nav $ihg::ACCOUNT_URL --wait 5
+        # Pull the IHG One Rewards account number out of the account-mgmt home
+        # page, which renders it under a "Member #" label, and surface it as its
+        # own line. Parsed explicitly so the caller does not have to scrape the
+        # raw dump, where the number only appears when it falls inside the
+        # truncation window. (It often equals the login username, but not always,
+        # so it is read from the page, not assumed from the args.) The "Member #"
+        # block hydrates later than the header nav, so wait on the number itself,
+        # not merely on "Points" (which the nav bar renders early).
         set body ""
-        for {set w 0} {$w < 12} {incr w} {
+        set memno ""
+        for {set w 0} {$w < 15} {incr w} {
             dwell 1
             set body [ihg::body_text]
-            if {[string first "Points" $body] >= 0} { break }
+            if {[regexp {Member\s*#\s*([0-9]{6,})} $body -> memno]} { break }
+            if {$w >= 11 && [string first "Points" $body] >= 0} { break }
         }
-        emit "LOGGED IN (url=[eval {window.location.href}])\n---\n[string range $body 0 1200]"
+        emit "LOGGED IN (url=[eval {window.location.href}])\nMember #: $memno\n---\n[string range $body 0 1200]"
         return
     }
 
