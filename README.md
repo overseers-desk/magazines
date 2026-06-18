@@ -30,4 +30,4 @@ claude --plugin-dir /path/to/overseer-toolbox
 - **Browser harness.** Browser-driving skills run under `browser-serialiser`, shipped in `bin/` and placed on `PATH` while the plugin is enabled. It launches the user's logged-in Chromium against the real user-data-dir and locks it while running, so close your everyday Chromium before invoking a browser skill. macOS needs `flock` and `gtimeout`: `brew install util-linux coreutils` (Linux ships both).
 - **Logged-in sessions.** Browser skills expect an existing signed-in Chromium session for the target site. If a fetch returns a sign-in page, the session has expired; log in and retry.
 
-The serialised-browsing skill documents the harness, its policed command surface, and the `--dump`/`--pdf` render modes.
+The serialised-browsing skill documents the harness, its [policed command surface](skills/serialised-browsing/COMMAND-SURFACE.md) (the contract a new browser skill is written against), and the `--dump`/`--pdf` render modes.

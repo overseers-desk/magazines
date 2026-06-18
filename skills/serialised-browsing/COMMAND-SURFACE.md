@@ -118,3 +118,20 @@ proc serialiser_run {skillArgs} {
     emit $rendered
 }
 ```
+
+## Headers the verb does not add for you
+
+The `--headers` in that example is not decoration. `api` sends only
+`X-Requested-With` and `X-CSRFToken`; a site that authenticates its `/api/v1`
+calls by an app id (Instagram's `X-IG-App-ID`, for one) rejects a request that
+omits it, and the rejection names something else, a 400 reading `useragent
+mismatch` rather than "missing header", so the omission surfaces far from its
+cause. Carry every header the site's own page sends on that endpoint. Unlike the
+view-before-fetch table, which is central, this is per call, so it is the line a
+port silently drops.
+
+A type-B primitive (one the overseer runs and persists) carries a second
+contract the harness does not enforce: its single `emit` must be the canonical
+envelope the BI server's `persistB` validates. That envelope's shape is owned by
+the consuming repo, not here; a primitive that emits a free-form result is
+rejected at persist, not at run.
