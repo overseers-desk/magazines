@@ -6,9 +6,11 @@ An email is written to do something: to move the reader to act, or to keep a rel
 
 Before you touch the words, say plainly what this email needs the recipient to do after reading it: reply, agree to a meeting, take up an offer, review something, or nothing at all (a true note of thanks or news). Infer it from the draft and the context. If the draft already states the ask, you have it; do not ask the user. Ask the user only when the intended action is genuinely unclear and you cannot infer it.
 
-If the honest answer is that the email needs no action — a note of thanks, news, or keeping a relationship warm — say so and stop looking for one. Do not manufacture a soft goal the sender did not intend, a referral, a future deal, a reciprocal arrangement. For such an email the job is warmth: lead with the genuine connection point and let any give stand on its own, with nothing wanted back. Reaching for a business angle here is the very thing that makes a warm note read as a quiet pitch.
+Then name what in the draft does the work of getting that action: the reason the recipient would say yes, the credibility the ask or offer rests on. That content is goal-bearing. Everything else is packaging.
 
-When there is an action, name what in the draft does the work of getting it: the reason the recipient would say yes, the credibility the ask or offer rests on. That content is goal-bearing; everything else is packaging.
+## Their side (why they would care)
+
+Work out why the recipient would want this, from their position, not yours. Where the email follows something they recently did, ask what they were trying to achieve by doing it; if the context points you to where that is written (a prior meeting, a thread), read it and reason from it. Then shape the offer as serving what they are trying to do, for the people they answer to. Do not recite their motive back to them as a claim; let the shaping show you understood it. An offer cut to their goal is accepted; one cut to yours is merely considered.
 
 ## Protect what does the job
 

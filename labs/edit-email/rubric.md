@@ -16,6 +16,16 @@ Score an email 0–2 on each positive index, then apply the forgery gate, then t
 
 A blind reader (see `recipient-sim.md`) is asked only whether anything reads constructed, performed, or mass-sent. **Fail** if the reader senses effort-to-seem-casual, a template, or a pitch. A high positive-index score that trips this gate still fails. This is what stops an email from passing by mechanically ticking the indices (manufactured casualness).
 
+## Goal-power gate (round 2) — does it still do the email's job
+
+An email is edited to do its job, not only to read human. For an email with an intended action:
+
+- **Goal-power.** The blind reader is also asked how readily they would take the intended action (put it to the committee, review the draft, reply). The revision must leave them **at least as likely to act as the original**. A warmer, shorter version that lowers the action, because it dropped what earned it, fails however human it reads.
+- **Payload retention.** The content that does the persuasive work, the credibility the ask or offer rests on, must survive. The experimenter names the invariant facts per case and greps for them; the skill is never told the specific facts. Dropping the payload fails even if the forgery gate passes.
+- **Goal-extraction without asking.** When the email states its action, a run that halts to ask the user what the recipient should do fails.
+
+For a true no-action email (thanks, news, relationship), goal-power is not scored; the job is warmth, and manufacturing a soft goal (a referral, a future deal) is itself a fail.
+
 ## Holistic vs reference (the bar)
 
 My judgment, calibrated on the project analysis: is this at or above the level of the human reference email for this recipient? Close to the reference is acceptable; below it is not. Resemblance to the reference is not required — a different genuine connection point, or none, can pass if the note reads as a person wrote it.
