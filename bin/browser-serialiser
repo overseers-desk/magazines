@@ -15,21 +15,21 @@
 # .tcl suffix. "instagram.com/fetch-recent-posts" runs
 # skills/instagram.com/fetch-recent-posts.tcl. The ref must stay inside skills/.
 #
-# Browser ownership (this phase: STANDALONE only):
-#   The serialiser launches its own headless Chromium on the user's REAL logged-in
-#   profile (flock /tmp/chromium.lock, --headless=new --remote-debugging-port on a
-#   random port, --user-data-dir=<profile>), polls /json for the page-target ws
-#   url, connects via cdp-client, runs the skill, and tears the browser down on
-#   every exit. Launch/teardown mirrors the overseer's ov::launch_chromium /
-#   ov::release (random port, ~40s cold-start poll budget for snap Chromium, kill
-#   by launch PID AND by debug port plus a Singleton sweep so renderer children
-#   never orphan and hold the profile).
-#
-#   OVERSEER-DELEGATION SEAM (Phase 3, not built here): when the overseer browser
-#   broker answers on 127.0.0.1:11402, the serialiser will lease a browser by
-#   reference and let the OVERSEER run the harness (central cross-job rate budget)
-#   instead of launching Chromium. serialiser_delegate below is the stub Phase 3
-#   fills; today it always declines, so the standalone path runs.
+# Browser ownership - two paths, the overseer chosen whenever it is up:
+#   Delegated: when the overseer broker answers on 127.0.0.1:11402 it owns the shared
+#   profile, so the serialiser routes through it rather than launching a competing
+#   Chromium. serialiser_delegate POSTs /run (a skill by reference; the overseer runs
+#   the harness in-process for a central cross-job rate budget) and dump_delegate POSTs
+#   /browser/dump (a one-shot DOM render). Either way the overseer owns the outcome: a
+#   fault is returned as the run's failure, never silently re-launched here.
+#   Standalone: when the overseer is absent the serialiser launches its own headless
+#   Chromium on the user's REAL logged-in profile (flock /tmp/chromium.lock,
+#   --headless=new --remote-debugging-port on a random port, --user-data-dir=<profile>),
+#   polls /json for the page-target ws url, connects via cdp-client, runs the skill,
+#   and tears the browser down on every exit. Launch/teardown mirrors the overseer's
+#   ov::launch_chromium / ov::release (random port, ~40s cold-start poll budget for
+#   snap Chromium, kill by launch PID AND by debug port plus a Singleton sweep so
+#   renderer children never orphan and hold the profile).
 #
 # Exit codes: 0 ok; 64 bad usage; 65 skill error; 66 terminal wall (rate-limited
 #   / logged-out / checkpoint); 75 lock-wait timeout; 78 environment (no Chromium,
@@ -536,6 +536,38 @@ proc serialiser_delegate {skillRef skillArgs} {
     return [dict create delegated 1 result $result]
 }
 
+# Dump a URL's rendered DOM via the overseer broker when it is up: the dump
+# counterpart of serialiser_delegate. Returns {delegated 1 dom <html>} on success,
+# {delegated 0} when the overseer is absent so the caller falls through to the
+# standalone run_dump. When the overseer IS up it owns the outcome: a fault is fatal
+# (we do NOT relaunch our own Chromium and contend for the shared profile). POST
+# /browser/dump is non-streaming - one JSON reply {dom,fault} - so a plain
+# http::geturl serves; $host is the gate key (the URL's site). The timeout allows for
+# the slot ceiling (~90s) plus the render budget plus launch and reply overhead.
+proc dump_delegate {url timeoutSecs host} {
+    if {![overseer_up]} { return [dict create delegated 0] }
+    package require http
+    set port [overseer_port]
+    set body "{\"url\":[json::write string $url],\"host\":[json::write string $host],\"timeoutMs\":[expr {$timeoutSecs * 1000}]}"
+    set bodyBytes [encoding convertto utf-8 $body]
+    set tmo [expr {90000 + $timeoutSecs * 1000 + 10000}]
+    if {[catch {http::geturl "http://127.0.0.1:$port/browser/dump" \
+            -query $bodyBytes -type application/json -timeout $tmo} tok]} {
+        die 65 "overseer /browser/dump connect failed: $tok"
+    }
+    set code [http::ncode $tok]
+    set data [http::data $tok]
+    http::cleanup $tok
+    if {$code != 200} { die 65 "overseer /browser/dump HTTP $code" }
+    set resp [json::json2dict $data]
+    if {[dict exists $resp fault] && [dict get $resp fault] ne "null" && [dict get $resp fault] ne ""} {
+        set f [dict get $resp fault]
+        set detail [expr {[dict exists $f detail] ? [dict get $f detail] : ""}]
+        die 65 "overseer dump fault: $detail"
+    }
+    return [dict create delegated 1 dom [expr {[dict exists $resp dom] ? [dict get $resp dom] : ""}]]
+}
+
 # Encode a Tcl list of skill args as a JSON array string (each element a JSON
 # string), matching what /run expects to json2dict back into a list.
 proc args_to_json {skillArgs} {
@@ -662,7 +694,21 @@ proc main {} {
             if {[llength $rest] != 1} { usage }
             set secs [dict get $p secs]
             if {$secs eq ""} { set secs 15 }
-            exit [run_dump [lindex $rest 0] $secs]
+            set url [lindex $rest 0]
+            # Overseer-delegation seam: when the broker is up it owns the shared
+            # profile, so route the dump through it rather than launching a competing
+            # Chromium; fall through to standalone when it is absent. The gate key is
+            # the URL's host (the overseer paces per rate-sensitive site).
+            set host ""
+            regexp {^[a-z][a-z0-9+.-]*://([^/:]+)} $url -> host
+            if {$host ne ""} {
+                set d [dump_delegate $url $secs $host]
+                if {[dict get $d delegated]} {
+                    puts [dict get $d dom]
+                    exit 0
+                }
+            }
+            exit [run_dump $url $secs]
         }
         --pdf {
             set p [render_parse_timeout {*}[lrange $argv 1 end]]
