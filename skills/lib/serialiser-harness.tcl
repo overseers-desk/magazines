@@ -168,10 +168,32 @@ proc serialiser::run {skillPath cdp skillArgs} {
 
     set interp [::safe::interpCreate]
     try {
-        # Plane 1: widen the access path to the skill's own dir and skills/lib so
-        # `source` of shared siblings works, and nothing else does.
-        ::safe::interpAddToAccessPath $interp [file dirname $skillPath]
-        ::safe::interpAddToAccessPath $interp [file join $Root skills lib]
+        # Plane 1: the child needs only the Tcl core, json, its own skill dir, and
+        # skills/lib (for `source` of shared siblings). Inheriting the master's
+        # whole auto_path drags in /usr/share/tcltk (ttkthemes) and the Tk lib dir,
+        # whose pkgIndex files call pwd / file normalize / file isdirectory — all
+        # forbidden in a safe interp — so the `package require json` below scans
+        # them and (because stderr is shared) logs "error reading package index
+        # file" on every run. Whitelist the access path instead, and mirror it as
+        # -autoPath: a custom access path alone only auto-loads dirs already in the
+        # master's auto_path, which silently drops json. The core lib stays at
+        # index 0 (safe base takes it as the child's tcl_library). json's dir is
+        # derived at runtime so it resolves wherever tcllib is installed.
+        set acc {}
+        foreach d [lindex [::safe::interpConfigure $interp -accessPath] 1] {
+            if {[string match [info library]* $d]} { lappend acc $d }
+        }
+        lappend acc [file dirname $skillPath] [file join $Root skills lib]
+        foreach pkg {json json::write} {
+            foreach tok [package ifneeded $pkg [package require $pkg]] {
+                if {[file exists $tok]} {
+                    set jd [file dirname $tok]
+                    if {$jd ni $acc} { lappend acc $jd }
+                    break
+                }
+            }
+        }
+        ::safe::interpConfigure $interp -accessPath $acc -autoPath $acc
 
         # The Safe Base removes stdin/stdout/stderr from the child, but a skill's
         # diagnostics (the `log` verb, and bare `puts stderr` in skills carried
