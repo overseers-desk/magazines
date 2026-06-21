@@ -12,7 +12,10 @@ Usage:
     python3 search.py search "best noise cancelling headphones 2026"
 
     # Google Maps
-    python3 search.py maps "restaurants near New York"
+    python3 search.py maps "restaurants near city centre"
+
+    # Google Maps reviews (review timeline, newest first)
+    python3 search.py reviews "Joe's Diner Brooklyn" --max 5
 
 API key is read from SERPAPI_KEY env var or [serpapi] api_key in ~/.claude/skills/config.ini.
 """
@@ -21,10 +24,14 @@ import argparse
 import configparser
 import json
 import os
+import re
 import sys
 import urllib.request
 import urllib.parse
 from pathlib import Path
+
+# A Google Maps data_id looks like 0x<hex>:0x<hex>; anything else is a place name.
+DATA_ID_RE = re.compile(r"^0x[0-9a-f]+:0x[0-9a-f]+$", re.IGNORECASE)
 
 
 def get_api_key():
@@ -204,6 +211,83 @@ def cmd_maps(args):
         print()
 
 
+def resolve_data_id(query):
+    """Resolve a place name to a (data_id, title) via the google_maps engine.
+
+    A strong single match comes back as place_results (an object); a list of
+    candidates comes back as local_results. The top hit carries data_id.
+    Costs 1 search.
+    """
+    data = serpapi_request({"engine": "google_maps", "q": query})
+    results = data.get("local_results") or []
+    if not results and data.get("place_results"):
+        results = [data["place_results"]]
+    if not results:
+        sys.exit(f"No place found for query: {query!r}")
+    top = results[0]
+    data_id = top.get("data_id")
+    if not data_id:
+        sys.exit(f"Top match {top.get('title', '?')!r} has no data_id; pass a data_id directly")
+    return data_id, top.get("title", "")
+
+
+def cmd_reviews(args):
+    """Google Maps reviews — a place's review timeline (date + rating + text).
+
+    Two-step chain:
+    1. Resolve the place name to a data_id via the google_maps engine
+       (skipped when a data_id is passed directly).
+    2. Page through the google_maps_reviews engine, following
+       serpapi_pagination.next_page_token to walk back through time.
+
+    sort_by accepts newestFirst / mostRelevant / highestRating / lowestRating.
+    Each review carries iso_date, rating, snippet, and user.name. Every request
+    (the maps lookup and each review page) counts as 1 search, so --max caps the
+    page walk — keep it small given the monthly quota.
+    """
+    place = args.place
+    if DATA_ID_RE.match(place):
+        data_id, title = place, place
+    else:
+        data_id, title = resolve_data_id(place)
+
+    all_reviews = []
+    next_token = None
+    pages = 0
+    while pages < args.max:
+        params = {
+            "engine": "google_maps_reviews",
+            "data_id": data_id,
+            "sort_by": args.sort,
+        }
+        if next_token:
+            params["next_page_token"] = next_token
+        data = serpapi_request(params)
+        all_reviews.extend(data.get("reviews") or [])
+        pages += 1
+        next_token = (data.get("serpapi_pagination") or {}).get("next_page_token")
+        if not next_token:
+            break
+
+    if args.json:
+        print(json.dumps({"data_id": data_id, "place": title, "reviews": all_reviews}, indent=2))
+        return
+
+    plural = "s" if pages != 1 else ""
+    print(f"Reviews for {title or data_id}  (data_id {data_id})")
+    print(f"sorted: {args.sort}  —  {len(all_reviews)} reviews across {pages} page{plural}")
+    print()
+    for r in all_reviews:
+        when = r.get("iso_date") or r.get("date", "?")
+        rating = r.get("rating", "?")
+        user = (r.get("user") or {}).get("name", "")
+        print(f"  {when}  {rating}*  {user}")
+        snippet = (r.get("snippet") or "").strip()
+        for line in snippet.splitlines():
+            print(f"    {line}")
+        print()
+
+
 def main():
     parser = argparse.ArgumentParser(description="SerpApi search wrapper")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -234,6 +318,16 @@ def main():
     mp.add_argument("--location", help="Lat,lng (e.g. @36.68,-6.14,14z)")
     mp.add_argument("--json", action="store_true")
 
+    # reviews
+    rp = sub.add_parser("reviews", help="Google Maps reviews (review timeline)")
+    rp.add_argument("place", help="Place name (resolved via Maps) or a data_id (0x...:0x...)")
+    rp.add_argument("--sort", default="newestFirst",
+                    choices=["newestFirst", "mostRelevant", "highestRating", "lowestRating"],
+                    help="Review ordering (default: newestFirst)")
+    rp.add_argument("--max", type=int, default=3,
+                    help="Max review pages to fetch (default: 3; each page = 1 search)")
+    rp.add_argument("--json", action="store_true", help="Raw JSON output")
+
     args = parser.parse_args()
 
     if args.command == "flights":
@@ -242,6 +336,8 @@ def main():
         cmd_search(args)
     elif args.command == "maps":
         cmd_maps(args)
+    elif args.command == "reviews":
+        cmd_reviews(args)
 
 
 if __name__ == "__main__":

@@ -62,6 +62,12 @@ python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py search "best noise cancel
 python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py maps "restaurants near New York"
 ```
 
+### Google Maps reviews (review timeline)
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py reviews "<venue name> <suburb>" --max 5
+```
+
 ## Flight search arguments
 
 | Argument | Description |
@@ -105,6 +111,47 @@ These notes save future agents from trial-and-error:
 | --num N | Number of results (search only, default: 10) |
 | --location | Location string (search) or lat,lng (maps) |
 | --json | Raw JSON output |
+
+## Google Maps reviews (review timeline)
+
+A venue's review timeline — each review's date, star rating, and text — comes from the `google_maps_reviews` engine, which is keyed by a place `data_id` rather than a name. The `reviews` subcommand runs the full chain: `maps` → `data_id` → `google_maps_reviews`, paginating newest-first by default.
+
+```bash
+# By place name (resolves data_id via Maps first, then pages the reviews)
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py reviews "<venue name> <suburb>" --max 5
+
+# By data_id directly (skips the lookup, saving 1 search)
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py reviews "0x...:0x..." --sort newestFirst
+```
+
+| Argument | Description |
+|---|---|
+| place | Place name (resolved via Maps) **or** a `data_id` (`0x...:0x...`) |
+| --sort | `newestFirst` (default), `mostRelevant`, `highestRating`, `lowestRating` |
+| --max N | Max review pages to fetch (default: 3; each page = 1 search) |
+| --json | Raw JSON: `{data_id, place, reviews[]}` |
+
+### The chain, by hand
+
+The subcommand wraps these two steps; run them manually only when you need the raw response.
+
+1. **Find the place and its `data_id`.** The `maps` subcommand with `--json` returns the raw API response, where `local_results[0]` carries `data_id` (plus `place_id`, `rating`, and the `reviews` count). A strong single match instead arrives as `place_results`.
+
+   ```bash
+   python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py maps "<venue name> <suburb>" --json
+   # local_results[0].data_id  ->  0x...:0x...
+   ```
+
+2. **Pull reviews via the reviews engine**, paginating for older reviews:
+
+   ```bash
+   SERPAPI_KEY=$(python3 -c "import configparser,pathlib; cp=configparser.ConfigParser(); cp.read(pathlib.Path.home()/'.claude/skills/config.ini'); print(cp['serpapi']['api_key'])")
+   curl -s "https://serpapi.com/search.json?engine=google_maps_reviews&data_id=<data_id>&sort_by=newestFirst&api_key=$SERPAPI_KEY"
+   # reviews[] each with iso_date + rating + snippet + user.name
+   # serpapi_pagination.next_page_token  ->  pass as next_page_token= for the next (older) page
+   ```
+
+A full timeline needs many pages; each page is 1 search against the monthly quota, so a deep walk-back is expensive. Raise `--max` deliberately.
 
 ## Google Hotels (curl-based)
 
