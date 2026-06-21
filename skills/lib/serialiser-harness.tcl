@@ -193,7 +193,11 @@ proc serialiser::run {skillPath cdp skillArgs} {
                 }
             }
         }
-        ::safe::interpConfigure $interp -accessPath $acc -autoPath $acc
+        # -autoPath is Tcl 8.7+; on 8.6 the access-path dirs are auto-loadable
+        # from -accessPath alone, so fall back to that form.
+        if {[catch {::safe::interpConfigure $interp -accessPath $acc -autoPath $acc}]} {
+            ::safe::interpConfigure $interp -accessPath $acc
+        }
 
         # The Safe Base removes stdin/stdout/stderr from the child, but a skill's
         # diagnostics (the `log` verb, and bare `puts stderr` in skills carried
