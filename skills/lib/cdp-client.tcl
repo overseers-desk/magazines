@@ -67,11 +67,14 @@ proc cdp::connect {{url ""}} {
 }
 
 oo::class create cdp::Client {
-    variable Sock NextId EventBuffer LogCb
+    variable Sock NextId EventBuffer LogCb Closing
 
     constructor {url} {
         set NextId 0
         set EventBuffer {}
+        # Set by close{} so a reader parked in ReadN's nested vwait, once woken,
+        # raises "socket closed" instead of reading a torn-down channel.
+        set Closing 0
         # Optional wire-log sink: a command prefix invoked `{*}$LogCb <dir> <data>`
         # for every frame sent (dir to-browser) and received (dir from-browser).
         # Empty (standalone) means no logging, byte-for-byte the behaviour before
@@ -229,11 +232,16 @@ oo::class create cdp::Client {
                 if {[eof $Sock]} { error "CDP socket closed mid-frame" }
                 fileevent $Sock readable [list set $wv 1]
                 vwait $wv
+                # close{} wakes this vwait by setting the same var (closing the socket
+                # alone removes the fileevent without firing it, which would hang us).
+                if {$Closing || $Sock eq ""} { error "CDP socket closed during read" }
                 fileevent $Sock readable {}
             }
         } finally {
-            fileevent $Sock readable {}
-            fconfigure $Sock -blocking 1
+            if {$Sock ne ""} {
+                fileevent $Sock readable {}
+                fconfigure $Sock -blocking 1
+            }
         }
         return $buf
     }
@@ -384,6 +392,12 @@ oo::class create cdp::Client {
 
     method close {} {
         if {[info exists Sock] && $Sock ne ""} {
+            set Closing 1
+            # Wake a reader parked in ReadN's nested vwait: ::close removes the
+            # socket's readable fileevent without firing it, so the parked vwait
+            # (waiting on this var) would hang forever. Setting it lets ReadN return
+            # and see Closing. Harmless when no reader is parked.
+            catch { set [namespace current]::readwait close }
             catch { puts -nonewline $Sock [binary format cc 0x88 0]; flush $Sock }
             catch { ::close $Sock }
             set Sock ""
