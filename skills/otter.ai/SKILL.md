@@ -14,10 +14,17 @@ anti-ban pacing enforced). Invoke by reference:
 `browser-serialiser otter.ai/otter-cdp <subcommand> <args>`. Each launch takes
 ~15s for the browser.
 
-`capture` is different: it is an inline workflow (this skill holds Bash, Read,
-Write) that *calls* the browser subcommands for the Otter steps and does the
-classification, correction, file-writing, and committing itself. Run it directly,
-not in a subagent.
+`capture` is different: it is a workflow (this skill holds Bash, Read, Write) that
+*calls* the browser subcommands for the Otter steps and does the classification,
+correction, file-writing, and committing itself. The classification and correction
+want Sonnet, so the model the workflow runs under matters:
+
+- **Main session is Sonnet**: run `capture` directly, inline.
+- **Main session is Opus** (or any non-Sonnet model): delegate the whole `capture`
+  workflow to a Sonnet subagent via the Agent tool (`model: sonnet`), passing the
+  user-facing request (the mode — no arg, `N` days, or an `<otid>`) and a pointer to
+  this skill so the subagent reads the steps below and runs them itself. Capturing
+  inline under Opus is the case to avoid.
 
 ## Prerequisites
 
