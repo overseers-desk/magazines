@@ -41,6 +41,9 @@ namespace eval serialiser {
 
     # Per-run policy + bookkeeping state, a dict. Reset by serialiser::run.
     variable Run {}
+
+    # Monotonic counter for Sleep's per-call wait variable (see serialiser::Sleep).
+    variable SleepSeq 0
 }
 
 # ---------------------------------------------------------------------------
@@ -479,10 +482,17 @@ proc serialiser::Sleep {ms} {
         after $ms
         return
     }
-    set wv [namespace current]::sleepwait
+    # Per-call wait variable. Under the overseer, one event loop runs several job
+    # coroutines, and this vwait re-enters it, so a second skill's Sleep can be in
+    # flight at the same moment. A single shared variable would let the first timer
+    # to fire release every parked sleeper; a unique name per call keeps each dwell
+    # waiting only on its own timer.
+    variable SleepSeq
+    set wv [namespace current]::sleepwait[incr SleepSeq]
     set tok [after $ms [list set $wv 1]]
     vwait $wv
     after cancel $tok
+    unset -nocomplain $wv
 }
 
 # The site host suffix the view-before-fetch table is keyed on. Returns the
