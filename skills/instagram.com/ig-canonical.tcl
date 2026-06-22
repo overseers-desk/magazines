@@ -53,6 +53,10 @@ proc user_pk {u} {
     set id [dstr $u id]; if {$id ne ""} { return $id }
     return ""
 }
+
+# The account-level long id (fbid_v2 / "17841…" Graph id), carried beside the
+# classic pk on every inbox user object. Empty when absent.
+proc user_fbid {u} { return [dstr $u fbid_v2] }
 # Why an IG response carried no payload. A failure body leads with a `message`
 # (login_required / checkpoint_required / feedback_required) and a `status`; a
 # missing-field fault appends this so it says WHY, not merely that the field was
@@ -246,14 +250,20 @@ proc inbox_thread_input {t viewerId} {
         if {[regexp {^\d+$} $ts] && $lastActivity > $ts} { set unseen 1 }
     }
     set userIds {}
-    foreach u $users { set pk [user_pk $u]; if {$pk ne "" && $pk ne "undefined"} { lappend userIds $pk } }
+    set userFbids {}
+    foreach u $users {
+        set pk [user_pk $u]
+        if {$pk ne "" && $pk ne "undefined"} { lappend userIds $pk; lappend userFbids [user_fbid $u] }
+    }
     return [dict create \
         thread_id    [dstr $t thread_id] \
         thread_v2_id [dstr $t thread_v2_id] \
         is_group     [dbool $t is_group] \
         last_activity_iso [micros_to_iso $lastActivity] \
         user_id      [user_pk $u0] \
+        user_fbid    [user_fbid $u0] \
         user_ids     $userIds \
+        user_fbids   $userFbids \
         username     [dstr $u0 username] \
         full_name    [dstr $u0 full_name] \
         unseen       $unseen]
@@ -278,6 +288,13 @@ proc parse_inbox {res} {
         set tid [dstr $t thread_id]
         if {$tid eq ""} { continue }
         set userIds [dict_get_or $t user_ids {}]
+        set userFbids [dict_get_or $t user_fbids {}]
+        # pk_int(user) -> fbid_v2, from the parallel lists inbox_thread_input built.
+        set pk2fbid [dict create]
+        foreach x $userIds fb $userFbids {
+            set p [pk_int $x]
+            if {$p ne "" && $fb ne "" && ![dict exists $pk2fbid $p]} { dict set pk2fbid $p $fb }
+        }
         set uid [dstr $t user_id]
         if {$uid ne ""} {
             set primaryPk [pk_int $uid]
@@ -287,12 +304,14 @@ proc parse_inbox {res} {
             set primaryPk ""
         }
         set memberPks {}
+        set memberFbids {}
         set memberSeen [dict create]
         foreach x $userIds {
             set p [pk_int $x]
             # JS .filter(Boolean): a falsy parse (NaN or 0) is dropped.
             if {$p ne "" && $p != 0 && ![dict exists $memberSeen $p]} {
                 dict set memberSeen $p 1; lappend memberPks $p
+                lappend memberFbids [dict_get_or $pk2fbid $p ""]
             }
         }
         lappend tj [json::write object \
@@ -304,7 +323,9 @@ proc parse_inbox {res} {
             username        [j_strornull [dstr $t username]] \
             full_name       [j_strornull [dstr $t full_name]] \
             primaryPk       [j_intornull $primaryPk] \
-            memberPks       [j_arrint $memberPks]]
+            primaryFbid     [j_strornull [dstr $t user_fbid]] \
+            memberPks       [j_arrint $memberPks] \
+            memberFbids     [j_arrstr $memberFbids]]
     }
     return [json::write object \
         viewerId [j_intornull $viewerId] \
