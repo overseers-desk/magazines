@@ -1,6 +1,6 @@
 ---
 name: linkedin
-description: "search people, read profiles, check keywords, verify connect eligibility, find role/company. Send connection invites or direct messages to connections."
+description: "search people, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Send connection invites or direct messages to connections."
 argument-hint: <name, URL, or search terms>
 ---
 
@@ -67,6 +67,14 @@ browser-serialiser linkedin.com/parse-profile USERNAME
 ```
 
 `USERNAME` is the vanity slug or a full profile URL. Emits a structured YAML record: name, vanity slug, the profile URN (`urn:li:fsd_profile:ACoAA...`, the owner's, found as the dominant id in the page's data payload across LinkedIn's several serialisations of it), headline, location, current company, and a capped list of evidence text blocks. Redirect stdout to `<slug>.yaml` to save it. The legacy numeric form (`urn:li:member:NNN`) is not emitted: on a profile page its most-frequent value is the signed-in viewer's own id, not the owner. Deep career history, About, and skills are lazy-mounted and not reliably present in the dump (see BUGS.md), so they are not extracted as structured fields.
+
+## 2a. Parse a job posting
+
+```bash
+browser-serialiser linkedin.com/parse-job <job-id-or-url>
+```
+
+`<job-id-or-url>` is a numeric job id, a `/jobs/view/<id>` URL, or any URL carrying `currentJobId=<id>`. The script navigates to the guest job-posting fragment (`jobs-guest/jobs/api/jobPosting/<id>`), whose class names are stable and whose description is the full text — so it does not depend on the logged-in SPA's randomised classes and is not truncated by the "… more" fold. Emits a YAML record: `job_id`, `url` (the human `/jobs/view/` link), `title`, `company`, `location`, `posted`, `seniority`, `employment_type`, `job_function`, `industries`, and the full `description` as a literal block scalar. Redirect stdout to `<id>.yaml` to save it. Falls back to JobPosting JSON-LD (present on a logged-out full job page) and then to the og:/<title> meta tags when the guest fragment is unavailable.
 
 ## 3. Keyword search (optional)
 
