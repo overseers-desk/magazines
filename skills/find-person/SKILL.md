@@ -16,7 +16,8 @@ This skill orchestrates lookups; it does not perform browser fetches itself. Eac
 - `facebook.com` - Facebook search and profile reads
 - `instagram.com` - for people whose Instagram is a public-facing channel
 - built-in WebSearch - general web search and email reverse lookup
-- `email-check` - local IMAP search via mu, when the user has prior correspondence to consult
+
+- email-check: - local IMAP search via [mailroom](https://github.com/SmartLayer/mailroom/) or mu, when the user has prior correspondence to consult
 
 Parallel dispatch: launch one haiku subagent per applicable outlet for the same target in a single message (multiple Agent tool uses in one block). Each subagent runs only its assigned outlet's lookup and returns its candidate(s) or a "no match" reply. Sonnet receives the bundle and performs identification (§1.3-§1.4). Cross-outlet rate-limit concerns belong inside each underlying skill, not at this orchestration layer.
 
@@ -47,7 +48,7 @@ If the only seed is a first name with no surname, no employer, and no unique rol
 
 ### 1.1 Local contact graph first, then parallel fan-out
 
-If a local contact graph is available, query it first by email or name; a hit there is free and often decisive, and your global instructions say how to reach it. When it is absent or does not resolve the seed, fan out: dispatch one haiku subagent per applicable outlet in a single message. Each subagent receives the seed and the per-outlet query pattern below, runs only its outlet, and returns the candidate(s) or a "no match" reply. Sonnet collects the bundle and performs §1.3 verification across all replies together - a name match in one outlet may be confirmed by a corroborating signal in another.
+If a local contact graph is available (~/code/contact-graph), query it first by email or name; a hit there is free and often decisive, and your global instructions say how to reach it. When it is absent or does not resolve the seed, fan out: dispatch one haiku subagent per applicable outlet in a single message. Each subagent receives the seed and the per-outlet query pattern below, runs only its outlet, and returns the candidate(s) or a "no match" reply. Sonnet collects the bundle and performs §1.3 verification across all replies together - a name match in one outlet may be confirmed by a corroborating signal in another.
 
 | Outlet | Query pattern |
 |---|---|
