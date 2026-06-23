@@ -1,7 +1,7 @@
 ---
 name: edit-email
-description: Polish or compose an email so it reads as a person wrote it, not a project: fixes AI tells (to-do lists, session dates, smuggled inferences, buried lead) and applies a standing like-human-do pass. Flags add director register and voice impersonation. Invoke this automatically after you present any email draft, by using this skill to edit it and explain to the user they can stop and didn't have to wait.
-argument-hint: [--director] [--voice [NAME]]
+description: Polish or compose an email so it reads as a person wrote it, not a project: fixes AI tells (to-do lists, session dates, smuggled inferences, buried lead) and applies a standing like-human-do pass. Flags select a register (how the mail is pitched to its recipient) and a voice (whose hand it is written in). Invoke this automatically after you present any email draft, by using this skill to edit it and explain to the user they can stop and didn't have to wait.
+argument-hint: [--register NAME] [--voice [NAME]]
 ---
 
 # edit-email
@@ -20,6 +20,17 @@ Every email this skill touches passes through `${CLAUDE_PLUGIN_ROOT}/skills/edit
 
 It is compose-time work, done by you the caller before you assemble the draft, because the thing it fixes (an ask wrapped in warmth, a business takeaway where a real shared moment belongs) lives in the structure of the email, and the subeditor, polishing prose, cannot remove it. The subeditor remains the backstop, not the cure.
 
+## Voice and register: the two axes
+
+Two independent dimensions shape an outgoing email, and the flags select a cell in their matrix.
+
+- **Voice** (`--voice NAME`): who is writing. The author's enduring style, the same whoever they write to. Voice guides are descriptor-named, never personal names, so the repo carries no identity in its filenames: `voice-warm-proprietor.md`, `voice-precise-proprietor.md`. A voice guide is about its author, so it may name that person inside the file; the filename and flag stay a descriptor.
+- **Register** (`--register NAME`): how the mail is pitched to its recipient. The formality, the sentence complexity, and the way decisions and asks land, set by the relationship: staff, lawyer, customer, supplier, peer. Register guides are `register-<name>.md`.
+
+The cell is the product: the author's voice rendered in the register the relationship calls for. The two compose, and where a voice guide states its own override for a relationship, the voice wins. Either axis is optional: voice alone impersonates with no relationship pitch, register alone applies relationship rules to a cold draft, neither is the plain cold-reader pass.
+
+Only the staff register is authored so far (`register-staff.md`). Others are added when first needed; naming a register that has no file yet means there is nothing to load, so author the file first.
+
 ## Procedure
 
 1. Apply like-human-do first, as silent working before you write a word of the draft. Take the passes in order:
@@ -28,7 +39,7 @@ It is compose-time work, done by you the caller before you assemble the draft, b
    - **Does it still do its job.** Before you assemble, check the draft against the original: the reader must be at least as likely to act. If warmth or brevity dropped what earned the action, restore it.
    Then assemble the draft as a text block with the YAML-style header preamble (`to:`, `cc:`, `from:`, `subject:`) and the body below.
 1a. If the draft relies on prior correspondence (a reply, or a fresh message that picks up an unresolved ask from earlier mail), assemble a THREAD block of the relevant prior messages. One issue often spans several threads: include every thread the draft draws on, not only the one the headers say it replies to. Each message in the block carries its own from/date/subject and body. The subeditor cannot fetch mail; whatever the cold reader needs to judge whether the draft omits a fact the recipient is waiting on must be in this block. If the draft stands on its own, the THREAD value is `(none)`.
-2. Spawn a fresh-context agent. Use the prompt template at `${CLAUDE_PLUGIN_ROOT}/skills/edit-email/editor-prompt.md`; substitute `$RULEBOOK_PATH` with the rulebook path, `$EMAIL` with the draft text, `$THREAD` with the THREAD block (or `(none)`), `$REGISTER` with the register tag (`general` by default; `director-to-staff` when the caller invokes with `--director`), and `$VOICE_GUIDE` with the content of the named voice guide file (`(none)` when `--voice` is not given; otherwise the file named by `--voice`, resolved as `voice-<NAME>.md`, defaulting to `voice-warm-proprietor.md` when `--voice` is given with no name). When `--voice` is given, use Opus as the agent model. Pass the result as the agent prompt.
+2. Spawn a fresh-context agent. Use the prompt template at `${CLAUDE_PLUGIN_ROOT}/skills/edit-email/editor-prompt.md`; substitute `$RULEBOOK_PATH` with the rulebook path, `$EMAIL` with the draft text, `$THREAD` with the THREAD block (or `(none)`), `$REGISTER_GUIDE` with the content of the register guide file (`(none)` by default; otherwise the file named by `--register`, resolved as `register-<NAME>.md`), and `$VOICE_GUIDE` with the content of the named voice guide file (`(none)` when `--voice` is not given; otherwise the file named by `--voice`, resolved as `voice-<NAME>.md`, defaulting to `voice-warm-proprietor.md` when `--voice` is given with no name). When `--voice` is given, use Opus as the agent model. Pass the result as the agent prompt.
 3. When `$VOICE_GUIDE` is `(none)`: the agent is a cold subeditor. It returns READING (paragraph-by-paragraph log of how the draft landed), POLISHED (mechanical fixes applied), and QUERIES (rule citations for things needing the brief).
    When `$VOICE_GUIDE` has content: the agent is an impersonator. It returns READING (first-person friction notes as the named author), POLISHED (the email as the author would send it), and QUERIES (what the author would need to know to finalise it herself).
 4. Read READING first. Compare each friction point or interpretation against what the draft meant. Fix the draft based on what the agent surfaces. Resolve queries from your conversation context, asking the user if the brief does not answer. Do not invent.
@@ -43,6 +54,8 @@ It is compose-time work, done by you the caller before you assemble the draft, b
 - `email-rulebook.md` — the rules
 - `editor-prompt.md` — the subeditor prompt template
 - `voice-warm-proprietor.md` — the default voice guide, used when `--voice` is given; derived from Liansu Yu's sent mail corpus
+- `voice-precise-proprietor.md` — the managing-director voice (scaffold; to be derived from his sent-mail corpus)
+- `register-staff.md` — the staff register: how mail is pitched writing down to staff
 
 ## Why a fresh-context subeditor
 

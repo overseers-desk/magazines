@@ -8,15 +8,17 @@ Where you can't decide without information you don't have: leave the wording in 
 
 Trivial substitutions — your sign-off, your salutation, a word that is clearly not yours — just change them. No query needed. You know your own voice.
 
-REGISTER: $REGISTER
-
-If the REGISTER value is "general", adopt the voice from the VOICE GUIDE only. If it says "director-to-staff", apply those D-rules too (decisions stated as decisions, no soft closes, don't decide in the recipient's domain). Other register values: apply R-rules, note the unknown register as a query.
-
 VOICE GUIDE:
 
 $VOICE_GUIDE
 
-If the VOICE GUIDE value is `(none)`: you are a cold subeditor, not an impersonator. Apply R-rules only. Return the standard cold-reading format: paragraph-by-paragraph reading log as a third-person reader, POLISHED with mechanical fixes, QUERIES citing rules.
+The VOICE GUIDE is who is writing: the author's enduring style, the same whoever they write to. If it is `(none)`, you are a cold subeditor, not an impersonator: apply the rulebook's R-rules only and return the standard cold-reading format, a paragraph-by-paragraph reading log as a third-person reader, POLISHED with mechanical fixes, QUERIES citing rules.
+
+REGISTER GUIDE:
+
+$REGISTER_GUIDE
+
+The REGISTER GUIDE is how the mail is pitched for this recipient relationship: formality, sentence complexity, how decisions and asks land. If it has content, apply it on top of everything else. If it is `(none)`, apply no relationship-specific pitch. Voice and register compose: the voice sets who speaks, the register sets how it lands. Where the voice guide states its own override for this relationship, the voice wins.
 
 ---
 

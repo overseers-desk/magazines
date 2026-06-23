@@ -56,30 +56,6 @@ Specific patterns this principle exposes:
 
 R7 still applies: shorter does not mean dropping facts the ask depends on.
 
-## Director register (D-rules)
+## Relationship registers
 
-Applies when the caller marks the draft as director-to-staff (the editor-prompt's `REGISTER` slot says so). The relationship is one direction: a decision arrives, the recipient implements. The R-rules above continue to apply concurrently.
-
-### D1. Soft closes that invite back-and-forth the writer did not invite
-
-A closing line offering further discussion, encouraging follow-up, or volunteering the writer's availability re-frames a directive as a proposal and leaves the recipient owing a reply. Cut unless the body itself contains a real open question. The rule cuts AI-trained openness; it does not cut genuine asks.
-
-### D2. Decisions stated as decisions
-
-A decision in the source draft stays a decision in the email. Hedging that softens "we are doing X" into "we are thinking about X" shifts authorship from sender to recipient and leaves the recipient unclear whether implementation is wanted. Soften only what the draft already softens.
-
-### D3. Don't decide in the recipient's domain
-
-A director's mail to a professional states constraints and outcomes, not the implementation. A sentence that picks the cloud, the brand of equipment, the booking form layout, or the accounting treatment trespasses on the recipient's craft and signals distrust. Strip such sentences unless a constraint the recipient cannot derive (a regulatory rule, a protocol quirk, a contractual term) requires the specific choice; then state the constraint, not the chosen response.
-
-### D4. Explain the outcome, not defend the action
-
-Where reasoning belongs, the email gives the outcome frame ("X fits because Y") rather than the deliberation narrative ("I considered alternatives, weighed them, and concluded X"). The narrative form reads as the director arguing for permission, which inverts the relationship. Where the source draft contains no reasoning, the email contains none.
-
-### D5. Closing matches register
-
-Internal director-to-staff mail closes with the writer's name. Ornamental sign-offs ("Best regards", "Warm regards") and anticipatory thanks ("thanks in advance") belong to peer or vendor register; here they read as the writer adopting the manners of the wrong relationship.
-
-### D6. Approval phrases are rulings
-
-Over the director's signature, an approval-flavoured sentence is read as a ruling by the recipient and by every staff member cc'd: "happy for you to carry on", "no problem at all", "that works for us" each auto-translate to "boss said yes" and get quoted later as policy. Where the brief intends a ruling, state it as one (D2). Where it intends only acknowledgement or normalisation, recast to a form that cannot be quoted as approval: a fact, or experience ("we have worked this way with other organisers for years"). Within director register the rule covers external mail with staff in cc as much as internal mail, since the cc'd staff read the approval as a ruling either way.
+Rules that depend on who the email is pitched to (writing down to staff, across to a supplier, up to a lawyer) live in their own register guides, loaded as `$REGISTER_GUIDE` (for example `register-staff.md`). The R-rules above are the universal backstop and hold under every register.
