@@ -20,7 +20,7 @@ marketplace: `.claude-plugin/` holds `plugin.json` and `marketplace.json` (sourc
   [`BROWSER.md`](skills/serialised-browsing/BROWSER.md) is beside it. Invoke a skill by
   reference through `browser-serialiser`; do not write a raw `flock ... chromium`
   invocation inline. The same harness also runs under an external host, the
-  overseer (a per-desktop daemon in a separate project); it is a compatibility
+  overseer (a desktop application in a separate project); it is a compatibility
   target, not a runtime dependency, and standalone `browser-serialiser` needs no
   overseer installed (see COMMAND-SURFACE.md, "Why the sandbox holds with no
   overseer present").

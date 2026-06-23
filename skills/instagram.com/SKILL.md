@@ -212,6 +212,7 @@ Operational notes:
 
 ## What this skill does NOT do (by design)
 
+- It does not read an account's join date or age. Instagram's *About This Account* (date joined) is mobile-app-only; the web surface `browser-serialiser` drives does not expose it (a web fetch redirects to login), so it cannot be retrieved here. Estimate from the oldest visible post, or read it in the Instagram mobile app.
 - It does not scrape individual post captions in bulk by opening each permalink. Recent post captions arrive via the feed API in §6; for older posts beyond pagination depth, a permalink fetch would be needed.
 - It does not handle hashtag or place pages, only people search and profiles. The topsearch endpoint already returns hashtags and places for discovery; dedicated pages would be a separate addition.
 - It does not attempt to defeat rate limits or checkpoints. Pace requests, a few per minute, not a burst.
