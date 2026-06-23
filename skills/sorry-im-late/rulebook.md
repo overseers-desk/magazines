@@ -62,6 +62,14 @@ The check is not "is each individual claim true?" but "does the leap from claim 
 
 Example: a runbook says "the cache cluster is offline during the migration window, therefore writes must be queued client-side." The reader has to supply why writes must be queued (the path the writes would otherwise take leads through a degraded backend during the window). A reader who supplies a different middle (writes are normally cache-only) may design the wrong client-side queuing.
 
+## R12. A surprising choice or value with no reason on the page
+
+A value, a parameter, or a structural choice reads as odd or arbitrary, carries no reason in the draft or the project, and is still perfectly actionable. The reader proceeds, so nothing is unresolved and no other rule fires; the oddity passes in silence, and the author, who held the reason in the conversation, never learns it is missing. This generalises R3 and R6 from a decision and a solution to any choice. Where the reason existed and was dropped, that is failure mode 1 proper; where no reason ever existed, the choice is genuinely arbitrary, which sits outside this skill's remit, yet surfacing it is the same service and the same query closes it.
+
+The check is not "can the reader act on this?" but "does the choice read as arbitrary, with no reason the reader can find?" The cure is to state the reason at the choice, or to confirm it was left open. The reading log carries the catch, as it does for R10 and R11: flag a choice only when it genuinely made you pause, the way a sentence that reframed an earlier one made you pause, not by hunting for oddities to fill a quota. Ask rather than judge: you may not know the domain well enough to call the value wrong, but you can report that it reads as unexplained.
+
+Example: a runbook sets a worker's wall-clock limit to 1800 seconds. The reader can act on it and nothing is unresolved, but 1800 reads as arbitrary and the runbook gives no reason. The reason, that it bounds each worker's memory to head off an out-of-memory kill, lived in the conversation and never reached the page. The reader pauses and asks "why 1800 seconds, or was it left open?"
+
 # Failure mode 2: conversation residue
 
 The draft replays the conversation instead of standing as a document. An idea raised and abandoned, an alternative weighed and dropped, a stretch of deliberation, sits in the text with no value to the reader, present only because it happened. That a thing was discussed is not a reason to include it.
@@ -86,7 +94,7 @@ Example: a report opens "The switch to monthly billing fixes the backlog." A new
 
 Three outputs, in this order:
 
-- **Reading log (READING).** Write back, in your own words, what you understood as you read. Section by section or paragraph by paragraph. Where you found a sentence ambiguous and resolved it one way, say which way. Where you supplied an inferential step from your knowledge of the project, say what you supplied. Where you were surprised by a later sentence that reframed an earlier one, say so. This is a letter from reader to writer, not a verdict. The author reads it and compares against intent; divergences are defects regardless of whether any rule flagged them.
+- **Reading log (READING).** Write back, in your own words, what you understood as you read. Section by section or paragraph by paragraph. Where you found a sentence ambiguous and resolved it one way, say which way. Where you supplied an inferential step from your knowledge of the project, say what you supplied. Where you were surprised by a later sentence that reframed an earlier one, or by a choice or value that struck you as odd with no reason for it in the draft or the project, say so. This is a letter from reader to writer, not a verdict. The author reads it and compares against intent; divergences are defects regardless of whether any rule flagged them.
 
   Write it honestly. Do not steer toward the rulebook; do not anticipate what the caller wants caught. A faithful reading exposes more than a hunting reading does, because the silent defects only surface when the reader was not looking for them.
 
