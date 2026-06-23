@@ -31,3 +31,4 @@ claude --plugin-dir /path/to/overseer-toolbox
 - **Logged-in sessions.** Browser skills expect an existing signed-in Chromium session for the target site. If a fetch returns a sign-in page, the session has expired; log in and retry.
 
 The serialised-browsing skill documents the harness, its [policed command surface](skills/serialised-browsing/COMMAND-SURFACE.md) (the contract a new browser skill is written against), and the `--dump`/`--pdf` render modes.
+
