@@ -90,6 +90,31 @@ proc ig_fail_reason {d} {
 # fetch. (The standalone skills inline the same constant; this is the shared home
 # for the type-B primitives that source ig-canonical.)
 proc ig_api_headers {} { return [list X-IG-App-ID 936619743392459] }
+# After a nav to instagram.com, assert the profile holds a live IG session before
+# touching the private API. The harness catches a redirect to /accounts/login and a
+# 401/403 from `api`, but a logged-out viewer is also served the SPA shell at the
+# bare instagram.com URL (200, no redirect) with the sign-in form hydrated client-
+# side; the api then returns 200 with a body that has no `inbox.threads` and no
+# `message`, so the missing-field fault surfaces with no IG reason. Catch that
+# case here by reading the DOM, and lead the error with `login_wall:` so the
+# canonical-envelope fault shape becomes login_wall (fault_shape_of) instead of
+# unrecognised. Call straight after `nav`, before any `api`.
+proc ig_assert_logged_in {} {
+    if {[catch {dump} html]} { return }   ;# dump unavailable -> let api surface it
+    # IG's SPA shell hydrates the same instagram.com URL for either viewer state -
+    # no /accounts/login redirect, no server-rendered login form - so the
+    # logged-out case is detected by the inline page config the SPA reads: a
+    # logged-out viewer carries "userId":"0" / "viewerId":"0" (parallels Facebook's
+    # USER_ID:0). Treat the page as logged in only when an inline "userId" /
+    # "viewerId" carries a non-zero numeric value; if every match is 0, raise the
+    # login_wall fault so the canonical envelope reports it as such.
+    set ids [regexp -inline -all -nocase {"(?:user_?id|viewer_?id)"\s*:\s*\"?([0-9]+)} $html]
+    set haveAny 0; set haveLive 0
+    foreach {whole id} $ids { set haveAny 1; if {$id ne "0"} { set haveLive 1; break } }
+    if {$haveAny && !$haveLive} {
+        error "login_wall: not logged in to Instagram - open a staff browsing session from the overseer and sign in, then retry"
+    }
+}
 # IG µs since epoch -> ISO-8601 with millis (parity with lib/ig.js microsToIso).
 # Returns "" when there is no timestamp; the caller emits JSON null for "".
 proc micros_to_iso {us} {
@@ -432,7 +457,11 @@ proc fault_shape_of {detail} {
     return unrecognised
 }
 proc envelope_fault {detail} {
-    set f [json::write object shape [json::write string [fault_shape_of $detail]] \
+    set shape [fault_shape_of $detail]
+    # Strip the recognised "<shape>: " tag from the detail so it stays human
+    # (the shape carries the discriminator; doubling it in the detail is just noise).
+    if {$shape ne "unrecognised"} { regsub "^${shape}:\\s+" $detail "" detail }
+    set f [json::write object shape [json::write string $shape] \
                                 detail [json::write string [string range $detail 0 200]]]
     return [json::write object result null cursor null hasMore false fault $f]
 }
