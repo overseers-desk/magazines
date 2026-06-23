@@ -14,6 +14,26 @@ proc serialiser_run {skillArgs} {
     nav $url --wait 10
     if {[dict get [state] terminal] ne ""} { emit "error\twall"; return }
 
+    # The account-level long id (fbid_v2 / the "17841…" Graph id), the id the CRM
+    # keys Instagram accounts by, mirroring what the inbox surfaces per user. The
+    # Business Suite page bootstraps it in its inline state; probe the document for
+    # the first fbid_v2 (or the instagram actor id the page exposes under another
+    # key). Emitted as a leading "# fbid_v2<TAB><id>" header so a scraped row set is
+    # self-identifying — attributable to the long-keyed account without a second
+    # lookup. "" when the page does not expose it (the header is still emitted).
+    set fbidJs {(function(){
+        var html=document.documentElement.innerHTML;
+        var keys=['fbid_v2','instagram_actor_id','ig_user_id','instagram_business_account_id'];
+        for(var k=0;k<keys.length;k++){
+            var m=html.match(new RegExp('"'+keys[k]+'"\\s*:\\s*"?(\\d{6,})'));
+            if(m){return m[1];}
+        }
+        return '';
+    })()}
+    set fbid ""
+    catch {set fbid [string trim [eval $fbidJs]]}
+    log "business-suite fbid_v2=$fbid"
+
     array set seen {}
     set scrapeJs {(function(){
         var rows=Array.from(document.querySelectorAll('tr[role=row]'));
@@ -54,5 +74,7 @@ proc serialiser_run {skillArgs} {
 
     set lines {}
     foreach k [array names seen] { lappend lines $seen($k) }
-    emit [join [lsort $lines] "\n"]
+    # Lead with the account's long id so the row block is attributable, then the
+    # date-sorted TSV rows (the metric columns the table carried).
+    emit "# fbid_v2\t$fbid\n[join [lsort $lines] "\n"]"
 }

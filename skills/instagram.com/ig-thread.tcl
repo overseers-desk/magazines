@@ -24,6 +24,10 @@ proc pb_ig_thread {a} {
     set cursor ""
     set complete 0
     set page 0
+    # senderPk(string) -> account-level fbid_v2, accumulated from thread.users[]
+    # across pages (the same user object the inbox reads fbid_v2 from). The connector
+    # re-keys each sender's short pk to its long id with this.
+    set pk2fbid [dict create]
     while 1 {
         set q "visual_message_return_type=unseen&direction=older&limit=$limit"
         if {$cursor ne ""} { append q "&cursor=$cursor" }
@@ -33,6 +37,11 @@ proc pb_ig_thread {a} {
             error "no thread.items in response[expr {$why ne "" ? " (IG: $why)" : ""}]"
         }
         set thread [dict get $data thread]
+        foreach u [dict_get_or $thread users {}] {
+            set upk [pk_int [user_pk $u]]
+            set ufb [user_fbid $u]
+            if {$upk ne "" && $ufb ne "" && ![dict exists $pk2fbid $upk]} { dict set pk2fbid $upk $ufb }
+        }
         set added 0
         foreach it [dict get $thread items] {
             set iid [dstr $it item_id]
@@ -60,7 +69,7 @@ proc pb_ig_thread {a} {
     # Raw page items are a debugging concern: log them to the overseer, never into
     # the result the engine maps to rows (parity with ig-thread.js session.log).
     log "ig-thread.raw igThreadId=$igThreadId count=[llength $rawItems]"
-    set result [parse_thread $igThreadId [dict create messages $msgs complete $complete]]
+    set result [parse_thread $igThreadId [dict create messages $msgs complete $complete] $pk2fbid]
     return [dict create result $result cursor "" hasMore 0]
 }
 

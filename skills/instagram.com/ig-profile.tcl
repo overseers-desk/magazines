@@ -214,7 +214,7 @@ proc extract_json_fields_for_handle {html handle} {
         lassign $mIdx ms me
         set wstart [expr {$ms - 3000}]; if {$wstart < 0} { set wstart 0 }
         set window [string range $html $wstart [expr {$me + 5000}]]
-        foreach field {biography full_name external_url category_name business_category_name} {
+        foreach field {biography full_name external_url category_name business_category_name fbid_v2} {
             set fpat "\"$field\"\\s*:\\s*\"(\[^\"\]*?)\""
             if {![dict exists $out $field] && [regexp $fpat $window -> raw]} {
                 dict set out $field [list str [decode_json_string $raw]]
@@ -267,6 +267,11 @@ proc parse_profile_superset {handle html} {
 
     set pk ""
     if {[regexp {"profile_id":"([0-9]+)"} $html -> p]} { set pk $p }
+    # The account-level fbid_v2 (the long "17841…" Graph id): preferred from the
+    # hydrated fields near the handle, else the first one on the page. Mirrors the
+    # inbox's account-level id; "" when the page does not hydrate it.
+    set fbid_v2 ""
+    if {[regexp {"fbid_v2":"?([0-9]+)"?} $html -> fb]} { set fbid_v2 $fb }
 
     # Counts: prefer the live precise rendered header, fall back to the rounded
     # og:description triple (also kept verbatim as *_raw for skill callers).
@@ -294,11 +299,15 @@ proc parse_profile_superset {handle html} {
     set external_url [html_external_url $html]
     set caption_snippet [parse_recent_caption $metaDesc]
     set extra [expr {$username ne "" ? [extract_json_fields_for_handle $html $username] : {}}]
+    # Prefer the fbid_v2 hydrated in the handle's own window over the first on the page.
+    set hydratedFbid [hydrated_or $extra fbid_v2]
+    if {$hydratedFbid ne ""} { set fbid_v2 $hydratedFbid }
 
     return [json::write object \
         username       [j_str $username] \
         full_name      [j_str $full_name] \
         pk             [j_str $pk] \
+        fbid_v2        [j_strornull $fbid_v2] \
         is_private     [j_bool $is_private] \
         follower_count  [j_intornull $follower_count] \
         following_count [j_intornull $following_count] \

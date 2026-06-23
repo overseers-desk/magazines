@@ -17,7 +17,18 @@ proc pb_ig_posts {a} {
     if {![dict exists $data items]} { error "no items array in feed response" }
     set pj {}
     foreach item [dict get $data items] { lappend pj [post_json $item] }
-    set result [json::write object posts [json::write array {*}$pj]]
+    # The account-level fbid_v2 of the feed's owner: feed/user carries it on the
+    # top-level user object (the same fbid_v2 the inbox surfaces), and each item's
+    # owner echoes it. Surfaced as ownerPk/ownerFbid beside the posts so the caller
+    # has the long id without re-walking the profile; "" when the page omits it.
+    set owner [dict_get_or $data user {}]
+    if {![llength $owner] && [llength [dict_get_or $data items {}]]} {
+        set owner [dict_get_or [lindex [dict get $data items] 0] user {}]
+    }
+    set result [json::write object \
+        posts     [json::write array {*}$pj] \
+        ownerPk   [j_strornull [user_pk $owner]] \
+        ownerFbid [j_strornull [user_fbid $owner]]]
     return [dict create result $result cursor "" hasMore 0]
 }
 

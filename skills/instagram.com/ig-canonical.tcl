@@ -221,11 +221,18 @@ proc pk_int {v} {
 # attaches its own thread DB key, so threadPk is NOT embedded here.
 #   - keep only messages with BOTH item_id and from_user_id
 #   - senderPks: unique parseInt(from_user_id) over every message that HAS one
+#   - senderFbids: the account-level fbid_v2 per senderPk (aligned with senderPks),
+#     from the thread's users[] objects (the same fbid_v2 the inbox surfaces); ""
+#     when a sender's fbid is not on the page. The connector re-keys short -> long
+#     by it, with the ig_pk_short fallback for an absent one.
 #   - each kept msg -> {item_id, sender_user_pk:int, sent_at(naive UTC), item_type, body}
-proc parse_thread {igThreadId res} {
+# pk2fbid maps a sender's (string) pk to its fbid_v2; pb_ig_thread builds it from
+# thread.users, the fixture self-test may pass an empty map.
+proc parse_thread {igThreadId res {pk2fbid {}}} {
     set msgs [dict_get_or $res messages {}]
     set msgJsons {}
     set senderPks {}
+    set senderFbids {}
     set senderSeen [dict create]
     foreach m $msgs {
         set fromId [dstr $m from_user_id]
@@ -233,6 +240,7 @@ proc parse_thread {igThreadId res} {
             set spk [pk_int $fromId]
             if {$spk ne "" && ![dict exists $senderSeen $spk]} {
                 dict set senderSeen $spk 1; lappend senderPks $spk
+                lappend senderFbids [dict_get_or $pk2fbid $spk ""]
             }
         }
         set iid [dstr $m item_id]
@@ -248,6 +256,7 @@ proc parse_thread {igThreadId res} {
     return [json::write object \
         igThreadId [j_str $igThreadId] \
         senderPks  [j_arrint $senderPks] \
+        senderFbids [j_arrstr $senderFbids] \
         messages   [json::write array {*}$msgJsons] \
         complete   [j_bool $complete]]
 }
