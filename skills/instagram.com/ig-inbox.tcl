@@ -35,6 +35,7 @@ proc pb_ig_inbox {a} {
 proc serialiser_run {skillArgs} {
     set a [expr {[llength $skillArgs] ? [lindex $skillArgs 0] : {}}]
     nav "https://www.instagram.com/"
+    if {[catch {ig_assert_logged_in} r]} { emit [envelope_fault $r]; return }
     if {[catch {pb_ig_inbox $a} r]} { emit [envelope_fault $r]; return }
     emit [envelope_ok $r]
 }
