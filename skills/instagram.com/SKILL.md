@@ -210,6 +210,30 @@ Operational notes:
 - To build an ongoing audit trail, schedule the script daily and append the output to a log. Combined with the activity-inbox retention window, this captures every story tag before Instagram drops the notification.
 - The script does not write or modify any Instagram state. All endpoints are read-only fetches.
 
+## 12. Archived-post check
+
+Decides whether one or more posts are ARCHIVED. An archived Instagram post is removed from the owner's public profile grid (the `feed/user` listing) but stays reachable at its permalink by the logged-in owner, who sees it only in the Archive section. Neither signal alone is enough: an archived post's permalink DOM renders just like a live one, and the grid omits it the same way it omits a deleted post. The discriminator is the cross-check — a post is archived when its permalink still renders the post AND its shortcode is absent from the grid feed.
+
+```bash
+browser-serialiser instagram.com/check-archived HANDLE SHORTCODE[,SHORTCODE...] [--grid-limit N]
+```
+
+The shortcode list is comma-separated; a full permalink (`.../reel/<code>/` or `/p/<code>/`) is also accepted and reduced to its shortcode. The grid is fetched ONCE per run and reused for every shortcode, so checking N posts costs one feed pagination plus N permalink navigations. The script resolves the handle to its user_id and pages `feed/user` the same way §6 does, then navigates each permalink and reads its rendered DOM (`dump`).
+
+Per-post output fields:
+
+- `archived` — `true` (permalink renders, absent from grid), `false` (present in grid, or permalink unavailable so removed/deleted not archived), or `null` (inconclusive: empty/slow permalink render, or the grid hit the `--grid-limit` ceiling before exhausting so absence is not authoritative).
+- `permalink_exists` — `true`/`false`/`null`: whether the permalink still renders the post for the owner. `false` means the "unavailable"/removed page (post deleted, not archived). The calibrated DOM signals are the post's own shortcode present in the DOM, and the absence of "page isn't available" / "may have been removed".
+- `in_grid` — whether the shortcode appears in the profile grid feed.
+- `grid_taken_at_iso` — the post's timestamp when it is in the grid, else null.
+- `reason` — a human sentence behind the verdict.
+
+Top-level fields: `grid_count`, `grid_oldest_iso`, and `grid_complete`. **Authoritative absence requires `grid_complete: true`** (paging reached `more_available=false`), because "absent from grid = archived" only holds when absence means "not in the listing", not "beyond how far we paged". So the grid pages to exhaustion by default; `--grid-limit` is a high safety ceiling for an account too large to exhaust in one session, not the normal stop. When the ceiling is hit first (`grid_complete: false`), an absent-yet-rendering post reports `archived: null` rather than risk a false positive — raise `--grid-limit` and re-run.
+
+The script does not write or modify any Instagram state.
+
+Verified 2026-06-23 against `@historicrivermill` with the grid paged to exhaustion: `/reel/DV_zF4qglmJ/` (17 Mar) → archived=true (permalink renders, absent from grid); five live controls (`/reel/DWGrGuNgh1n/`, `/reel/DWQ1ADCgnmR/`, and three June reels) → archived=false (all present in grid).
+
 ## What this skill does NOT do (by design)
 
 - It does not read an account's join date or age. Instagram's *About This Account* (date joined) is mobile-app-only; the web surface `browser-serialiser` drives does not expose it (a web fetch redirects to login), so it cannot be retrieved here. Estimate from the oldest visible post, or read it in the Instagram mobile app.
