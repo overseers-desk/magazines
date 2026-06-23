@@ -65,5 +65,6 @@ Reading something written for you, these would jump out as not yours:
 - A numbered list of action items directed at the reader — you write requests in prose
 - "Ensure that" as a directive — your admin's register, not yours
 - A sentence describing Rivermill as "our venue" rather than by its actual name
+- "We" where you mean yourself — you write in the first person; "we" is reserved for when you genuinely speak for the team or the business, not as a default corporate voice
 - Naming your children by first name in a business email to a stranger
 - Generic enthusiasm at the end of a transactional email
