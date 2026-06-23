@@ -57,6 +57,24 @@ proc user_pk {u} {
 # The account-level long id (fbid_v2 / "17841…" Graph id), carried beside the
 # classic pk on every inbox user object. Empty when absent.
 proc user_fbid {u} { return [dstr $u fbid_v2] }
+
+# Percent-encode a query-param value (RFC 3986 unreserved set passes through).
+# The inbox cursor is now a JSON object ({"cursor_timestamp_seconds":…}); appended
+# raw its braces, quotes and spaces make a malformed URL the serialiser rejects.
+proc serialiser_urlencode {s} {
+    set out ""
+    foreach ch [split $s ""] {
+        if {[regexp {[A-Za-z0-9._~-]} $ch]} {
+            append out $ch
+        } else {
+            foreach byte [split [encoding convertto utf-8 $ch] ""] {
+                scan $byte %c code
+                append out [format %%%02X [expr {$code & 0xff}]]
+            }
+        }
+    }
+    return $out
+}
 # Why an IG response carried no payload. A failure body leads with a `message`
 # (login_required / checkpoint_required / feedback_required) and a `status`; a
 # missing-field fault appends this so it says WHY, not merely that the field was
