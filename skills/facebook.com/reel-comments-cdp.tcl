@@ -23,7 +23,6 @@
 #       [--bodies-json PATH] [--max-rounds N] [--debug]
 
 package require json
-package require base64
 
 # The legacy CDP engine is for the direct-tclsh path only; under the serialiser
 # harness raw CDP is removed (the policed verbs replace it), so source it only
@@ -552,7 +551,7 @@ proc fbcdp::fetch {c url max_rounds bodies_out} {
             set txt [dict get $body_resp result body]
             if {[dict exists $body_resp result base64Encoded] && \
                 [dict get $body_resp result base64Encoded] eq "true"} {
-                set txt [encoding convertfrom utf-8 [base64::decode $txt]]
+                set txt [encoding convertfrom utf-8 [binary decode base64 $txt]]
             }
             if {[string first {"legacy_fbid"} $txt] < 0} { continue }
             foreach {k v} [fbcdp::extract_comment_bodies $txt] {
@@ -631,10 +630,13 @@ proc fbcdp::sv_fetch {url max_rounds} {
     variable JS_SCROLL_STEP
 
     # capture navigates (paced) with Network buffering on, settles the initial
-    # render, and clears its own initial harvest; thereafter every eval parks the
-    # page's GraphQL responses for the final harvest. The covering view is
-    # intrinsic (the comment data exists only because the reel was viewed).
-    capture $url --seconds 5 --match "*__none__*"
+    # render, and returns the initial GraphQL responses.  The reel viewer
+    # pre-renders comments without requiring a click — the comment panel is open
+    # by default.  Clicking the "Comment" toggle button closes it (confirmed by
+    # testing: comment articles appear after ~20 s of natural load; the click
+    # hides them).  We wait 22 s so comments are in the DOM before we proceed.
+    set init_triples [capture $url --seconds 22 --match "*graphql*"]
+    ::log "sv_fetch: init_triples=[llength $init_triples] graphql responses from initial load"
 
     set st [state]
     if {[dict get $st terminal] ne ""} {
@@ -646,6 +648,7 @@ proc fbcdp::sv_fetch {url max_rounds} {
     set no_session [fbcdp::sv_js \
         {/"(?:USER_ID|ACCOUNT_ID)":"0"/.test(document.documentElement.outerHTML)} false]
     set tl [string tolower $title]
+    ::log "sv_fetch: title=$title no_session=$no_session"
     if {$no_session eq "true" || \
         [string first "log in" $tl] >= 0 || \
         [string first "log into" $tl] >= 0 || \
@@ -654,41 +657,57 @@ proc fbcdp::sv_fetch {url max_rounds} {
     }
 
     set total [fbcdp::sv_js $JS_TOTAL_COMMENT_COUNT ""]
+    ::log "sv_fetch: total_comment_count=$total"
 
-    # Open the comment panel.
-    fbcdp::sv_js $JS_CLICK_COMMENT_BUTTON false
-    dwell 3
-
-    # Wait for the panel to render before switching sort.
-    for {set w 0} {$w < 30} {incr w} {
-        if {[num [fbcdp::sv_js $JS_COMMENT_COUNT 0]] > 0} { break }
+    # Do NOT click the Comment toggle — the panel is already open.
+    # Wait up to 5 s for any stragglers (usually 0 extra waits needed at this point).
+    set cc 0
+    for {set w 0} {$w < 10} {incr w} {
+        set cc [num [fbcdp::sv_js $JS_COMMENT_COUNT 0]]
+        if {$cc > 0} { break }
         dwell 0.5
     }
+    ::log "sv_fetch: comment_count_in_dom=$cc (no click needed)"
 
     # Switch sort from "Most relevant" to an unfiltered view.
-    if {[fbcdp::sv_js $JS_SWITCH_SORT_ALL ""] ne ""} {
+    set sort_result [fbcdp::sv_js $JS_SWITCH_SORT_ALL ""]
+    ::log "sv_fetch: switch_sort_result=$sort_result"
+    if {$sort_result ne ""} {
         dwell 1.5
-        fbcdp::sv_js $JS_PICK_SORT_OPTION ""
-        dwell 3
+        set picked [fbcdp::sv_js $JS_PICK_SORT_OPTION ""]
+        ::log "sv_fetch: sort_picked=$picked"
+        dwell 8
     }
 
-    # Harvest loop: scroll + click "view more" until the harvest stops growing.
+    # Harvest loop: incremental scroll + click "view more" until harvest stops growing.
+    # Use JS_SCROLL_STEP (viewport-height increments) rather than a single jump to
+    # the absolute bottom so Facebook's IntersectionObserver triggers at page
+    # boundaries rather than overrunning them.
     fbcdp::sv_js $JS_HARVEST_COMMENTS ""
     set stable_rounds 0
     for {set round_num 0} {$round_num < $max_rounds} {incr round_num} {
-        fbcdp::sv_js $JS_SCROLL_COMMENTS false
-        dwell 0.6
         set clicked_more [num [fbcdp::sv_js $JS_CLICK_VIEW_MORE 0]]
-        if {$clicked_more} { dwell 1.2 }
+        if {$clicked_more} { dwell 2.0 }
+        set scrolled [fbcdp::sv_js $JS_SCROLL_STEP false]
+        if {$scrolled eq "true"} { dwell 0.8 } else { dwell 0.3 }
         set stats [fbcdp::sv_js_dict $JS_HARVEST_COMMENTS [dict create total 0 added 0]]
         set h_total [num [dict_get0 $stats total]]
         set h_added [num [dict_get0 $stats added]]
+        ::log "sv_fetch: round=$round_num harvested=$h_total (+$h_added) scrolled=$scrolled vm=$clicked_more stable=$stable_rounds"
         if {$total ne "" && $total ne "null" && $h_total >= [num $total]} {
             break
         }
         if {$h_added == 0 && $clicked_more == 0} {
             incr stable_rounds
-            if {$stable_rounds >= 8} { break }
+            if {$stable_rounds >= 8} {
+                dwell 3
+                set stats2 [fbcdp::sv_js_dict $JS_HARVEST_COMMENTS [dict create total 0 added 0]]
+                if {[num [dict_get0 $stats2 added]] > 0} {
+                    set stable_rounds 0
+                } else {
+                    break
+                }
+            }
         } else {
             set stable_rounds 0
         }
@@ -729,16 +748,19 @@ proc fbcdp::sv_fetch {url max_rounds} {
     }
 
     # The comment bodies are the page's own GraphQL responses, the primary
-    # private-data path: harvest the buffered responses and extract per-comment
-    # canonical text with the byte-identical extractor.
+    # private-data path: combine the initial-load triples (captured at
+    # navigation) with any further triples from clicking Comment / scrolling.
+    set later_triples [harvest --match "*graphql*"]
+    ::log "sv_fetch: init=[llength $init_triples] later=[llength $later_triples] graphql triples"
     set bodies [dict create]
-    foreach triple [harvest --match "*graphql*"] {
+    foreach triple [concat $init_triples $later_triples] {
         lassign $triple resp_url resp_status txt
         if {[string first {"legacy_fbid"} $txt] < 0} { continue }
         foreach {k v} [fbcdp::extract_comment_bodies $txt] {
             dict set bodies $k $v
         }
     }
+    ::log "sv_fetch: bodies=[dict size $bodies]  html_len=[string length $html]"
 
     return [list $html $bodies ""]
 }
@@ -763,13 +785,18 @@ proc serialiser_run {skillArgs} {
         emit "Usage: facebook.com/reel-comments-cdp URL \[--max-rounds N\]"
         return
     }
+    ::log "serialiser_run: calling sv_fetch url=$url max_rounds=$max_rounds"
     lassign [fbcdp::sv_fetch $url $max_rounds] html bodies wall
+    ::log "serialiser_run: sv_fetch done wall=$wall bodies=[dict size $bodies] html_len=[string length $html]"
     if {$wall ne ""} {
         emit "ERROR: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry."
         return
     }
     set data [parse_html $html $bodies]
-    emit [to_markdown $data $url]
+    ::log "serialiser_run: parse_html done comments=[llength [dict get $data comments]]"
+    set md [to_markdown $data $url]
+    ::log "serialiser_run: to_markdown len=[string length $md]"
+    emit $md
 }
 
 # The byte-identical comment parser/renderer lives in the sibling parse-reel-comments.
