@@ -147,7 +147,7 @@ Saved HTML examples may still exist at `/tmp/linkedin-1a-*.html` for a short win
 
 **Proposed fix direction:** add a CDP (Chrome DevTools Protocol) helper to the skill that scrolls the profile, waits for lazy-mount, then dumps. Out of scope for the present skill version; flagged for future work.
 
-**Status:** documented; needs scroll-aware fetcher to fully resolve.
+**Status (2026-06-25):** mostly resolved. `parse-profile` now scroll-hydrates and, by default, fetches the dedicated details pages (`/details/experience/`, `/details/skills/`), parsing Experience into structured entries (title/company/start/end/current) and Skills into a list. It emits a `coverage:` block and never reports an unfetched section as fact (`current_company` comes from the ongoing position, not the headline). **About** is the remaining holdout: it lazy-mounts on the main page and is often absent from the dump even after scrolling, so it is marked `about: not_found` rather than guessed. "People also viewed" / recommendations / endorsements are still not parsed (not needed by current callers).
 
 ---
 

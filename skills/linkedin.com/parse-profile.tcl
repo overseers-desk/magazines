@@ -6,21 +6,34 @@
 #   parser over the in-memory HTML.
 # Direct path (legacy, file-fed): tclsh parse-profile.tcl <html-file> [profile-url-or-slug]
 #
-# LinkedIn's DOM uses randomised class names and lazy-mounts deep sections
-# (career history, About, skills) after load, so reliable extraction is limited
-# to identity, the member URN, and the topcard. We extract:
+# LinkedIn's DOM uses randomised class names and lazy-mounts deep sections after
+# load. The topcard parses from the main page; the deeper sections come from the
+# dedicated details pages, which render the full lists. By default the serialiser
+# path fetches them all and emits a coverage block stating which sections were
+# actually read, so a caller never reads an unfetched field as fact. We extract:
 #
 #   1. name        — <title> is always "Name | LinkedIn"
 #   2. urn         — urn:li:fsd_profile:ACoAA...  (the stable profile handle a
 #                    later connection campaign keys on)
-#   3. member_id   — urn:li:member:NNN  (legacy numeric form of the same person)
-#   4. headline / location / current_company — best-effort from meta + topcard
-#   5. evidence_blocks — a capped list of cleaned visible-text fragments, kept so
+#   3. headline / location — best-effort from meta + topcard
+#   4. current_company — the ongoing position's company, from the Experience
+#                    details page (NOT guessed from the headline); null only when
+#                    Experience was read and no role is ongoing
+#   5. experience  — structured entries (title, company, start, end, current)
+#                    from /details/experience/
+#   6. skills      — from /details/skills/ ([] means read-and-empty, not unread)
+#   7. about       — best-effort from the main page; About still lazy-mounts
+#                    unreliably, so coverage marks it fetched / not_found
+#   8. evidence_blocks — a capped list of cleaned visible-text fragments, kept so
 #                    the verification step (and a human) can confirm identity
+#   9. coverage    — per-section fetched / not_found / not_fetched
 #
 # The page carries several people's URNs (the signed-in viewer, "people also
 # viewed"). The profile owner is the most-frequently-referenced URN, since the
 # page is about them; this is how the owner is disambiguated from the rest.
+#
+# --quick keeps the read to a single navigation (topcard only) for rate-sensitive
+# bulk runs, marking the deeper sections not_fetched rather than guessing them.
 #
 # Output is YAML on stdout. The caller redirects it to <slug>.yaml.
 
@@ -249,14 +262,6 @@ proc infer_location {texts name} {
             [string first "| LinkedIn" $t] < 0 && [regexp $PLACE_PAT $t]} {
             return $t
         }
-    }
-    return ""
-}
-
-proc current_company {headline} {
-    if {$headline ne "" && [string first " at " $headline] >= 0} {
-        set parts [split_once $headline " at "]
-        return [string trim [lindex $parts 1]]
     }
     return ""
 }
@@ -670,12 +675,14 @@ proc render_profile {html url_arg} {
         set meta_description ""
     }
     set location [infer_location $texts $name]
-    set company [current_company $headline]
 
     # evidence_blocks: texts[:15].
     set evidence [lrange $texts 0 14]
 
-    # Emit YAML in the record's field order, with None -> null.
+    # Emit the header fields. current_company is intentionally NOT emitted here:
+    # it is only honest once the Experience source is read (the headline rarely
+    # carries " at "), so the caller computes and appends it (or marks it
+    # not_fetched) alongside the coverage block. See serialiser_run.
     set lines {}
     lappend lines [yaml_kv slug [emit_or_null $slug]]
     lappend lines [yaml_kv profile_url [emit_or_null $profile_url]]
@@ -684,7 +691,6 @@ proc render_profile {html url_arg} {
     lappend lines [yaml_kv headline [emit_or_null $headline]]
     lappend lines [yaml_kv meta_description [emit_or_null $meta_description]]
     lappend lines [yaml_kv location [emit_or_null $location]]
-    lappend lines [yaml_kv current_company [emit_or_null $company]]
     if {![llength $evidence]} {
         lappend lines "evidence_blocks: \[\]"
     } else {
@@ -708,6 +714,11 @@ proc parse_profile {html_path url_arg} {
         puts stderr "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
         exit 1
     }
+    # A file is just the main page: Experience/Skills are not in it, so be honest
+    # rather than emit current_company as a confident value.
+    append record "\ncurrent_company: not_fetched"
+    append record "\n[render_coverage [dict create topcard fetched \
+        experience not_fetched skills not_fetched about not_fetched]]"
     puts $record
 }
 
@@ -738,25 +749,192 @@ proc extract_experience_texts {html} {
     return $out
 }
 
-# Render the experience text list as a YAML block appended to the header record.
-proc render_experience_block {exp} {
-    if {![llength $exp]} { return "experience: \[\]" }
+# ---- Structured extraction from the details pages ----------------------------
+# A LinkedIn date-range fragment, e.g. "Dec 2017 - May 2023 · 5 yrs 6 mos" or
+# "Jun 2023 - Present · 3 yrs 1 mo" or a year-only "2004 - 2013". The duration
+# tail (after " · ") is optional.
+proc is_date_range {t} {
+    return [regexp {^(?:[A-Z][a-z]{2} )?[0-9]{4} - (?:Present|(?:[A-Z][a-z]{2} )?[0-9]{4})} $t]
+}
+
+# Split a date-range fragment into {start end current}. current is 1 when the
+# role is ongoing ("Present").
+proc parse_date_range {t} {
+    set core [string trim [lindex [split $t "·"] 0]]
+    set parts [split_once $core " - "]
+    set start [string trim [lindex $parts 0]]
+    set end [string trim [lindex $parts 1]]
+    return [list $start $end [expr {$end eq "Present" ? 1 : 0}]]
+}
+
+# A fragment that can be a role title or company name: short, not a date range,
+# not a location, not the section header, not a long description blurb.
+proc name_like {t} {
+    global PLACE_PAT
+    if {[cp_length $t] > 100} { return 0 }
+    if {[is_date_range $t]} { return 0 }
+    if {$t eq "Experience"} { return 0 }
+    if {[regexp $PLACE_PAT $t]} { return 0 }
+    return 1
+}
+
+# Parse the experience fragment list into entries. Each date-range fragment
+# anchors a position: the fragment just before it is the company line (split on
+# " · " into company + employment type), and the one before that is the title
+# when it is name-like. Positional, since the details page renders title,
+# company, and dates as separate adjacent text runs.
+proc parse_experience_entries {fragments} {
+    set start_i 0
+    for {set i 0} {$i < [llength $fragments]} {incr i} {
+        if {[lindex $fragments $i] eq "Experience"} { set start_i [expr {$i+1}]; break }
+    }
+    set entries {}
+    for {set i $start_i} {$i < [llength $fragments]} {incr i} {
+        set t [lindex $fragments $i]
+        if {![is_date_range $t]} { continue }
+        lassign [parse_date_range $t] start end current
+        set company ""; set etype ""; set title ""
+        if {$i-1 >= $start_i} {
+            set cp [split [lindex $fragments [expr {$i-1}]] "·"]
+            set company [string trim [lindex $cp 0]]
+            if {[llength $cp] > 1} { set etype [string trim [lindex $cp 1]] }
+        }
+        if {$i-2 >= $start_i} {
+            set prev2 [lindex $fragments [expr {$i-2}]]
+            if {[name_like $prev2]} { set title $prev2 }
+        }
+        lappend entries [dict create title $title company $company \
+            employment_type $etype start $start end $end current $current]
+    }
+    return $entries
+}
+
+# The company of the current (ongoing) position, or "" if none is ongoing. Only
+# meaningful once the experience source was actually read.
+proc current_company_from_entries {entries} {
+    foreach e $entries {
+        if {[dict get $e current]} { return [dict get $e company] }
+    }
+    return ""
+}
+
+# Render experience entries as a YAML list of mappings.
+proc render_experience_entries {entries} {
+    if {![llength $entries]} { return "experience: \[\]" }
     set lines {experience:}
-    foreach e $exp {
-        lappend lines "- [yaml_scalar $e]"
+    foreach e $entries {
+        set first 1
+        foreach k {title company employment_type start end current} {
+            set v [dict get $e $k]
+            if {$k eq "current"} {
+                set rv [expr {$v ? "true" : "false"}]
+            } else {
+                if {$v eq ""} { continue }
+                set rv [yaml_scalar $v]
+            }
+            if {$first} { lappend lines "- $k: $rv"; set first 0 } \
+            else        { lappend lines "  $k: $rv" }
+        }
     }
     return [join $lines "\n"]
 }
 
+# Extract the skills list from the skills details page. Returns a list of skill
+# names; an empty list means the page was read and carried no skills (its
+# "add your skills" empty state), which is a real finding, not a failure. $name
+# is the profile owner's name, filtered out as header chrome.
+#
+# Correctness over completeness: this page interleaves header/empty-state chrome
+# with content, so anything chrome-like is dropped rather than emitted as a skill
+# (emitting chrome as a skill is the false-data failure this whole change fixes).
+proc extract_skills {html name} {
+    set texts [extract_visible_texts [strip_viewer_content $html]]
+    # Empty state: the profile lists no skills.
+    foreach t $texts {
+        if {[regexp -nocase {when you add new skills|showcase your skills|add your skills} $t]} {
+            return {}
+        }
+    }
+    set start_i 0
+    for {set i 0} {$i < [llength $texts]} {incr i} {
+        if {[lindex $texts $i] eq "Skills"} { set start_i [expr {$i+1}]; break }
+    }
+    set out {}
+    set seen [dict create]
+    for {set i $start_i} {$i < [llength $texts]} {incr i} {
+        set t [lindex $texts $i]
+        if {[string match "Questions?*" $t] || $t eq "Visit our Help Center." \
+            || [string match "Select language*" $t] || [string match "Manage your account*" $t]} {
+            break
+        }
+        if {$t eq $name || [string first "| LinkedIn" $t] >= 0} { continue }
+        if {[cp_length $t] > 60} { continue }
+        if {[regexp -nocase {endorsement|passed linkedin|assessment|notification|enhance profile|add section|add skills|edit|^show } $t]} { continue }
+        if {[is_date_range $t]} { continue }
+        if {[dict exists $seen $t]} { continue }
+        dict set seen $t 1
+        lappend out $t
+        if {[llength $out] >= 50} { break }
+    }
+    return $out
+}
+
+proc render_skills_block {skills} {
+    if {![llength $skills]} { return "skills: \[\]" }
+    set lines {skills:}
+    foreach s $skills { lappend lines "- [yaml_scalar $s]" }
+    return [join $lines "\n"]
+}
+
+# Best-effort full About text from the main page: the substantial block right
+# after an "About" header fragment. Returns "" when not located. Runs on the
+# unstripped HTML: on the owner's own profile, strip_viewer_content cuts at the
+# "Add profile section" chrome, which sits above About and would remove it.
+proc extract_about {html} {
+    set texts [extract_visible_texts $html]
+    for {set i 0} {$i < [llength $texts]} {incr i} {
+        if {[lindex $texts $i] eq "About"} {
+            for {set j [expr {$i+1}]} {$j < [llength $texts] && $j <= $i+3} {incr j} {
+                set t [lindex $texts $j]
+                if {[cp_length $t] >= 40} { return $t }
+            }
+        }
+    }
+    return ""
+}
+
+# Render the coverage block: which sections were actually fetched. Values are
+# "fetched", "not_found" (fetched the page but the section was absent), or
+# "not_fetched" (the page was never navigated, e.g. --quick).
+proc render_coverage {cov} {
+    set lines {coverage:}
+    foreach k {topcard experience skills about} {
+        lappend lines "  $k: [dict get $cov $k]"
+    }
+    return [join $lines "\n"]
+}
+
+# Scroll to the foot of the current page a few times so lazy-mounted sections
+# render, then return the dumped DOM.
+proc scroll_and_dump {} {
+    for {set i 0} {$i < 4} {incr i} {
+        eval {window.scrollTo(0, document.body.scrollHeight)}
+        dwell 1
+    }
+    return [dump]
+}
+
 proc serialiser_run {skillArgs} {
-    set want_exp 0
+    set quick 0
     set arg ""
     foreach a $skillArgs {
-        if {$a eq "--experience"} { set want_exp 1; continue }
+        if {$a eq "--quick"} { set quick 1; continue }
+        # --experience is accepted as a no-op alias: the default now fetches it.
+        if {$a eq "--experience" || $a eq "--full"} { continue }
         if {$arg eq ""} { set arg $a }
     }
     if {$arg eq ""} {
-        emit "ERROR: usage: linkedin.com/parse-profile <slug-or-url> \[--experience\]"
+        emit "ERROR: usage: linkedin.com/parse-profile <slug-or-url> \[--quick\]"
         return
     }
     set slug [slug_from_arg $arg]
@@ -764,33 +942,68 @@ proc serialiser_run {skillArgs} {
         emit "ERROR: could not derive a profile slug from '$arg'"
         return
     }
+
+    # 1. Topcard (always).
     nav "https://www.linkedin.com/in/$slug/" --wait 6
     if {[dict get [state] terminal] ne ""} {
         emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
         return
     }
-    set html [dump]
-    # Pass the original argument through unchanged so the slug/url derivation in
-    # the record matches the legacy path exactly.
-    set record [render_profile $html $arg]
+    set main_html [scroll_and_dump]
+    set record [render_profile $main_html $arg]
     if {$record eq "@@LOGIN@@"} {
         emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
         return
     }
-    # Opt-in: a second navigation to the details page for the work history. Kept
-    # behind the flag so the default read stays single-navigation (rate-sensitive
-    # host).
-    if {$want_exp} {
-        nav "https://www.linkedin.com/in/$slug/details/experience/" --wait 5
-        if {[dict get [state] terminal] eq ""} {
-            for {set i 0} {$i < 4} {incr i} {
-                eval {window.scrollTo(0, document.body.scrollHeight)}
-                dwell 1
-            }
-            set exp [extract_experience_texts [dump]]
-            append record "\n[render_experience_block $exp]"
-        }
+    set cov [dict create topcard fetched experience not_fetched \
+        skills not_fetched about not_fetched]
+    # Owner name (for filtering it out of the skills chrome), from the title.
+    set pname ""
+    if {[regexp {(?s)<title[^>]*>(.*?)</title>} $main_html -> _t]} {
+        set pname [string trim [string map {" | LinkedIn" ""} [string trim $_t]]]
     }
+
+    # --quick: header only. current_company is honest -- the headline rarely
+    # carries it, and Experience was not read, so it is not_fetched, never null.
+    if {$quick} {
+        append record "\ncurrent_company: not_fetched"
+        append record "\n[render_coverage $cov]"
+        emit $record
+        return
+    }
+
+    # 2. Experience details (default).
+    set entries {}
+    nav "https://www.linkedin.com/in/$slug/details/experience/" --wait 5
+    if {[dict get [state] terminal] eq ""} {
+        set entries [parse_experience_entries [extract_experience_texts [scroll_and_dump]]]
+        dict set cov experience fetched
+    }
+
+    # 3. Skills details (default).
+    set skills {}
+    nav "https://www.linkedin.com/in/$slug/details/skills/" --wait 5
+    if {[dict get [state] terminal] eq ""} {
+        set skills [extract_skills [scroll_and_dump] $pname]
+        dict set cov skills fetched
+    }
+
+    # 4. About: best-effort from the (already scrolled) main page.
+    set about [extract_about $main_html]
+    if {$about ne ""} { dict set cov about fetched } else { dict set cov about not_found }
+
+    # current_company is now grounded: the ongoing position's company when
+    # Experience was read, else null (a real "no current role" once read).
+    if {[dict get $cov experience] eq "fetched"} {
+        set cc [current_company_from_entries $entries]
+        append record "\ncurrent_company: [emit_or_null $cc]"
+    } else {
+        append record "\ncurrent_company: not_fetched"
+    }
+    append record "\n[render_experience_entries $entries]"
+    append record "\n[render_skills_block $skills]"
+    append record "\nabout: [emit_or_null $about]"
+    append record "\n[render_coverage $cov]"
     emit $record
 }
 
