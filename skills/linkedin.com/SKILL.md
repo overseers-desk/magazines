@@ -1,6 +1,6 @@
 ---
 name: linkedin
-description: "search people, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Send connection invites or direct messages to connections."
+description: "search people, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Send connection invites or direct messages to connections. Edit your own profile headline and About."
 argument-hint: <name, URL, or search terms>
 ---
 
@@ -168,6 +168,57 @@ browser-serialiser linkedin.com/send-message VANITY_NAME "text" --dry-run
 - `compose_cleared` — whether the compose area emptied after send (primary success signal)
 - `api_responses` — empty on the policed surface (see step 5)
 - `status` — `"sent"` | `"uncertain"` | `"dry_run"`
+
+## 7. Edit your own profile (text fields)
+
+Edit a single-value text field on the signed-in user's own profile. The profile
+is reached through `/in/me/`, which LinkedIn redirects to whatever account is
+signed in, so no profile slug is passed.
+
+```bash
+browser-serialiser linkedin.com/set-profile-field headline "New headline"   # ≤220 chars
+browser-serialiser linkedin.com/set-profile-field about    "New About text"
+browser-serialiser linkedin.com/set-profile-field <field> --dump            # read current value, no change
+browser-serialiser linkedin.com/set-profile-field <field> "text" --dry-run  # type into the editor but do not Save
+```
+
+`<field>` is `headline` or `about`. The skill opens the field's edit form (the
+headline form has a direct route; the About form opens via its pencil), replaces
+the editor's content, clicks Save, then re-opens the form and re-reads to
+confirm. It emits a JSON result: `{"status": "saved"|"uncertain", "field", "was",
+"now"}`. `--dump` and `--dry-run` never Save and are safe to run freely; `--dump`
+returns `{"status":"dump","current_len","current"}`.
+
+**Save is the irreversible outward action.** LinkedIn may broadcast a profile
+change to the user's network. Before a real (non-dry-run) edit, confirm Settings
+→ Visibility → "Share profile updates with your network" is **off** if the change
+should not notify connections.
+
+The edit forms lazy-mount their rich-text editors only after the page is
+scrolled, and the About form's pencil-open is racy, so the skill scroll-hydrates
+and retries the open; a single run takes a couple of minutes. Runs serialise on
+the same browser lock as every other LinkedIn call (one session at a time).
+
+### What this skill can and cannot edit
+
+`set-profile-field` covers the two single-value text fields below. The other
+profile sections are not automated; edit them in the LinkedIn UI. How to confirm
+each row still holds (and re-recon when LinkedIn changes its DOM) is in
+`EDIT-VALIDATION.md`.
+
+| Profile section | Automated? | Reason |
+|---|---|---|
+| Headline | Yes | Direct form route (`/in/me/edit/intro/`); one `role="textbox"`. Edit→Save→re-read proven. |
+| About | Yes | Opens via its pencil (retried); one `role="textbox"`. Edit→Save→re-read proven. |
+| Experience: set end date / edit description | No | Multi-field form with month/year **date-picker dropdowns** and a "currently here" toggle. The open/save mechanics carry over, but the date pickers are unbuilt. Buildable; not done. |
+| Experience: add an entry | No | Same multi-field form as above. Buildable; not done. |
+| Skills (reorder / pin) | No | Reordering is drag-and-drop; not reconnoitred. No edit path attempted. |
+| Featured (add / remove) | No | Media/post picker flow; not reconnoitred. No edit path attempted. |
+| Open to Work (visibility) | No | Separate settings route (`/opportunities/job-opportunities/edit/`); not reconnoitred. No edit path attempted. |
+
+The "No" rows are not proven-impossible. Experience is buildable with the same
+mechanics; Skills/Featured/Open-to-Work were never reconnoitred, so their
+difficulty is unknown, not established.
 
 ## DOM parsing notes
 

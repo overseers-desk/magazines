@@ -1,5 +1,36 @@
 # LinkedIn skill — open bugs
 
+## 2026-06-25 Edit-form Save buttons ignore the policed `click` verb — use eval `el.click()`
+
+**Finding (from building set-profile-field):** the Save button in LinkedIn's
+2026 server-driven-UI profile edit forms does not fire its React `onClick` from
+the harness's policed `click` verb. The verb reports a match and runs, but the
+form stays open, no navigation occurs, and nothing persists (no error). Driving
+the click in-page instead — `eval {document.querySelector('[data-sv-save="1"]').click()}`
+— fires the handler: the form closes, navigates to the profile, and the change
+saves. `set-profile-field` tags the Save button then clicks it this way.
+
+**Why it matters beyond this skill:** `send-invite` and `send-message` perform
+their irreversible Send through the policed `click` verb (`click {[data-sv-send="1"]}`).
+If LinkedIn's invite/compose buttons behave like these edit-form buttons, those
+sends may be silently no-ops while still reporting `status: sent` from the
+toast/modal-close heuristics. Not retested here. Before trusting a "sent" result,
+verify against a real recipient, or switch those clicks to in-page `el.click()`.
+
+**Editor mechanics, for the next field added to set-profile-field:** the headline
+and About editors are Lexical-style `contenteditable` `[role="textbox"]` nodes
+that (a) hydrate only after the form is scrolled into view, and (b) ignore a
+programmatic DOM `Range` — a CDP `Input.insertText` then *appends* instead of
+replacing. Replace via `execCommand('selectAll')` then `execCommand('insertText', …)`,
+which flow through the `beforeinput` pipeline Lexical reconciles its editorState
+from, so the form registers as dirty and Save persists. The headline form has a
+direct route (`/in/me/edit/intro/`); the About form redirects to the profile on
+direct nav and opens only via its pencil (an SPA click that is racy, hence the
+open-retry loop). **Status:** set-profile-field works for headline + About;
+the broader click-verb question is open.
+
+---
+
 ## 2026-06-01 login.tcl `--check` reports `unknown` for a logged-in session
 
 **Symptom:** `login.tcl --check` against an active, logged-in session returns `{"status": "unknown"}` instead of `already_logged_in`. The page was the normal logged-in feed (title `Feed | LinkedIn`, ~7.8 MB DOM, no checkpoint redirect), yet `login_state` matched none of its branches and fell through to `unknown`.
