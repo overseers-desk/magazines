@@ -60,13 +60,33 @@ A search returning zero results does not mean the person has no LinkedIn. Try al
 
 ## 2. Parse a profile
 
-One reference navigates to `/in/USERNAME/`, dumps the rendered DOM, and parses it:
-
 ```bash
-browser-serialiser linkedin.com/parse-profile USERNAME
+browser-serialiser linkedin.com/parse-profile USERNAME            # complete (default)
+browser-serialiser linkedin.com/parse-profile USERNAME --quick     # topcard only, one navigation
 ```
 
-`USERNAME` is the vanity slug or a full profile URL. Emits a structured YAML record: name, vanity slug, the profile URN (`urn:li:fsd_profile:ACoAA...`, the owner's, found as the dominant id in the page's data payload across LinkedIn's several serialisations of it), headline, location, current company, and a capped list of evidence text blocks. Redirect stdout to `<slug>.yaml` to save it. The legacy numeric form (`urn:li:member:NNN`) is not emitted: on a profile page its most-frequent value is the signed-in viewer's own id, not the owner. Deep career history, About, and skills are lazy-mounted and not reliably present in the dump (see BUGS.md), so they are not extracted as structured fields.
+`USERNAME` is the vanity slug or a full profile URL. By default this fetches the
+topcard plus the Experience and Skills details pages and the About, emitting a
+structured YAML record: name, vanity slug, the profile URN
+(`urn:li:fsd_profile:ACoAA...`, the owner's, found as the dominant id in the
+page's data payload), headline, location, `current_company`, `experience` (a list
+of entries with `title`/`company`/`start`/`end`/`current`), `skills`, `about`,
+evidence blocks, and a **`coverage:`** block. Redirect stdout to `<slug>.yaml`.
+
+`coverage` is the honesty contract: each section is `fetched`, `not_found`
+(the page was read and the section was absent — e.g. a profile with no skills
+emits `skills: []` with `skills: fetched`), or `not_fetched` (never read).
+`current_company` comes from the ongoing position in Experience, not guessed from
+the headline; it is `null` only when Experience was read and no role is ongoing,
+and `not_fetched` under `--quick`. So a caller can always tell a real empty from
+an unread one and never reads partial data as a complete profile.
+
+Each details page is a separate navigation, so the default makes ~3 navigations
+per profile. For rate-sensitive bulk runs use `--quick` (topcard only, one
+navigation); it marks Experience/Skills/About `not_fetched`. About still
+lazy-mounts unreliably and is the section most often `not_found`. The legacy
+numeric URN (`urn:li:member:NNN`) is not emitted: on a profile page its most
+frequent value is the signed-in viewer's own id, not the owner.
 
 ## 2a. Parse a job posting
 
