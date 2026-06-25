@@ -1,6 +1,6 @@
 ---
 name: linkedin
-description: "search people, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Send connection invites or direct messages to connections. Edit your own profile headline and About."
+description: "search people, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Send connection invites or direct messages to connections. Edit your own profile headline and About. Enumerate the messaging inbox and a thread's messages."
 argument-hint: <name, URL, or search terms>
 ---
 
@@ -219,6 +219,21 @@ each row still holds (and re-recon when LinkedIn changes its DOM) is in
 The "No" rows are not proven-impossible. Experience is buildable with the same
 mechanics; Skills/Featured/Open-to-Work were never reconnoitred, so their
 difficulty is unknown, not established.
+
+## 7. Enumerate the messaging inbox and a thread
+
+Two B-job playbooks mirror LinkedIn messaging into a caller's store (an overseer drives them as type-B jobs). Unlike the read skills, these do not DOM-dump — they open `/messaging/`, harvest the page's own voyager request to learn the live `queryId` (LinkedIn rotates these) and the mailbox urn, then re-issue the fetch in-page over the session cookies. The response is LinkedIn's normalized GraphQL envelope; the parse lives in `li-canonical.tcl`.
+
+```bash
+browser-serialiser linkedin.com/li-inbox
+browser-serialiser linkedin.com/li-thread "conversationUrn <urn:li:msg_conversation:(...)>"
+```
+
+`li-inbox` emits a canonical inbox envelope: `{result:{ownProfileUrn, threads:[{conversation_urn, backend_thread_urn, is_group, title, last_activity, created_at, unread_count, unread, category, participants:[{profile_urn, first_name, last_name, profile_url}]}]}, cursor, hasMore, fault}`. One run mirrors the current inbox (the most recent conversations); it carries no older-than cursor.
+
+`li-thread` takes a `conversationUrn` (from `li-inbox`'s output) and emits `{result:{conversationUrn, complete, participants:[...], messages:[{message_urn, sender_profile_urn, sent_at, body}]}, ...}`. One run returns the thread's most recent page; `complete` is true when the page is short enough that no older page is implied.
+
+`li-canonical.tcl` has a direct-tclsh entry for offline parser testing against a saved voyager body: `tclsh9.0 li-canonical.tcl inbox <conv.json> <ownProfileUrn>` (or `thread <msgs.json> <conversationUrn>`).
 
 ## DOM parsing notes
 
