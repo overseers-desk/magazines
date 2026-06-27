@@ -12,11 +12,15 @@ misfire costs only a sentence of substantiation, never the user's time.
 
 Detection is regex, deliberately. An LLM judge discriminates better, but
 `claude -p` costs ~40s wall in this environment and there is no fast API
-path, so it cannot run inside a blocking hook. The seven patterns below were
-measured against 28 real Opus-authored challenged assertions and 200 normal
-Opus messages: 57% recall at 12% false-positive. They catch the loud,
-lexically-marked overreaches; the bare declaratives with no marker
-("two-day event", an identity mapping) are the LLM judge's job, deferred.
+path, so it cannot run inside a blocking hook. The three patterns below come
+from a larger candidate set scored against 28 real Opus-authored challenged
+assertions and 200 normal Opus messages, then narrowed after a live-traffic
+check: the wider set fired on 37% of real messages (mostly ordinary careful
+writing), so four noisy patterns were dropped. The shipped three score 25%
+recall / 2% false-positive on the benchmark and fire on ~11% of live
+messages. They catch claimed-absences and stated causes; everything subtler —
+the bare declaratives, and the recall the drop gave up — is the LLM judge's
+job, deferred.
 The measurement, corpus, and rejected candidates (notably an unsourced-number
 regex dropped for 19% FP) are in
 labs/2026-07-opus-4-8-challenge-detector/.
@@ -33,13 +37,15 @@ import re
 import sys
 
 # Shipped regex set (kept in lockstep with labs/.../score.sh).
+# Tightened to the three high-signal patterns after a live-traffic check (see
+# the worklog's dated update): the four dropped patterns (dichotomy_not,
+# causal_so, modal_must, certainty_adverb) matched ordinary careful writing —
+# a correct "X, not Y" distinction, a causal "so", a "cannot" — and drove the
+# fire rate to 37% of real messages with little of it genuine. These three
+# catch claimed-absences and stated causes, where the real overreach lives.
 PATTERNS = {
     "definite_cause": r"the (reason|cause|culprit|problem|answer|diagnosis|explanation|fix|tell) (is|was)|is the (reason|cause|culprit|problem|answer|diagnosis)",
     "confident_absence": r"no (such|public|server|native|other|usable|team|hsm|cash|inbox|trace|rebase|web)|there (is|are) no |does.?t exist|not (on|in|present|externally|built|documented|needed)|nothing (breaks|exists)",
-    "dichotomy_not": r", not (a|an|the|just|merely|add)|is a real",
-    "modal_must": r"must be|has to be|have to be|had to be|can only be|cannot|can.?t |would (conflict|break|fail|be a no-op)",
-    "causal_so": r"[,;] so (it|that|this|the|i)\b",
-    "certainty_adverb": r"clearly|obviously|evidently|undoubtedly|certainly|definitely|unambiguously|of course|in fact|actually",
     "proof_verb": r"proves|confirms|confirming|demonstrates|shows that",
 }
 COMPILED = {k: re.compile(v, re.I) for k, v in PATTERNS.items()}
