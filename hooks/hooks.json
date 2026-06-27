@@ -1,5 +1,5 @@
 {
-  "description": "Block WebFetch against client-rendered hosts (YouTube, Reddit) where it returns only nav/footer chrome and can hang for minutes, and steer the agent to a tool that works (yt-dlp or the serialised-browsing skill).",
+  "description": "Plugin hooks: block WebFetch against client-rendered hosts (YouTube, Reddit) and steer to a tool that works; and on stop, challenge a confident unsourced assertion so the assistant substantiates it before finishing.",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,6 +8,17 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/block-spa-webfetch.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/challenge-detector.py\"",
             "timeout": 10
           }
         ]
