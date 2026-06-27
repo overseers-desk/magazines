@@ -1,5 +1,5 @@
 {
-  "description": "Plugin hooks: block WebFetch against client-rendered hosts (YouTube, Reddit) and steer to a tool that works; and on stop, challenge a confident unsourced assertion so the assistant substantiates it before finishing.",
+  "description": "Plugin hook: block WebFetch against client-rendered hosts (YouTube, Reddit) and steer to a tool that works. The challenge-detector Stop hook is offline (see hooks/challenge-detector.py): a blocking Stop hook fires inside automated `claude -p` worker sessions and breaks them. Re-enable once it can gate to interactive sessions only.",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,17 +8,6 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/block-spa-webfetch.py\"",
-            "timeout": 10
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/challenge-detector.py\"",
             "timeout": 10
           }
         ]
