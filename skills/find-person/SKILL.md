@@ -17,7 +17,7 @@ This skill orchestrates lookups; it does not perform browser fetches itself. Eac
 - `instagram.com` - for people whose Instagram is a public-facing channel
 - built-in WebSearch - general web search and email reverse lookup
 
-- email-check: - local IMAP search via [mailroom](https://github.com/SmartLayer/mailroom/) or mu, when the user has prior correspondence to consult
+- email-check: - local IMAP search via the mailroom skill or mu, when the user has prior correspondence to consult
 
 Parallel dispatch: launch one haiku subagent per applicable outlet for the same target in a single message (multiple Agent tool uses in one block). Each subagent runs only its assigned outlet's lookup and returns its candidate(s) or a "no match" reply. Sonnet receives the bundle and performs identification (§1.3-§1.4). Cross-outlet rate-limit concerns belong inside each underlying skill, not at this orchestration layer.
 
