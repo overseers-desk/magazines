@@ -504,8 +504,10 @@ proc serialiser_run {skillArgs} {
     if {$note ne ""} {
         log "Modal found. Clicking 'Add a note'..."
         # Open the note editor. This click is non-destructive (UI expansion only).
-        eval {document.querySelector('[aria-label="Add a note"]').setAttribute('data-sv-addnote','1')}
-        click {[data-sv-addnote="1"]}
+        # LinkedIn's artdeco modal button does not respond to the harness's trusted
+        # CDP mouse click here; an in-page .click() does (the legacy CDP path used
+        # this, and it sent prior batches). Keep the JS click for the modal buttons.
+        eval {document.querySelector('[aria-label="Add a note"]').click()}
 
         if {![sv_wait_for {#custom-message} 16]} {
             sv_emit_result [dict create status error reason "textarea #custom-message did not appear after clicking 'Add a note'"]
@@ -545,7 +547,7 @@ proc serialiser_run {skillArgs} {
         # THE IRREVERSIBLE SEND. In the wiring test, this click is a stub that
         # records but does nothing; live, it dispatches the invitation.
         log "Clicking send button: '$send_label'"
-        click {[data-sv-send="1"]}
+        eval {document.querySelector('[data-sv-send="1"]').click()}
     } else {
         if {$dry_run} {
             log "DRY RUN: modal found, would click 'Send without a note'."
@@ -566,7 +568,7 @@ proc serialiser_run {skillArgs} {
             return
         }
         log "No note. Clicking 'Send without a note'..."
-        click {[data-sv-send="1"]}
+        eval {document.querySelector('[data-sv-send="1"]').click()}
     }
 
     log "Waiting for server response..."
