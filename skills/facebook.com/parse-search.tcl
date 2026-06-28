@@ -39,8 +39,7 @@ proc parse_search_results {html_path} {
 
 proc parse_search_results_html {html} {
     set title [fb::title $html ""]
-    if {[fb::title_is_login $title] || \
-        [string first "facebook – log in" [string tolower $title]] >= 0} {
+    if {[fb::title_is_login $title] || [string first "facebook – log in" [string tolower $title]] >= 0} {
         puts "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
         exit 1
     }
@@ -56,6 +55,9 @@ proc parse_search_results_html {html} {
     # Also non-href contexts (data attributes, JSON), appended after.
     lappend_all vanity_matches [capture_list $html {facebook\.com/([a-zA-Z0-9._]{5,})(?:[?"/&\s])}]
     lappend_all numeric_matches [capture_list $html {facebook\.com/profile\.php\?id=(\d+)}]
+    # JSON-escaped form: facebook.com\/username (backslash before each slash).
+    lappend_all vanity_matches [capture_list $html {facebook\.com\\/([a-zA-Z0-9._]{5,})(?:[?"\\/&\s])}]
+    lappend_all numeric_matches [capture_list $html {facebook\.com\\/profile\.php\\?id=(\d+)}]
 
     set seen {}
     set profiles {}
