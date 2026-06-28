@@ -1,15 +1,6 @@
 # overseer-toolbox
 
-This repo serves two independent purposes, each in its own directory tree:
-
-- a **Claude Code plugin** of AI-executed skills (`skills/`, `.claude-plugin/`), described below;
-- a **Homebrew tap** (`Formula/`) of standalone CLI tools, some of which the skills wrap.
-
-A reader here for one purpose can skip the other section; they share only the repo, not their machinery.
-
-## Claude Code plugin
-
-A plugin of AI-executed skills. Each skill drives the user's own logged-in Chromium through the `browser-serialiser` harness, or talks to a site's API with the user's credentials. Claude invokes a skill automatically when a request matches its description, so you rarely type the name.
+A Claude Code plugin of AI-executed skills. Each skill drives the user's own logged-in Chromium through the `browser-serialiser` harness, or talks to a site's API with the user's credentials. Claude invokes a skill automatically when a request matches its description, so you rarely type the name.
 
 ## What's inside
 
@@ -40,19 +31,4 @@ claude --plugin-dir /path/to/overseer-toolbox
 - **Logged-in sessions.** Browser skills expect an existing signed-in Chromium session for the target site. If a fetch returns a sign-in page, the session has expired; log in and retry.
 
 The serialised-browsing skill documents the harness, its [policed command surface](skills/serialised-browsing/COMMAND-SURFACE.md) (the contract a new browser skill is written against), and the `--dump`/`--pdf` render modes.
-
-## Homebrew tap
-
-`Formula/` makes this repo a Homebrew tap for standalone CLI tools. Because the repo is named `ot` rather than `homebrew-ot`, tap it with the explicit-URL form (one time), then install any tool:
-
-```sh
-brew tap SmartLayer/ot https://github.com/SmartLayer/ot
-brew install crude mailroom questlog
-```
-
-- **crude:** CRUD-style command-line clients for sites without a public API.
-- **mailroom:** email toolkit for AI assistants and command-line scripting.
-- **questlog:** GUI for finding, reading, and reopening past Claude Code sessions.
-
-Each formula pulls its own release tarball from that tool's repository, so the tap carries no source code and needs no releases of its own; a tool release is a single-formula edit here.
 
