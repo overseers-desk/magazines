@@ -14,7 +14,7 @@ Skills are namespaced `ot:<skill>` (e.g. `ot:linkedin-com`).
 ## Install
 
 ```sh
-claude plugin marketplace add SmartLayer/ot
+claude plugin marketplace add overseers-desk/ot
 claude plugin install ot@ot
 ```
 
