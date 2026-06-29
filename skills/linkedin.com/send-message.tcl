@@ -489,14 +489,14 @@ proc serialiser_run {skillArgs} {
     }
 
     log "Compose area found ($compose_sel). Focusing..."
-    eval "document.querySelector(\[json::write string $compose_sel\]).focus()"
+    eval "document.querySelector([json::write string $compose_sel]).focus()"
     dwell 0.3
 
     log "Typing message ([cp_length $text] chars)..."
     type $text
     dwell 0.5
 
-    set typed [eval "document.querySelector(\[json::write string $compose_sel\]).textContent"]
+    set typed [eval "document.querySelector([json::write string $compose_sel]).textContent"]
     if {$typed eq "null"} { set typed "" }
     log "Verified in compose area ([cp_length $typed] chars)"
 
@@ -509,22 +509,26 @@ proc serialiser_run {skillArgs} {
     # Locate the Send control.
     set send_label [eval {(function() {
             var btns = Array.from(document.querySelectorAll("button"));
-            var b = btns.find(function(b) {
+            // The messaging Send control is an icon button with a stable class and
+            // often an empty aria-label/textContent, so match the class first.
+            var b = btns.find(function(b) { return /msg-form__send/.test(b.className || ""); });
+            if (!b) b = btns.find(function(b) {
                 var label = (b.getAttribute("aria-label") || b.textContent || "").toLowerCase().trim();
                 return label === "send" || label === "enviar";
             });
             if (b) { b.setAttribute("data-sv-send","1"); }
-            return b ? (b.getAttribute("aria-label") || b.textContent.trim()) : null;
+            return b ? (b.getAttribute("aria-label") || b.textContent.trim() || "send-btn") : null;
         })()}]
     if {$send_label eq "null" || $send_label eq ""} {
-        sv_emit_result [dict create status error reason "Send button not found"]
+        set _btns [eval {Array.from(document.querySelectorAll("button")).map(function(b){return (b.getAttribute("aria-label")||"")+"|"+(b.textContent||"").trim()+"|"+(b.className||"").substring(0,30)}).filter(function(s){return s.length>2}).slice(0,40).join(" ;; ")}]
+        sv_emit_result [dict create status error reason "Send button not found" buttons $_btns]
         return
     }
 
     # THE IRREVERSIBLE SEND. In the wiring test, this click is a stub that records
     # but does nothing; live, it dispatches the message.
     log "Clicking send button: '$send_label'"
-    click {[data-sv-send="1"]}
+    eval {document.querySelector('[data-sv-send="1"]').click()}
 
     log "Waiting for server response..."
     dwell 4
@@ -532,7 +536,7 @@ proc serialiser_run {skillArgs} {
     set toast [eval {document.querySelector(".artdeco-toast-item__message, [data-test-artdeco-toast-item]")?.textContent?.trim() || null}]
     if {$toast eq "null"} { set toast "" }
 
-    set remaining [eval "document.querySelector(\[json::write string $compose_sel\])?.textContent?.trim()"]
+    set remaining [eval "document.querySelector([json::write string $compose_sel])?.textContent?.trim()"]
     set compose_cleared [expr {[string trim $remaining] eq "" || $remaining eq "null"}]
 
     # The post-send messaging network call is not harvestable on this surface (the
