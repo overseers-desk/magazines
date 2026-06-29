@@ -1,6 +1,6 @@
 ---
 name: linkedin
-description: "search people, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Send connection invites or direct messages to connections. Edit your own profile headline and About. Enumerate the messaging inbox and a thread's messages."
+description: "search people, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Read a member's shared contact info (email, phone, websites). Send connection invites or direct messages to connections. Edit your own profile headline and About. Enumerate the messaging inbox and a thread's messages."
 argument-hint: <name, URL, or search terms>
 ---
 
@@ -95,6 +95,24 @@ browser-serialiser linkedin.com/parse-job <job-id-or-url>
 ```
 
 `<job-id-or-url>` is a numeric job id, a `/jobs/view/<id>` URL, or any URL carrying `currentJobId=<id>`. The script navigates to the guest job-posting fragment (`jobs-guest/jobs/api/jobPosting/<id>`), whose class names are stable and whose description is the full text — so it does not depend on the logged-in SPA's randomised classes and is not truncated by the "… more" fold. Emits a YAML record: `job_id`, `url` (the human `/jobs/view/` link), `title`, `company`, `location`, `posted`, `seniority`, `employment_type`, `job_function`, `industries`, and the full `description` as a literal block scalar. Redirect stdout to `<id>.yaml` to save it. Falls back to JobPosting JSON-LD (present on a logged-out full job page) and then to the og:/<title> meta tags when the guest fragment is unavailable.
+
+## 2b. Read a member's Contact info
+
+```bash
+browser-serialiser linkedin.com/contact-info VANITY
+```
+
+`VANITY` is the vanity slug, an `ACoAA...` profile id, or a full `/in/.../` URL. This reads the member's self-listed Contact info — the data behind LinkedIn's "Contact info" modal. That modal does not mount in a headless session, so the DOM is empty; the script instead fetches the voyager GraphQL query the modal itself issues (`profile-contact-info-finder`, keyed by `memberIdentity`) and parses the privileged fields. Same in-page-fetch pattern as the messaging playbooks; `li-canonical.tcl` carries the shared helpers.
+
+It emits the canonical envelope `{result, cursor, hasMore, fault}`. `result` is:
+
+```json
+{"profile_url", "member", "name", "email_shared": true|false,
+ "emails": [...], "phones": [{"number","type"}], "twitter": [...],
+ "websites": [{"url","label","category"}], "birthday": "MM-DD"|null}
+```
+
+Email and phone are shared only by members who chose to (usually 1st-degree). When a member has not shared an email, `email_shared` is `false` and `emails` is `[]`, while `profile_url` and any other shared fields are still returned — a fetched empty, distinguishable from a failed fetch (which sets `fault`). `birthday` carries month and day only (LinkedIn exposes no year). The `queryId` rotates; if a run returns `fault` with "no profile found", refresh `LI_CONTACT_QUERY` in `contact-info.tcl` from the modal's request in DevTools.
 
 ## 3. Keyword search (optional)
 
