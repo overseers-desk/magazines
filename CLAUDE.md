@@ -57,3 +57,12 @@ Or inspect what the plugin exposes without running it:
 `claude --plugin-dir . plugin details ot`. Calling a script directly
 with `python3` or `tclsh` tests the script, not the skill trigger; a skill is not
 working until `claude -p` returns real data.
+
+Each `claude -p` has a warm floor of ~4s (process spawn + auth + one model
+round-trip) — inherent per invocation, not a bug. Measured: MCP servers and
+model tier are **not** the cause (disabling MCP with `--strict-mcp-config`, or
+switching to `--model haiku`, does not move it), so do not chase them. The first
+run right after `plugin install` is slower (one-off marketplace cache refresh).
+Therefore: batch several checks into ONE `-p` call rather than spawning many,
+and keep a discovery probe tiny — ask only for the skill name (`is there a
+linkedin skill? name only`), not its description.
