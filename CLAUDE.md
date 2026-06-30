@@ -2,8 +2,10 @@
 
 This repo is one Claude Code plugin. Skills live in `skills/<skill>/`, the
 `browser-serialiser` harness sits in `bin/` (on PATH while the plugin is enabled),
-`config.ini.example` and both manifests sit in the root. The repo is also its own
-marketplace: `.claude-plugin/` holds `plugin.json` and `marketplace.json` (source `./`).
+`config.ini.example` sits in the root and `.claude-plugin/` holds the plugin
+manifest, `plugin.json`. The marketplace that lists this plugin no longer lives
+here; it sits in a separate repo, `overseers-desk/overseers-desk`, alongside the
+sibling `office` plugin.
 
 **Before any web-access work** (writing a new browser skill, or repairing one that broke), read the diagnosis methodology at [`../aesop/webworks/`](../aesop/webworks/README.md). It is the standing antidote to the firemaning, the premature commitment to "profile corrupt / fingerprint detected / we are rate-limited", that derails this work; the procedure and the case studies (`STORY.md`) live there.
 
