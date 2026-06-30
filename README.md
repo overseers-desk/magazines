@@ -14,8 +14,8 @@ Skills are namespaced `ot:<skill>` (e.g. `ot:linkedin-com`).
 ## Install
 
 ```sh
-claude plugin marketplace add overseers-desk/ot
-claude plugin install ot@ot
+claude plugin marketplace add overseers-desk/overseers-desk
+claude plugin install ot@overseers-desk
 ```
 
 `claude plugin list` then shows it enabled. For development, load it from disk without installing; this reads the working tree live, so edits take effect without reinstalling:
