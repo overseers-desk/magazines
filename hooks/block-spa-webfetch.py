@@ -58,7 +58,7 @@ def youtube_reason():
 def reddit_reason():
     return (
         "WebFetch can't reliably read Reddit: it hits interstitials/blocks or "
-        "returns only chrome. Prefer the reddit skill (ot:reddit-com) for "
+        "returns only chrome. Prefer the reddit skill (skillbooks:reddit-com) for "
         "posts, comment trees, and search, or the serialised-browsing skill "
         "for an arbitrary page."
     )

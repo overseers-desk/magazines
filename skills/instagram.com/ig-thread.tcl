@@ -1,5 +1,5 @@
 # ig-thread.tcl - the ig-thread B-job playbook, run inside the serialiser harness.
-# Home: overseer-toolbox/skills/instagram.com/ig-thread.tcl
+# Home: skillbooks/skills/instagram.com/ig-thread.tcl
 #
 # Pages one DM thread from raw IG (the api-fetch method: view instagram.com, then
 # fetch the private direct_v2/threads endpoint in-page) into the parser-input shape,

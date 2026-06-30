@@ -1,5 +1,5 @@
 # ig-inbox.tcl - the ig-inbox B-job playbook, run inside the serialiser harness.
-# Home: overseer-toolbox/skills/instagram.com/ig-inbox.tcl
+# Home: skillbooks/skills/instagram.com/ig-inbox.tcl
 #
 # Pulls one raw IG inbox page (the api-fetch method: view instagram.com, then fetch
 # the private direct_v2/inbox endpoint in-page over the page's own cookies), flattens

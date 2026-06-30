@@ -1,4 +1,4 @@
-# overseer-toolbox — notes for AI sessions
+# skillbooks — notes for AI sessions
 
 This repo is one Claude Code plugin. Skills live in `skills/<skill>/`, the
 `browser-serialiser` harness sits in `bin/` (on PATH while the plugin is enabled),
@@ -54,7 +54,7 @@ claude --plugin-dir . -p --dangerously-skip-permissions "<natural language reque
 ```
 
 Or inspect what the plugin exposes without running it:
-`claude --plugin-dir . plugin details ot`. Calling a script directly
+`claude --plugin-dir . plugin details skillbooks`. Calling a script directly
 with `python3` or `tclsh` tests the script, not the skill trigger; a skill is not
 working until `claude -p` returns real data.
 

@@ -1,5 +1,5 @@
 # li-thread.tcl - the li-thread B-job playbook, run inside the serialiser harness.
-# Home: overseer-toolbox/skills/linkedin.com/li-thread.tcl
+# Home: skillbooks/skills/linkedin.com/li-thread.tcl
 #
 # Backfills one messaging thread: takes a conversationUrn (from the connector's
 # selectReady), harvests the live messengerMessages queryId from the messaging
