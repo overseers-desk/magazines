@@ -1,9 +1,9 @@
 # ig-html.tcl - shared helpers for reading Instagram HTML pages: meta-tag
 # extraction, HTML entity decoding, and follower/following/post count parsing.
 #
-# Shared verbatim by the overseer-toolbox skills and the BI overseer's playbooks:
+# Shared verbatim by the skillbooks skills and the BI overseer's playbooks:
 # both folders carry a byte-identical copy. Edit the home and re-vendor.
-# Home: overseer-toolbox/skills/instagram.com/ig-html.tcl
+# Home: skillbooks/skills/instagram.com/ig-html.tcl
 #
 # Pure Tcl (no socket / exec / file), so it runs unchanged inside the safe interp.
 

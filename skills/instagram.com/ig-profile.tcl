@@ -1,8 +1,8 @@
 # ig-profile.tcl - the Instagram profile-read interaction, shared VERBATIM by the
-# overseer-toolbox skill and the BI overseer's type-B playbook. Both ends source
+# skillbooks skill and the BI overseer's type-B playbook. Both ends source
 # this same file (the BI side carries a vendored copy beside its playbooks); the
 # only per-end difference is the filename the two systems address it by.
-# Home: overseer-toolbox/skills/instagram.com/ig-profile.tcl
+# Home: skillbooks/skills/instagram.com/ig-profile.tcl
 #
 # It reads the profile the dom-dump way (navigate as a human views it, dump the
 # rendered outerHTML, parse what the page shows) -- never the private

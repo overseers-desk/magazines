@@ -1,5 +1,5 @@
 # contact-info.tcl - the contact-info read verb, run inside the serialiser harness.
-# Home: overseer-toolbox/skills/linkedin.com/contact-info.tcl
+# Home: skillbooks/skills/linkedin.com/contact-info.tcl
 #
 # Reads a member's self-listed Contact info (email, phones, websites, twitter,
 # birthday) - the data LinkedIn's "Contact info" modal shows. The modal does not

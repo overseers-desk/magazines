@@ -1,4 +1,4 @@
-# overseer-toolbox
+# skillbooks
 
 A Claude Code plugin of AI-executed skills. Each skill drives the user's own logged-in Chromium through the `browser-serialiser` harness, or talks to a site's API with the user's credentials. Claude invokes a skill automatically when a request matches its description, so you rarely type the name.
 
@@ -9,19 +9,19 @@ A Claude Code plugin of AI-executed skills. Each skill drives the user's own log
 - **Editorial review:** edit-email, edit-economistly, sorry-im-late, quote-me.
 - **Research and rendering:** build-dossier, typst-pdf, and the shared serialised-browsing harness.
 
-Skills are namespaced `ot:<skill>` (e.g. `ot:linkedin-com`).
+Skills are namespaced `skillbooks:<skill>` (e.g. `skillbooks:linkedin-com`).
 
 ## Install
 
 ```sh
 claude plugin marketplace add overseers-desk/overseers-desk
-claude plugin install ot@overseers-desk
+claude plugin install skillbooks@overseers-desk
 ```
 
 `claude plugin list` then shows it enabled. For development, load it from disk without installing; this reads the working tree live, so edits take effect without reinstalling:
 
 ```sh
-claude --plugin-dir /path/to/overseer-toolbox
+claude --plugin-dir /path/to/skillbooks
 ```
 
 ## Prerequisites
