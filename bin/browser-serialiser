@@ -668,14 +668,22 @@ proc render_parse_timeout {args} {
     return [dict create secs $secs rest $rest]
 }
 
+proc print_usage {chan} {
+    puts $chan "Usage:"
+    puts $chan "  browser-serialiser <skill-ref> \[skill args...\]"
+    puts $chan "      run a policed browser skill (e.g. instagram.com/fetch-recent-posts posts <handle>)"
+    puts $chan "  browser-serialiser --dump \[-t SECS\] <url>"
+    puts $chan "      render <url> and print its DOM to stdout (default -t 15)"
+    puts $chan "  browser-serialiser --pdf \[-t SECS\] <outfile> <url>"
+    puts $chan "      render <url> and write a PDF to <outfile> (default -t 30)"
+    puts $chan "  browser-serialiser --help"
+    puts $chan "      print this message"
+}
+
+# Error path: usage on misuse goes to stderr with a non-zero (sysexits EX_USAGE)
+# status. An explicit --help is not misuse, so it prints to stdout and exits 0.
 proc usage {} {
-    puts stderr "Usage:"
-    puts stderr "  browser-serialiser <skill-ref> \[skill args...\]"
-    puts stderr "      run a policed browser skill (e.g. instagram.com/fetch-recent-posts posts <handle>)"
-    puts stderr "  browser-serialiser --dump \[-t SECS\] <url>"
-    puts stderr "      render <url> and print its DOM to stdout (default -t 15)"
-    puts stderr "  browser-serialiser --pdf \[-t SECS\] <outfile> <url>"
-    puts stderr "      render <url> and write a PDF to <outfile> (default -t 30)"
+    print_usage stderr
     exit 64
 }
 
@@ -688,6 +696,10 @@ proc main {} {
     # Direct render modes (--dump / --pdf): no skill, no policing surface; run in
     # this trusted interpreter. They share the standalone lock/launch/teardown.
     switch -- [lindex $argv 0] {
+        --help - -h {
+            print_usage stdout
+            exit 0
+        }
         --dump {
             set p [render_parse_timeout {*}[lrange $argv 1 end]]
             set rest [dict get $p rest]
