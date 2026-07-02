@@ -1,6 +1,6 @@
 ---
 name: facebook
-description: "search people, read profiles, extract posts with hashtags and tagged people, check keywords, dump reel comments to markdown; find someone's posts/activity."
+description: "search people, read profiles, extract posts with hashtags and tagged people, check keywords, dump reel comments to markdown; find someone's posts, or audit a group-post activity log for duplicate or cross-posted entries."
 argument-hint: <name, URL, or search terms>
 ---
 
@@ -114,6 +114,18 @@ browser-serialiser facebook.com/reel-comments-cdp https://www.facebook.com/reel/
 Output format is raw: `Author · age` followed by body lines for each top-level comment, with replies indented under their parent (prefixed with `↳`). No headers, no profile URLs, no comment IDs — designed for reading.
 
 The number of comments returned matches what Facebook serves over its GraphQL endpoint. The viewer's header count (e.g. "630 comments") is often higher than what's actually returned because Facebook counts include spam-filtered/deleted/cross-universe-aggregated items that the API does not serve to a logged-in viewer.
+
+## 10. Audit the group-post activity log
+
+```bash
+browser-serialiser facebook.com/parse-activity <profile-id|activity-url> [--max-rounds N]
+```
+
+Navigates the profile's group-posts activity log (`/<id>/allactivity/?category_key=GROUPPOSTS`), scrolls to lazy-load entries until the on-page count stops growing (or `--max-rounds`, default 25), and lists each group post under its date-section header: time, group, privacy, and the post permalink. A bare numeric id builds the activity URL; a full activity-log URL is used as given.
+
+The report keys on the `/groups/GID/permalink/PID` behind each row — the post's unique identity — so it separates a genuine repeat from a re-render (entries are deduped by GID+PID). Its **same-group check** flags any group that received more than one post, i.e. one GID across two different PIDs, listing each post's date and permalink; two rows are the same post only when they share a permalink. The same content sent to many different groups is cross-posting, not duplication, and shows as distinct GIDs.
+
+Group names come from the activity-title JSON, present for plain "posted in <group>" entries; a link-share entry carries no group name beside its id, so it is shown by group id and its permalink identifies the group. Times are the log's own localized times; the full date is a per-section header each row inherits.
 
 ## DOM parsing notes
 
