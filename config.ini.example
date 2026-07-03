@@ -8,6 +8,11 @@ accept_lang = es-ES,es,en
 [serpapi]
 api_key = <API-KEY>
 
+[brave.com]
+# Brave Search API subscription token, read by bin/brave-search.
+# Get one at https://api-dashboard.search.brave.com/ (a free tier exists).
+api_key = <API-KEY>
+
 [supplier.getyourguide.com]
 supplier_id = <ID>
 
