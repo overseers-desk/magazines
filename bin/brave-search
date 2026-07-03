@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# brave-search "query terms" [count]
+# Real web search via Brave Search API. Prints concise text results
+# (title / url / snippet) for an agent to read. No tool schema involved.
+#
+# The subscription token is read from the user skills config file, the SAME
+# file browser-serialiser reads: $HOME/.claude/skills/config.ini, section
+# [brave.com], key api_key. No key is committed in this file; copy
+# config.ini.example to that path and fill in your Brave token. Absent key or
+# missing config file is a fatal error naming what it needs.
+set -euo pipefail
+
+CONFIG="$HOME/.claude/skills/config.ini"
+
+# Read one value from config.ini's [section] key. Mirrors browser-serialiser's
+# config_get: walk lines, track the current [section] header, and on a match of
+# "key = value" inside the wanted section return the trimmed value. Empty if
+# absent.
+config_get() {
+  local want_section="$1" want_key="$2"
+  [ -f "$CONFIG" ] || return 0
+  local cur="" line t sect val
+  while IFS= read -r line || [ -n "$line" ]; do
+    t="${line#"${line%%[![:space:]]*}"}"   # ltrim
+    t="${t%"${t##*[![:space:]]}"}"          # rtrim
+    if [[ "$t" =~ ^\[(.+)\]$ ]]; then
+      cur="${BASH_REMATCH[1]}"
+      continue
+    fi
+    if [ "$cur" = "$want_section" ] && [[ "$line" =~ ^[[:space:]]*"$want_key"[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+      val="${BASH_REMATCH[1]}"
+      val="${val%"${val##*[![:space:]]}"}"  # rtrim
+      printf '%s\n' "$val"
+      return 0
+    fi
+  done < "$CONFIG"
+  return 0
+}
+
+Q="${1:-}"
+N="${2:-8}"
+if [ -z "$Q" ]; then echo "usage: brave-search \"query\" [count]" >&2; exit 2; fi
+
+if [ ! -f "$CONFIG" ]; then
+  echo "brave-search: config file not found: $CONFIG" >&2
+  echo "  copy config.ini.example there and add a [brave.com] api_key" >&2
+  exit 3
+fi
+
+KEY="$(config_get "brave.com" api_key)"
+if [ -z "$KEY" ] || [ "$KEY" = "<API-KEY>" ]; then
+  echo "brave-search: no Brave token in $CONFIG" >&2
+  echo "  add section [brave.com] with 'api_key = <your Brave token>'" >&2
+  exit 3
+fi
+
+curl -s -m 25 --get "https://api.search.brave.com/res/v1/web/search" \
+  --data-urlencode "q=$Q" \
+  --data-urlencode "count=$N" \
+  -H "Accept: application/json" \
+  -H "X-Subscription-Token: $KEY" \
+| Q="$Q" python3 -c "
+import sys,os,json,re,html
+q=os.environ.get('Q','')
+def strip(s): return html.unescape(re.sub('<[^>]+>','', s or ''))
+try:
+    d=json.load(sys.stdin)
+except Exception as e:
+    print('SEARCH ERROR: bad response', e); sys.exit(1)
+web=(d.get('web') or {}).get('results') or []
+if not web:
+    print('NO RESULTS for:', q); sys.exit(0)
+print('SEARCH RESULTS for:', q)
+for i,r in enumerate(web,1):
+    print(f'{i}. {strip(r.get(\"title\"))}')
+    print(f'   URL: {r.get(\"url\")}')
+    desc=strip(r.get('description'))
+    if desc: print(f'   {desc}')
+"

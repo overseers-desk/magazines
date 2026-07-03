@@ -8,6 +8,7 @@ A Claude Code plugin of AI-executed skills. Each skill drives the user's own log
 - **Travel and award search:** Qantas Classic Rewards, RENFE, Interline cruises, IHG, Marriott, Premier Inn, Flightnetwork, SerpApi.
 - **Editorial review:** edit-email, edit-economistly, sorry-im-late, quote-me.
 - **Research and rendering:** build-dossier, typst-pdf, and the shared serialised-browsing harness.
+- **Command-line tools:** `bin/brave-search "query" [count]` prints title/url/snippet web results from the Brave Search API. It reads its token from the same config file as the harness (`[brave.com]` `api_key`).
 
 Skills are namespaced `skillbooks:<skill>` (e.g. `skillbooks:linkedin-com`).
 
