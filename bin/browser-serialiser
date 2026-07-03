@@ -53,6 +53,18 @@ proc config_path {} {
     return [file join $::env(HOME) .claude skills config.ini]
 }
 
+# Standalone diagnostics-log directory. A fixed system location, mirroring the
+# overseer's own fixed /var/local/log/bi-overseer (parity: the standalone host is
+# the overseer's counterpart and keeps the same kind of record), overridable via
+# BROWSER_SERIALISER_LOG_DIR for a test run or a machine where /var/local is not
+# writable. The harness creates it best-effort and silently logs nothing if it cannot.
+proc log_dir {} {
+    if {[info exists ::env(BROWSER_SERIALISER_LOG_DIR)] && $::env(BROWSER_SERIALISER_LOG_DIR) ne ""} {
+        return $::env(BROWSER_SERIALISER_LOG_DIR)
+    }
+    return /var/local/log/browser-serialiser
+}
+
 # Read one value from config.ini's [section] key. Empty if absent.
 proc config_get {section key} {
     set path [config_path]
@@ -582,6 +594,7 @@ proc args_to_json {skillArgs} {
 
 proc run_standalone {skillRef skillArgs} {
     serialiser::setRoot $::Root
+    serialiser::setLogDir [log_dir]
     set skillPath [serialiser::resolveSkill $skillRef]
 
     set ua [config_get browser user_agent]
@@ -606,6 +619,7 @@ proc run_standalone {skillRef skillArgs} {
     set launchPid ""
     set rc 0
     set out ""
+    serialiser::Log run "ref=$skillRef port=$port udd=$udd argv=[join $skillArgs { }]"
     if {[catch {
         set lockToken [lock_acquire 600]
         set br [browser_launch $binary $udd $ua $lang $port]
@@ -636,6 +650,7 @@ proc run_standalone {skillRef skillArgs} {
     }
     if {$launched} { browser_teardown $launchPid $port $udd }
     lock_release $lockToken
+    serialiser::Log end "ref=$skillRef rc=$rc"
     if {$rc == 0} { puts $out }
     return $rc
 }

@@ -44,6 +44,14 @@ namespace eval serialiser {
 
     # Monotonic counter for Sleep's per-call wait variable (see serialiser::Sleep).
     variable SleepSeq 0
+
+    # Standalone diagnostics log directory, set by the host via setLogDir. Every
+    # wire-touching verb, its pace, a 429 backoff, and a terminal wall are appended
+    # as one line here, so a ban post-mortem reads the cadence and the wall from the
+    # harness's own record instead of reconstructing it from the browser History DB.
+    # Empty (the default, and the overseer host, which keeps its own /log sink) makes
+    # every Log call a no-op, so this shared library stays host-agnostic.
+    variable LogDir ""
 }
 
 # ---------------------------------------------------------------------------
@@ -54,6 +62,41 @@ namespace eval serialiser {
 proc serialiser::setRoot {root} {
     variable Root
     set Root [file normalize $root]
+}
+
+# Point the standalone diagnostics log at $dir, creating it if absent. Best-effort:
+# an unwritable or uncreatable dir disables logging (LogDir stays empty) rather than
+# failing the run. Empty $dir disables logging outright. Called only by the standalone
+# host; the overseer leaves it unset and logs through its own sink.
+proc serialiser::setLogDir {dir} {
+    variable LogDir
+    if {$dir eq "" || [catch {file mkdir $dir}]} { set LogDir ""; return }
+    set LogDir $dir
+}
+
+# Append one line to the diagnostics log: tab-separated timestamp, pid, tag, data.
+# $tag is a short event class (run/nav/api/pace/backoff/terminal/end); $data is the
+# already-formatted detail. Opened in append mode and written in one call, so parallel
+# runs interleave by whole line, not mid-line. Wrapped in catch and gated on LogDir,
+# so a logging fault never fails the task. Local time with offset, so the reader need
+# not convert a UTC stamp to know when a burst ran.
+proc serialiser::Log {tag data} {
+    variable LogDir
+    if {$LogDir eq ""} return
+    catch {
+        set ts [clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S%z}]
+        set ch [open [file join $LogDir skill.log] a]
+        fconfigure $ch -encoding utf-8
+        puts -nonewline $ch "$ts\t[pid]\t$tag\t$data\n"
+        close $ch
+    }
+}
+
+# The scheme+host+path of a URL, query string dropped, so a logged landing URL never
+# carries a session or challenge token. Returns the input unchanged when it has no query.
+proc serialiser::LogUrl {url} {
+    regexp {^[^?]*} $url m
+    return $m
 }
 
 # Resolve a skill reference to an absolute .tcl path inside the trusted skill
@@ -274,12 +317,13 @@ proc serialiser::Verb_nav {url args} {
             --expect-login { set expectLogin 1 }
         }
     }
-    serialiser::Pace nav
+    set paced [serialiser::Pace nav]
     $Cdp cdp Page.enable
     $Cdp cdp Page.navigate [dict create url $url]
     serialiser::Sleep [expr {int($wait * 1000)}]
     set landing [serialiser::PageUrl]
     dict set Run lastNavUrl $landing
+    serialiser::Log nav "pace=${paced}ms url=[serialiser::LogUrl $url] landing=[serialiser::LogUrl $landing]"
     # --expect-login: a login skill deliberately lands on the sign-in page, whose
     # title/URL would otherwise read as a logged-out wall. Skip classification for
     # this one navigation only; every other nav (e.g. the post-login move to the
@@ -366,13 +410,14 @@ proc serialiser::Verb_capture {navUrl args} {
             --match   { set match $v }
         }
     }
-    serialiser::Pace nav
+    set paced [serialiser::Pace nav]
     $Cdp cdpBuffered Network.enable
     $Cdp cdpBuffered Page.navigate [dict create url $navUrl]
     set landing ""
     $Cdp drainEvents $seconds
     set landing [serialiser::PageUrl]
     dict set Run lastNavUrl $landing
+    serialiser::Log capture "pace=${paced}ms url=[serialiser::LogUrl $navUrl] landing=[serialiser::LogUrl $landing] match=$match"
     serialiser::ClassifyWall $landing [serialiser::PageTitle]
     return [serialiser::Harvest $match]
 }
@@ -478,15 +523,17 @@ proc serialiser::Verb_log {message} {
 # Plane 2 internals: pacing, view-before-fetch, paced fetch, wall classification.
 # ---------------------------------------------------------------------------
 
-# Sleep base+uniform-jitter ms for a verb class before it touches the wire.
+# Sleep base+uniform-jitter ms for a verb class before it touches the wire. Returns
+# the ms slept (0 for an unpaced verb) so the caller can fold it into its log line.
 proc serialiser::Pace {verb} {
     variable PaceDefaults
-    if {![dict exists $PaceDefaults $verb]} return
+    if {![dict exists $PaceDefaults $verb]} { return 0 }
     set spec [dict get $PaceDefaults $verb]
     set base [dict get $spec base]
     set jit [dict get $spec jitter]
     set ms [expr {$base + int(rand() * $jit)}]
     serialiser::Sleep $ms
+    return $ms
 }
 
 # Sleep $ms milliseconds, host-aware. Standalone (cdp::PumpMode 0) a plain blocking
@@ -573,8 +620,9 @@ proc serialiser::FetchPaced {path params headers} {
     set try 0
     set delay $BackoffBaseMs
     while 1 {
-        serialiser::Pace api
+        set paced [serialiser::Pace api]
         set body [serialiser::DoFetch $path $params $headers status]
+        serialiser::Log api "pace=${paced}ms status=$status path=[serialiser::LogUrl $path]"
         # Per-fetch diagnostic: path, the header NAMES sent (DoFetch's two defaults
         # plus any caller header; names only, so the CSRF token never lands in a
         # log), and the HTTP status. A non-2xx that is not 429/401/403 (e.g. 400
@@ -593,8 +641,10 @@ proc serialiser::FetchPaced {path params headers} {
             incr try
             if {$try > $BackoffMaxTries} {
                 dict set Run terminal rate-limited
+                serialiser::Log terminal "state=rate-limited path=[serialiser::LogUrl $path] tries=$BackoffMaxTries"
                 error "serialiser: rate-limited (429) after $BackoffMaxTries backoffs"
             }
+            serialiser::Log backoff "try=$try delay=${delay}ms path=[serialiser::LogUrl $path]"
             serialiser::Sleep $delay
             set delay [expr {min($delay * 2, $BackoffCapMs)}]
             continue
@@ -602,6 +652,7 @@ proc serialiser::FetchPaced {path params headers} {
         if {$status == 401 || $status == 403} {
             # A private fetch rejected as unauthenticated -> treat as logged out.
             dict set Run terminal logged-out
+            serialiser::Log terminal "state=logged-out path=[serialiser::LogUrl $path] http=$status"
             error "serialiser: logged-out (HTTP $status on $path)"
         }
         if {[string length $body] > $MaxBodyBytes} {
@@ -683,18 +734,18 @@ proc serialiser::ClassifyWall {url title} {
     variable Run
     set u [string tolower $url]
     set t [string tolower $title]
+    set term ""
     if {[string match "*/accounts/login*" $u] || [string match "*/login*" $u] || [string match "*/signup*" $u]} {
-        dict set Run terminal logged-out
-        return
-    }
-    if {[string match "*/challenge/*" $u] || [string match "*/checkpoint*" $u]} {
-        dict set Run terminal checkpoint
-        return
-    }
-    if {[string first "log in" $t] >= 0 || [string first "login" $t] >= 0 \
+        set term logged-out
+    } elseif {[string match "*/challenge/*" $u] || [string match "*/checkpoint*" $u]} {
+        set term checkpoint
+    } elseif {[string first "log in" $t] >= 0 || [string first "login" $t] >= 0 \
             || [string first "sign in" $t] >= 0} {
-        dict set Run terminal logged-out
-        return
+        set term logged-out
+    }
+    if {$term ne ""} {
+        dict set Run terminal $term
+        serialiser::Log terminal "state=$term landing=[serialiser::LogUrl $url]"
     }
 }
 

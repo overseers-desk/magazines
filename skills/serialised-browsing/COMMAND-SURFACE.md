@@ -98,6 +98,22 @@ On a terminal state the run ends; `browser-serialiser` exits 66 and the skill's
 `state` shows the reason. A skill never chooses to retry a wall; the only retry
 that exists is the harness's own 429 backoff.
 
+## Diagnostics log (standalone)
+
+The standalone host appends one tab-separated line per event to
+`/var/local/log/browser-serialiser/skill.log` (override `BROWSER_SERIALISER_LOG_DIR`;
+best-effort, so an unwritable directory disables it rather than failing the run):
+`timestamp<TAB>pid<TAB>tag<TAB>data`, with tags `run` / `nav` / `capture` / `api`
+/ `backoff` / `terminal` / `end`. Each wire-touching line carries its jittered pace
+(`pace=Nms`); `nav`/`capture` carry the requested and landing URLs (query stripped);
+`api` carries status and path; `terminal` carries the wall state and where it landed.
+This is host-side, not a skill capability: the harness writes it from the trusted
+interp, so the sandbox is untouched. It is the standalone counterpart of the
+overseer's own `/log` sink, letting a ban post-mortem read the cadence and the wall
+from the harness's record rather than reconstructing it from the browser History DB.
+It records volume without capping it: pacing is per-request, and nothing here
+limits how many profiles a caller pulls across runs.
+
 ## View-before-fetch
 
 `api` is the **declared exception** to capture-based private-data access: a
