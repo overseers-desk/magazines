@@ -418,7 +418,9 @@ oo::class create cdp::Client {
     method JsonScalar {v} {
         if {$v in {true false null}} { return $v }
         if {[string is integer -strict $v]} { return $v }
-        if {[string is double -strict $v]} { return $v }
+        # CDP network IDs look like "562302.199" and are string-typed; auto-converting
+        # them to JSON numbers causes "Invalid parameters" on getResponseBody.
+        # Do not auto-serialize doubles: pass as JSON strings instead.
         return [json::write string $v]
     }
 }
