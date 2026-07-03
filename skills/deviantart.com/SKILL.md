@@ -81,8 +81,19 @@ In practice, write this as a shell loop or a short Python script, whichever is c
 
 where SLUG is the last path segment of the deviation URL (e.g. `Interrogation-2-Abdominal-Pressure-1325618104`).
 
+## Enumerating a whole gallery folder
+
+Given a gallery URL (`/USERNAME/gallery/FOLDERID/slug`), a single DOM dump renders only the first ~25 of the folder's items; the rest load through DeviantArt's internal paginated API. `gallery-contents.tcl` walks that pagination and returns every item with its `id`, `url`, `title`, and `isVideo` flag:
+
+```bash
+browser-serialiser deviantart.com/gallery-contents USERNAME FOLDERID > gallery.json
+```
+
+It fetches `/_puppy/dashared/gallection/contents` in pages of 24, following `nextOffset`/`hasMore` to the end. The endpoint requires a CSRF token, read from `window.__CSRF_TOKEN__` on the gallery page (not from a cookie — DeviantArt does not put it there). Filter the result to `isVideo: true` items, then run each through the single-file / multi-file download logic above.
+
+Gate on `isVideo` alone, and let the DOM-dump extraction be the real test of what is fetchable. The API also returns an `isDownloadable` field, but it reflects only DeviantArt's own "Download original" button, not whether a playable wixmp MP4 sits in the page — every `isVideo` item observed carried an MP4 in its rendered DOM regardless of that flag. Filtering on `isDownloadable` drops fetchable videos (it excluded 28 of 55 in the aliciachronicles/98565606 folder).
+
 ## What this skill does NOT do
 
 - It does not handle image or literature deviations — only video.
 - It does not handle deviations behind a login wall. If the dump returns a login page, the user must be logged in via the user-data-dir that `browser-serialiser` targets.
-- It does not search DeviantArt or browse galleries.
