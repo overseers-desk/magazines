@@ -187,7 +187,7 @@ proc serialiser::run {skillPath cdp skillArgs} {
             if {[string match [info library]* $d]} { lappend acc $d }
         }
         lappend acc [file dirname $skillPath] [file join $Root skills lib]
-        foreach pkg {json json::write} {
+        foreach pkg {json json::write base64} {
             foreach tok [package ifneeded $pkg [package require $pkg]] {
                 if {[file exists $tok]} {
                     set jd [file dirname $tok]
@@ -212,9 +212,10 @@ proc serialiser::run {skillPath cdp skillArgs} {
 
         serialiser::InjectVerbs $interp
 
-        # tcllib json is pure-Tcl and safe; let the skill's parsers use it.
+        # tcllib json and base64 are pure-Tcl and safe; let the skill's parsers use them.
         catch {$interp eval {package require json}}
         catch {$interp eval {package require json::write}}
+        catch {$interp eval {package require base64}}
 
         # Source the skill inside the sandbox. ::safe maps the absolute path
         # through the access path automatically.
@@ -303,7 +304,24 @@ proc serialiser::Verb_dump {} {
 # or raises "JS exception: ..." on a page-side error.
 proc serialiser::Verb_eval {jsExpr} {
     variable Cdp
-    return [$Cdp evaluate $jsExpr]
+    # Use cdpBuffered so Network.responseReceived events are parked in
+    # the EventBuffer while we wait for the JS result.  The reel-comments
+    # skill (and any skill that pairs eval with harvest) depends on this.
+    set resp [$Cdp cdpBuffered Runtime.evaluate [dict create \
+        expression $jsExpr awaitPromise true returnByValue true]]
+    if {![dict exists $resp result]} { return "" }
+    set result [dict get $resp result]
+    if {[dict exists $result exceptionDetails]} {
+        set exc [dict get $result exceptionDetails]
+        if {[dict exists $exc text]} {
+            error "JS exception: [dict get $exc text]"
+        }
+        error "JS exception"
+    }
+    if {[dict exists $result result value]} {
+        return [dict get $result result value]
+    }
+    return ""
 }
 
 # api <path> ?--params str? ?--site host?  -- a DECLARED private fetch replayed
