@@ -1,5 +1,5 @@
 # ig-posts.tcl - the ig-posts B-job playbook, run inside the serialiser harness.
-# Home: skillbooks/skills/instagram.com/ig-posts.tcl
+# Home: skills/instagram.com/ig-posts.tcl
 #
 # Fetches a public profile's recent posts (the api-fetch method: view instagram.com,
 # then fetch the private feed/user endpoint in-page over the page's own cookies) and

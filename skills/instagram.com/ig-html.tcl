@@ -3,7 +3,7 @@
 #
 # Shared verbatim by the skillbooks skills and the BI overseer's playbooks:
 # both folders carry a byte-identical copy. Edit the home and re-vendor.
-# Home: skillbooks/skills/instagram.com/ig-html.tcl
+# Home: skills/instagram.com/ig-html.tcl
 #
 # Pure Tcl (no socket / exec / file), so it runs unchanged inside the safe interp.
 
