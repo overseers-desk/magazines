@@ -1,5 +1,5 @@
 # ig-canonical.tcl - the canonical IG parsers and envelope builders the overseer's
-# Home: skillbooks/skills/instagram.com/ig-canonical.tcl
+# Home: skills/instagram.com/ig-canonical.tcl
 # B-job playbooks share.
 #
 # A playbook (ig-inbox.tcl, ig-thread.tcl, ig-profile.tcl, ig-posts.tcl) runs inside

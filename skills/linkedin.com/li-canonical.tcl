@@ -1,6 +1,6 @@
 # li-canonical.tcl - the canonical LinkedIn messaging parsers and envelope builders
 # the B-job playbooks (li-inbox, li-thread) share.
-# Home: skillbooks/skills/linkedin.com/li-canonical.tcl
+# Home: skills/linkedin.com/li-canonical.tcl
 #
 # A playbook runs inside the serialiser harness's safe interp: it `nav`s to the
 # messaging page a human views, fetches the voyager messaging GraphQL body with an
