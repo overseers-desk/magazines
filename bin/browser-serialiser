@@ -23,7 +23,7 @@
 #   /browser/dump (a one-shot DOM render). Either way the overseer owns the outcome: a
 #   fault is returned as the run's failure, never silently re-launched here.
 #   Standalone: when the overseer is absent the serialiser launches its own headless
-#   Chromium on the user's REAL logged-in profile (flock /tmp/chromium.lock,
+#   Chromium on the user's REAL logged-in profile (lockfile /tmp/chromium.lock,
 #   --headless=new --remote-debugging-port on a random port, --user-data-dir=<profile>),
 #   polls /json for the page-target ws url, connects via cdp-client, runs the skill,
 #   and tears the browser down on every exit. Launch/teardown mirrors the overseer's
@@ -84,7 +84,7 @@ proc config_get {section key} {
 }
 
 # ---------------------------------------------------------------------------
-# Browser launch (standalone): pure-Tcl flock + launch + teardown.
+# Browser launch (standalone): pure-Tcl lockfile + launch + teardown.
 # ---------------------------------------------------------------------------
 
 # Locate the Chromium binary and the user-data-dir for the running OS. Returns a
@@ -138,23 +138,71 @@ proc browser_is_snap {binary} {
     return 0
 }
 
+# The last-run timestamp file, beside the lock. Holds the unix-seconds time the
+# previous run released the browser, so the next acquirer can enforce a minimum gap
+# between successive runs (see enforce_min_gap). In /tmp with the lock: a reboot
+# resets both together, which is fine (spacing is an anti-ban courtesy, not state
+# that must survive).
+proc lastrun_path {} { return /tmp/chromium.lastrun }
+
+# The minimum seconds between one run's browser activity and the next's, overridable
+# via BROWSER_SERIALISER_MIN_GAP_SECS (0 disables spacing). The lockfile gives mutual
+# exclusion but no pacing, so back-to-back runs would otherwise fire with no gap; this
+# is the cross-run spacing that turns a rapid campaign into a paced crawl. Default 30:
+# large enough to space an automation loop, but only paid when the previous run was
+# recent, so an interactive fetch after a long idle waits nothing.
+proc min_gap_secs {} {
+    if {[info exists ::env(BROWSER_SERIALISER_MIN_GAP_SECS)] && $::env(BROWSER_SERIALISER_MIN_GAP_SECS) ne ""} {
+        set v $::env(BROWSER_SERIALISER_MIN_GAP_SECS)
+        if {[string is integer -strict $v] && $v >= 0} { return $v }
+    }
+    return 30
+}
+
+# Sleep just long enough that this run starts at least min_gap_secs after the previous
+# run released, then return. Called while holding the lock, so the sleep also keeps the
+# NEXT waiter blocked, which is what throttles the combined rate of several concurrent
+# sessions: they all serialise through this one lock, so a gap held here paces the lot.
+# Sleeps only the remainder (nothing when the last run is already old enough), reads the
+# stamp best-effort, and never sleeps more than one full gap even under clock skew.
+proc enforce_min_gap {} {
+    set minGap [min_gap_secs]
+    if {$minGap <= 0} return
+    set last ""
+    catch {
+        set f [open [lastrun_path] r]
+        set last [string trim [read $f]]
+        close $f
+    }
+    if {![string is integer -strict $last]} return
+    set elapsed [expr {[clock seconds] - $last}]
+    if {$elapsed < 0} { set elapsed 0 }
+    if {$elapsed >= $minGap} return
+    set wait [expr {$minGap - $elapsed}]
+    serialiser::Log gap "waited=${wait}s min=${minGap}s"
+    after [expr {$wait * 1000}]
+}
+
 # Acquire the single-browser lock so two serialiser runs never drive the shared
-# profile at once. The lock is a plain advisory lockfile at /tmp/chromium.lock,
-# claimed by an atomic exclusive-create and stamped with the holder's PID; any
-# co-launcher using the same path and protocol interlocks with us. Returns a token
-# dict consumed by lock_release.
+# profile at once, AND pace successive runs by min_gap_secs. The lock is a plain
+# advisory lockfile at /tmp/chromium.lock, claimed by an atomic exclusive-create and
+# stamped with the holder's PID; any co-launcher using the same path and protocol
+# interlocks with us. Once won, we enforce the inter-run gap before returning, so the
+# spacing is serialised through the same lock. Returns a token dict consumed by
+# lock_release (which stamps the release time for the next acquirer's gap).
 #
 # Why this shape, and not the alternatives (read before changing it, so the next
 # reader does not relitigate a decision already made on the evidence):
 #   - WEIGHTED / RANDOM fairness is accepted here, on purpose. Waiters poll; the
 #     one that wins the next exclusive-create proceeds, so a client with more
 #     queued jobs wins proportionally more turns. That is fine: this lock only has
-#     to keep two browsers off one profile, not schedule fairly.
-#   - PER-CLIENT fairness (round-robin across agents, a cross-job rate budget)
-#     deliberately does NOT live here -- it is the overseer's job (its ov::wait_*
-#     fair-waiter registry, documented in the overseer project's docs/overseer.md).
-#     Standalone is a best-effort lock; the overseer is the real arbiter when one
-#     is running.
+#     to keep two browsers off one profile and pace them, not schedule fairly.
+#   - PER-CLIENT fairness (round-robin across agents) deliberately does NOT live
+#     here -- it is the overseer's job (its ov::wait_* fair-waiter registry,
+#     documented in the overseer project's docs/overseer.md). The inter-run GAP,
+#     though, does belong here: it is the standalone counterpart of the overseer's
+#     cross-job rate budget, for the path the overseer never sees. Standalone is a
+#     best-effort lock; the overseer is the real arbiter when one is running.
 #   - SELF-HEALING is the property that earns this shape. The agent running a skill
 #     can kill it mid-wait, so a holder may die without releasing. The PID stamp
 #     lets the next waiter detect a dead holder (kill -0) and sweep the lockfile
@@ -176,6 +224,7 @@ proc lock_acquire {waitSecs} {
         if {![catch {open $lockPath {WRONLY CREAT EXCL}} fh]} {
             puts -nonewline $fh [pid]
             close $fh
+            enforce_min_gap
             return [dict create kind file path $lockPath]
         }
         # The lockfile exists. While it sits there every exclusive-create fails, so
@@ -205,9 +254,16 @@ proc lock_holder_dead {lockPath} {
     return 0
 }
 
-# Release the browser lock acquired by lock_acquire.
+# Release the browser lock acquired by lock_acquire. Stamps the release time (while
+# still holding the lock, so the next acquirer reads a fresh value and cannot race in
+# between) before deleting the lockfile.
 proc lock_release {token} {
     if {$token eq ""} return
+    catch {
+        set f [open [lastrun_path] w]
+        puts -nonewline $f [clock seconds]
+        close $f
+    }
     switch -- [dict get $token kind] {
         file { catch {file delete -- [dict get $token path]} }
     }
@@ -296,7 +352,7 @@ proc browser_teardown {pid port userDataDir} {
 # Direct render modes (--dump / --pdf). These run in THIS trusted interpreter,
 # not a safe interp: they are the generic, non-policed counterpart to the policed
 # skill-by-reference mode, the one-shot DOM dump and PDF render of a single URL.
-# They reuse the same flock + launch + teardown, drive the browser directly over
+# They reuse the same lockfile + launch + teardown, drive the browser directly over
 # cdp-client (no skill, no policing surface), and so may write files (--pdf).
 # Browser config (UA/lang) is read the same way the skill path reads it, so the
 # render presents the logged-in fingerprint.
@@ -759,4 +815,8 @@ proc main {} {
     exit [run_standalone $skillRef $skillArgs]
 }
 
-main
+# Run main only when executed directly, not when sourced (a test may source this file
+# to exercise the lock/gap procs without launching a browser).
+if {[info exists ::argv0] && [file normalize $::argv0] eq [file normalize [info script]]} {
+    main
+}
