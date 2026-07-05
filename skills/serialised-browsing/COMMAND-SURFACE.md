@@ -111,8 +111,22 @@ This is host-side, not a skill capability: the harness writes it from the truste
 interp, so the sandbox is untouched. It is the standalone counterpart of the
 overseer's own `/log` sink, letting a ban post-mortem read the cadence and the wall
 from the harness's record rather than reconstructing it from the browser History DB.
-It records volume without capping it: pacing is per-request, and nothing here
-limits how many profiles a caller pulls across runs.
+## Cross-run spacing (standalone)
+
+The `/tmp/chromium.lock` gives mutual exclusion (one browser on the profile at a
+time; a second run queues up to 600 s for its turn) but no pacing, so back-to-back
+runs would otherwise fire with no gap between them. The standalone host enforces a
+minimum gap between successive runs: `lock_release` stamps the release time in
+`/tmp/chromium.lastrun`, and the next `lock_acquire`, once it holds the lock, sleeps
+just the remainder needed to reach `BROWSER_SERIALISER_MIN_GAP_SECS` (default 30, `0`
+disables) before returning. The wait is held under the lock, so it paces the combined
+rate of several concurrent sessions: they all serialise through the one lock, so a gap
+held there throttles the lot. It is paid only when the previous run was recent, so an
+interactive fetch after a long idle waits nothing. This is the standalone counterpart
+of the overseer's cross-job rate budget, for the path outside the overseer's view;
+under the overseer `browser-serialiser` delegates and takes neither this lock nor this gap.
+It is a spacing floor, not a volume cap: it stretches a rapid campaign into a paced
+crawl but does not bound the total a determined caller pulls.
 
 ## View-before-fetch
 
