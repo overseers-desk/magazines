@@ -24,6 +24,8 @@ proc pb_ig_thread {a} {
     set cursor ""
     set complete 0
     set page 0
+    set expect [dict_get_or $a expectSelf ""]
+    set viewer ""
     # senderPk(string) -> account-level fbid_v2, accumulated from thread.users[]
     # across pages (the same user object the inbox reads fbid_v2 from). The connector
     # re-keys each sender's short pk to its long id with this.
@@ -37,6 +39,18 @@ proc pb_ig_thread {a} {
             error "no thread.items in response[expr {$why ne "" ? " (IG: $why)" : ""}]"
         }
         set thread [dict get $data thread]
+        # The identity condition against the fetched payload: the raw thread names
+        # its viewer (viewer_id) on every page, so a page fetched under some other
+        # session refuses the whole run, mid-run switches included. An absent
+        # viewer_id asserts nothing here (the pre-fetch DOM read and the server
+        # persist still hold the line); the first one seen is echoed in the result.
+        set pageViewer [dstr $thread viewer_id]
+        if {$pageViewer ne ""} {
+            if {$expect ne "" && $pageViewer ne $expect} {
+                error "wrong_session: thread viewer $pageViewer is not the expected account $expect"
+            }
+            if {$viewer eq ""} { set viewer $pageViewer }
+        }
         foreach u [dict_get_or $thread users {}] {
             set upk [pk_int [user_pk $u]]
             set ufb [user_fbid $u]
@@ -69,7 +83,7 @@ proc pb_ig_thread {a} {
     # Raw page items are a debugging concern: log them to the overseer, never into
     # the result the engine maps to rows (parity with ig-thread.js session.log).
     log "ig-thread.raw igThreadId=$igThreadId count=[llength $rawItems]"
-    set result [parse_thread $igThreadId [dict create messages $msgs complete $complete] $pk2fbid]
+    set result [parse_thread $igThreadId [dict create messages $msgs complete $complete viewer $viewer] $pk2fbid]
     return [dict create result $result cursor "" hasMore 0]
 }
 
@@ -77,6 +91,7 @@ proc serialiser_run {skillArgs} {
     set a [expr {[llength $skillArgs] ? [lindex $skillArgs 0] : {}}]
     nav "https://www.instagram.com/"
     if {[catch {ig_assert_logged_in} r]} { emit [envelope_fault $r]; return }
+    if {[catch {ig_assert_session [dict_get_or $a expectSelf ""]} r]} { emit [envelope_fault $r]; return }
     if {[catch {pb_ig_thread $a} r]} { emit [envelope_fault $r]; return }
     emit [envelope_ok $r]
 }
