@@ -26,6 +26,14 @@ proc pb_ig_inbox {a} {
         error "no inbox.threads in response[expr {$why ne "" ? " (IG: $why)" : ""}]"
     }
     set viewerId [user_pk [dict_get_or $data viewer {}]]
+    # The identity condition against the fetched payload itself: the inbox names
+    # its viewer, so a page fetched under some other session refuses here even if
+    # the pre-fetch DOM read had nothing to say. Runs on every page (each page is
+    # its own skill run), covering a mid-haul account switch.
+    set expect [dict_get_or $a expectSelf ""]
+    if {$expect ne "" && $viewerId ne "" && $viewerId ne $expect} {
+        error "wrong_session: inbox viewer $viewerId is not the expected account $expect"
+    }
     set tin {}
     foreach t [dict get $inbox threads] { lappend tin [inbox_thread_input $t $viewerId] }
     set result [parse_inbox [dict create viewer_id $viewerId threads $tin]]
@@ -36,6 +44,7 @@ proc serialiser_run {skillArgs} {
     set a [expr {[llength $skillArgs] ? [lindex $skillArgs 0] : {}}]
     nav "https://www.instagram.com/"
     if {[catch {ig_assert_logged_in} r]} { emit [envelope_fault $r]; return }
+    if {[catch {ig_assert_session [dict_get_or $a expectSelf ""]} r]} { emit [envelope_fault $r]; return }
     if {[catch {pb_ig_inbox $a} r]} { emit [envelope_fault $r]; return }
     emit [envelope_ok $r]
 }

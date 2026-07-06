@@ -115,6 +115,25 @@ proc ig_assert_logged_in {} {
         error "login_wall: not logged in to Instagram - open a staff browsing session from the overseer and sign in, then retry"
     }
 }
+
+# Session-identity condition, the "am I the right account" assertion. Zero cost:
+# reads the same inline page config ig_assert_logged_in reads (no request).
+# `expect` is the short pk the caller was told to run as (argsJson expectSelf);
+# empty means no expectation was given, so nothing is asserted. Refuses only on
+# positive evidence: non-zero inline ids exist and none is expect. A page with no
+# inline ids passes (the payload viewer check downstream still guards the data),
+# and a logged-out page is ig_assert_logged_in's fault, not this one's. Call
+# straight after ig_assert_logged_in, before any `api`.
+proc ig_assert_session {expect} {
+    if {$expect eq ""} { return }
+    if {[catch {dump} html]} { return }
+    set ids [regexp -inline -all -nocase {"(?:user_?id|viewer_?id)"\s*:\s*\"?([0-9]+)} $html]
+    set live {}
+    foreach {whole id} $ids { if {$id ne "0" && [lsearch -exact $live $id] < 0} { lappend live $id } }
+    if {[llength $live] && [lsearch -exact $live $expect] < 0} {
+        error "wrong_session: logged-in viewer ([join $live /]) is not the expected account $expect - switch the browser profile to the expected account, then retry"
+    }
+}
 # IG µs since epoch -> ISO-8601 with millis (parity with lib/ig.js microsToIso).
 # Returns "" when there is no timestamp; the caller emits JSON null for "".
 proc micros_to_iso {us} {
@@ -278,12 +297,16 @@ proc parse_thread {igThreadId res {pk2fbid {}}} {
             body           [j_str [dstr $m text]]]
     }
     set complete [expr {[dict exists $res complete] ? [dbool $res complete] : 0}]
+    # viewer: the session's short pk as the raw thread reported it (null when the
+    # source carries none), echoed so the server's persist can hold the identity
+    # condition against the thread's owner.
     return [json::write object \
         igThreadId [j_str $igThreadId] \
         senderPks  [j_arrint $senderPks] \
         senderFbids [j_arrstr $senderFbids] \
         messages   [json::write array {*}$msgJsons] \
-        complete   [j_bool $complete]]
+        complete   [j_bool $complete] \
+        viewer     [j_intornull [dict_get_or $res viewer ""]]]
 }
 
 # ===========================================================================
@@ -451,7 +474,7 @@ proc envelope_ok {r} {
 # (e.g. "removed: ..."); we strip the recognised tag so the detail stays human and
 # default to "unrecognised" for everything else. Only known tags are honoured.
 proc fault_shape_of {detail} {
-    if {[regexp {^([a-z_]+):\s} $detail -> tag] && [lsearch -exact {removed login_wall} $tag] >= 0} {
+    if {[regexp {^([a-z_]+):\s} $detail -> tag] && [lsearch -exact {removed login_wall wrong_session} $tag] >= 0} {
         return $tag
     }
     return unrecognised
