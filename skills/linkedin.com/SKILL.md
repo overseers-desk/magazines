@@ -107,12 +107,12 @@ browser-serialiser linkedin.com/contact-info VANITY
 It emits the canonical envelope `{result, cursor, hasMore, fault}`. `result` is:
 
 ```json
-{"profile_url", "member", "name", "email_shared": true|false,
+{"viewer_urn", "profile_url", "member", "name", "email_shared": true|false,
  "emails": [...], "phones": [{"number","type"}], "twitter": [...],
  "websites": [{"url","label","category"}], "birthday": "MM-DD"|null}
 ```
 
-Email and phone are shared only by members who chose to (usually 1st-degree). When a member has not shared an email, `email_shared` is `false` and `emails` is `[]`, while `profile_url` and any other shared fields are still returned — a fetched empty, distinguishable from a failed fetch (which sets `fault`). `birthday` carries month and day only (LinkedIn exposes no year). The `queryId` rotates; if a run returns `fault` with "no profile found", refresh `LI_CONTACT_QUERY` in `contact-info.tcl` from the modal's request in DevTools.
+`viewer_urn` is the logged-in member's own profile urn, captured from the session (via `/voyager/api/me`) so the persist records which own account the share-state was read as — ownership from the haul, never from config; it is null on the rare read where the self endpoint is unreadable. Email and phone are shared only by members who chose to (usually 1st-degree). When a member has not shared an email, `email_shared` is `false` and `emails` is `[]`, while `profile_url` and any other shared fields are still returned — a fetched empty, distinguishable from a failed fetch (which sets `fault`). `birthday` carries month and day only (LinkedIn exposes no year). The `queryId` rotates; if a run returns `fault` with "no profile found", refresh `LI_CONTACT_QUERY` in `contact-info.tcl` from the modal's request in DevTools.
 
 ## 3. Keyword search (optional)
 
