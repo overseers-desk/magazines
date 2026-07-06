@@ -273,6 +273,19 @@ browser-serialiser linkedin.com/li-thread "conversationUrn <urn:li:msg_conversat
 
 `li-canonical.tcl` has a direct-tclsh entry for offline parser testing against a saved voyager body: `tclsh9.0 li-canonical.tcl inbox <conv.json> <ownProfileUrn>` (or `thread <msgs.json> <conversationUrn>`).
 
+## 8. Enumerate your own connections
+
+A B-job playbook that enumerates the **logged-in member's own** connection list — the people the My Network "Connections" page lists, not `connections-of`'s faceted view of a *third party's* network (that one is mutuals-gated). Like the messaging playbooks it does not DOM-dump: it opens the connections page, harvests the page's own voyager relationships-connections request (LinkedIn rotates the `queryId`), and re-issues that fetch in-page over the session cookies.
+
+```bash
+browser-serialiser linkedin.com/li-connections
+browser-serialiser linkedin.com/li-connections '{"cursor":"40"}'
+```
+
+Emits the canonical envelope. `result` is `{ownProfileUrn, connections:[{profile_urn, first_name, last_name, profile_url, connected_at}]}`. `ownProfileUrn` is the logged-in member's own profile urn, captured from the session the way `li-inbox` captures its identity. `connected_at` is the connected-on date (`"YYYY-MM-DD"`, from the entry's epoch-millis fact), null when absent. The list is offset-paged: the cursor in/out lives in the envelope (`{cursor}` in the args JSON, `{cursor, hasMore}` out, the cursor being the next `start` offset), so the overseer's `drainPaged` loops the playbook to the frontier.
+
+`li-connections.tcl` has a direct-tclsh entry for offline parser testing against a saved voyager body: `tclsh9.0 li-connections.tcl <conns.json> <ownProfileUrn>`.
+
 ## DOM parsing notes
 
 LinkedIn (as of 2026) uses randomised CSS class names, no semantic IDs, lazy loading, and pages of 1-20MB. The scripts extract `<title>`, `<meta>` tags, and visible text via `>content<` pattern matching. Do not select by CSS class name — they change between sessions.

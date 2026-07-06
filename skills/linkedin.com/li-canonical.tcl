@@ -68,6 +68,14 @@ proc ms_to_mysql {ms} {
     return [clock format [expr {$ms / 1000}] -gmt 1 -format {%Y-%m-%d %H:%M:%S}]
 }
 
+# LinkedIn ms-since-epoch -> naive UTC date "YYYY-MM-DD" (the connected-on fact,
+# which LinkedIn exposes at day granularity). "" for an absent/unparseable input.
+proc ms_to_date {ms} {
+    if {$ms eq "" || $ms eq "null"} { return "" }
+    if {![regexp {^-?\d+$} $ms]} { return "" }
+    return [clock format [expr {$ms / 1000}] -gmt 1 -format {%Y-%m-%d}]
+}
+
 # --- JSON value emitters (explicit shapes, control chars escaped) -----------
 proc jq {s} {
     set out "\""
@@ -306,6 +314,25 @@ proc fetch_voyager {url} {
         set body $body[eval "(window.__liBody||'').slice($i,[expr {$i+$chunk}])"]
     }
     return $body
+}
+
+# The logged-in member's OWN fsd_profile urn, read from /voyager/api/me - the tiny
+# self endpoint every LinkedIn page loads. The response carries the viewer's
+# miniProfile entityUrn (urn:li:fs_miniProfile:<id>); that <id> is the same opaque
+# profile id used across every urn form for this member, so it is returned as
+# urn:li:fsd_profile:<id> - the shape parse-profile/contact-info key on. This is how
+# a haul names which OWN account it was read as (ownership from the haul, never from
+# config), the same own-identity capture li-inbox does off its mailbox urn. Requires
+# a prior same-origin nav (fetch_voyager runs in-page); call after the view. Returns
+# "" if unreadable - a non-fatal miss (the caller emits null), unlike a queryId that
+# rotates, since /voyager/api/me is a stable endpoint, not a hashed GraphQL query.
+proc own_profile_urn {} {
+    if {[catch {fetch_voyager "https://www.linkedin.com/voyager/api/me"} body]} { return "" }
+    if {[regexp {urn:li:fs_miniProfile:([A-Za-z0-9_-]+)} $body -> id]} {
+        return "urn:li:fsd_profile:$id"
+    }
+    if {[regexp {urn:li:fsd_profile:[A-Za-z0-9_-]+} $body m]} { return $m }
+    return ""
 }
 
 # --- direct-tclsh entry (offline parser self-test against a saved body) ------
