@@ -116,22 +116,31 @@ proc ig_assert_logged_in {} {
     }
 }
 
+# The logged-in account's short pk, straight from the ds_user_id cookie:
+# Instagram's own authoritative name for the session. Scraping "the first inline
+# user_id" names a bystander, not the viewer - the feed DOM embeds many accounts
+# (the story tray, suggestions, DM senders), and the first one in the markup is
+# whichever the SPA rendered first, not who is signed in. The cookie names the
+# viewer alone. ds_user_id is not httpOnly, so document.cookie exposes it, the
+# same way the api verb reads csrftoken. Empty when absent (signed out) or
+# unreadable; callers treat empty as "cannot say", never as an identity.
+proc ig_viewer_id {} {
+    if {[catch {eval {(document.cookie.match(/ds_user_id=(\d+)/)||[])[1]||''}} v]} { return "" }
+    return [string trim $v]
+}
+
 # Session-identity condition, the "am I the right account" assertion. Zero cost:
-# reads the same inline page config ig_assert_logged_in reads (no request).
-# `expect` is the short pk the caller was told to run as (argsJson expectSelf);
-# empty means no expectation was given, so nothing is asserted. Refuses only on
-# positive evidence: non-zero inline ids exist and none is expect. A page with no
-# inline ids passes (the payload viewer check downstream still guards the data),
-# and a logged-out page is ig_assert_logged_in's fault, not this one's. Call
-# straight after ig_assert_logged_in, before any `api`.
+# reads the ds_user_id cookie, no request. `expect` is the short pk the caller was
+# told to run as (argsJson expectSelf); empty asserts nothing. Refuses only on
+# positive disagreement: the cookie names a viewer and it is not expect. An
+# unreadable cookie asserts nothing (the payload viewer check downstream still
+# guards the data), and a logged-out page is ig_assert_logged_in's fault, not
+# this one's. Call straight after ig_assert_logged_in, before any `api`.
 proc ig_assert_session {expect} {
     if {$expect eq ""} { return }
-    if {[catch {dump} html]} { return }
-    set ids [regexp -inline -all -nocase {"(?:user_?id|viewer_?id)"\s*:\s*\"?([0-9]+)} $html]
-    set live {}
-    foreach {whole id} $ids { if {$id ne "0" && [lsearch -exact $live $id] < 0} { lappend live $id } }
-    if {[llength $live] && [lsearch -exact $live $expect] < 0} {
-        error "wrong_session: logged-in viewer ([join $live /]) is not the expected account $expect - switch the browser profile to the expected account, then retry"
+    set who [ig_viewer_id]
+    if {$who ne "" && $who ne $expect} {
+        error "wrong_session: logged-in viewer $who is not the expected account $expect - switch the browser profile to the expected account, then retry"
     }
 }
 # IG µs since epoch -> ISO-8601 with millis (parity with lib/ig.js microsToIso).
