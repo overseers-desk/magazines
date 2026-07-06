@@ -275,16 +275,16 @@ browser-serialiser linkedin.com/li-thread "conversationUrn <urn:li:msg_conversat
 
 ## 8. Enumerate your own connections
 
-A B-job playbook that enumerates the **logged-in member's own** connection list — the people the My Network "Connections" page lists, not `connections-of`'s faceted view of a *third party's* network (that one is mutuals-gated). Like the messaging playbooks it does not DOM-dump: it opens the connections page, harvests the page's own voyager relationships-connections request (LinkedIn rotates the `queryId`), and re-issues that fetch in-page over the session cookies.
+A B-job playbook that enumerates the **logged-in member's own** connection list — the people the My Network "Connections" page lists, not `connections-of`'s faceted view of a *third party's* network (that one is mutuals-gated). LinkedIn migrated this page off the voyager GraphQL query to a Server-Driven UI (SDUI) surface: the rows now arrive as React Server Components "flight" payloads on the rsc-action `connectionsList` pager, not a re-issuable JSON API. So the playbook navigates the page, lets it fire its own pagination requests, harvests those flight bodies (base64-wrapped by CDP), and parses each card by pattern — the profile `/in/<slug>/` link, the bold display-name node, the "Connected on <date>" line, and the fsd_profile urn inside the card's message-compose link.
 
 ```bash
 browser-serialiser linkedin.com/li-connections
-browser-serialiser linkedin.com/li-connections '{"cursor":"40"}'
+browser-serialiser linkedin.com/li-connections '{"maxScrolls":10}'
 ```
 
-Emits the canonical envelope. `result` is `{ownProfileUrn, connections:[{profile_urn, first_name, last_name, profile_url, connected_at}]}`. `ownProfileUrn` is the logged-in member's own profile urn, captured from the session the way `li-inbox` captures its identity. `connected_at` is the connected-on date (`"YYYY-MM-DD"`, from the entry's epoch-millis fact), null when absent. The list is offset-paged: the cursor in/out lives in the envelope (`{cursor}` in the args JSON, `{cursor, hasMore}` out, the cursor being the next `start` offset), so the overseer's `drainPaged` loops the playbook to the frontier.
+Emits the canonical envelope. `result` is `{ownProfileUrn, connections:[{profile_urn, first_name, last_name, profile_url, connected_at}]}`. `ownProfileUrn` is the logged-in member's own profile urn, captured from the session the way `li-inbox` captures its identity. `first_name`/`last_name` are split from the one display-name string LinkedIn renders (first token / remainder). `connected_at` is the connected-on date (`"YYYY-MM-DD"`), null when absent. This is a **single-shot enumerator**: SDUI scroll-pagination has no offset cursor, so one run scrolls the last card into view repeatedly to pull further pages until the list stops growing (bounded by the optional `maxScrolls` arg, default 50), dedupes by urn, and emits every connection at once — `cursor` is always null, `hasMore` always false.
 
-`li-connections.tcl` has a direct-tclsh entry for offline parser testing against a saved voyager body: `tclsh9.0 li-connections.tcl <conns.json> <ownProfileUrn>`.
+`li-connections.tcl` has a direct-tclsh entry for offline parser testing against a saved flight (the decoded RSC body, or its raw base64): `tclsh9.0 li-connections.tcl <flight.txt> <ownProfileUrn>`.
 
 ## 9. Read a profile header (job envelope)
 
