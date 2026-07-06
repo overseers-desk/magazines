@@ -818,6 +818,16 @@ proc current_company_from_entries {entries} {
     return ""
 }
 
+# The title of the current (ongoing) position, or "" if none is ongoing. The
+# sibling of current_company_from_entries, off the same Experience entry; only
+# meaningful once the experience source was actually read.
+proc current_title_from_entries {entries} {
+    foreach e $entries {
+        if {[dict get $e current]} { return [dict get $e title] }
+    }
+    return ""
+}
+
 # Render experience entries as a YAML list of mappings.
 proc render_experience_entries {entries} {
     if {![llength $entries]} { return "experience: \[\]" }

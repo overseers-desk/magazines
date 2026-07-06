@@ -286,6 +286,18 @@ Emits the canonical envelope. `result` is `{ownProfileUrn, connections:[{profile
 
 `li-connections.tcl` has a direct-tclsh entry for offline parser testing against a saved voyager body: `tclsh9.0 li-connections.tcl <conns.json> <ownProfileUrn>`.
 
+## 9. Read a profile header (job envelope)
+
+A B-job profile-header read. `parse-profile` (§2) stays the interactive YAML verb; this one emits the canonical envelope for the persist leg. Args JSON carries `{profileUrn, slug}` (slug is a vanity or an `ACoAA` id; it drives the navigation, `profileUrn` is a fallback identity). It reuses parse-profile's extraction (headline, about, location, current company from the ongoing Experience entry) and adds the connection/follower count pairs and `current_title`.
+
+```bash
+browser-serialiser linkedin.com/li-profile '{"slug":"ada-lovelace"}'
+```
+
+Emits the canonical envelope. `result` is `{profile_urn, headline, about, location, current_title, current_company, connection_count, connection_raw, follower_count, follower_raw}`. LinkedIn shows `"500+"` once a member passes 500 connections and delivers follower counts display-formed (`"1,234"`, `"10K"`), so each count keeps the verbatim token in its `_raw` field and a best-effort parsed integer beside it (null when absent or unparseable). `profile_urn` is read from the page (the dominant owner urn), falling back to the passed `profileUrn`.
+
+`li-profile.tcl` has a direct-tclsh entry for offline extraction testing against a saved profile page: `tclsh9.0 li-profile.tcl <profile.html> [slug]`.
+
 ## DOM parsing notes
 
 LinkedIn (as of 2026) uses randomised CSS class names, no semantic IDs, lazy loading, and pages of 1-20MB. The scripts extract `<title>`, `<meta>` tags, and visible text via `>content<` pattern matching. Do not select by CSS class name — they change between sessions.
