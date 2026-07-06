@@ -1,6 +1,6 @@
 ---
 name: linkedin
-description: "search people, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Read a member's shared contact info (email, phone, websites). Send connection invites or direct messages to connections. Edit your own profile headline and About. Enumerate the messaging inbox and a thread's messages."
+description: "search people, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Read a member's shared contact info (email, phone, websites). Send connection invites or direct messages to connections. Edit your own profile headline and About. Enumerate the messaging inbox and a thread's messages. Report which account the session is signed in as."
 argument-hint: <name, URL, or search terms>
 ---
 
@@ -297,6 +297,18 @@ browser-serialiser linkedin.com/li-profile '{"slug":"ada-lovelace"}'
 Emits the canonical envelope. `result` is `{profile_urn, headline, about, location, current_title, current_company, connection_count, connection_raw, follower_count, follower_raw}`. LinkedIn shows `"500+"` once a member passes 500 connections and delivers follower counts display-formed (`"1,234"`, `"10K"`), so each count keeps the verbatim token in its `_raw` field and a best-effort parsed integer beside it (null when absent or unparseable). `profile_urn` is read from the page (the dominant owner urn), falling back to the passed `profileUrn`.
 
 `li-profile.tcl` has a direct-tclsh entry for offline extraction testing against a saved profile page: `tclsh9.0 li-profile.tcl <profile.html> [slug]`.
+
+## 10. Report who the logged-in session is
+
+One voyager request against the self endpoint (`/voyager/api/me`, the same one the other verbs use to capture their own identity) — the cheapest identity-plus-liveness probe:
+
+```bash
+browser-serialiser linkedin.com/whoami
+```
+
+Emits the canonical envelope. `result` is `{profile_urn, first_name, last_name, name, public_identifier}`. `profile_urn` is the signed-in member's own urn (`urn:li:fsd_profile:...`, the shape every other verb keys on) and is always present in a result; `name` is the first/last pair joined, null when neither is present; `public_identifier` is the vanity slug, null when the /me body omits it. A logged-out session (a walled nav, or a /me body naming no member) is a `fault`, never a result — the same dead-session signal the other verbs raise.
+
+`whoami.tcl` has a direct-tclsh entry for offline parser testing against a saved /me body: `tclsh9.0 whoami.tcl <me.json>` (emits the full envelope, fault path included).
 
 ## DOM parsing notes
 
