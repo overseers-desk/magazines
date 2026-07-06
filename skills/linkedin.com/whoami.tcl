@@ -18,7 +18,10 @@ proc whoami_result {me} {
     if {$urn eq ""} { error "login_wall: /voyager/api/me names no member (signed out)" }
     set first [dict get $me first_name]
     set last  [dict get $me last_name]
+    # `identity` is the uniform cross-host key the identity-routed lease reads (same
+    # value as profile_urn); every host's whoami emits it so the lease reads one key.
     return [json::write object \
+        identity          [j_str $urn] \
         profile_urn       [j_str $urn] \
         first_name        [j_strornull $first] \
         last_name         [j_strornull $last] \
