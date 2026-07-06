@@ -39,8 +39,10 @@ proc contact_profile_entity {body} {
     return ""
 }
 
-# One Profile entity -> the canonical contact result JSON.
-proc parse_contact {prof} {
+# One Profile entity -> the canonical contact result JSON. viewerUrn is the
+# logged-in member's own profile urn (own_profile_urn), so the persist records which
+# own account the share-state was read as - ownership from the haul, never config.
+proc parse_contact {prof viewerUrn} {
     set slug [dstr $prof publicIdentifier]
     set profileUrl [expr {$slug eq "" ? "" : "https://www.linkedin.com/in/$slug/"}]
     set name [string trim "[dstr $prof firstName] [dstr $prof lastName]"]
@@ -92,6 +94,7 @@ proc parse_contact {prof} {
     }
 
     return [json::write object \
+        viewer_urn   [j_strornull $viewerUrn] \
         profile_url  [j_strornull $profileUrl] \
         member       [j_strornull $slug] \
         name         [j_strornull $name] \
@@ -110,11 +113,14 @@ proc pb_contact_info {a} {
     # (the verb is view-before-fetch like its siblings) and walls if logged out.
     nav "https://www.linkedin.com/in/$token/"
     if {[dict get [state] terminal] ne ""} { error "login_wall: profile view hit a wall" }
+    # Own identity: the profile view above is same-origin, so this in-page fetch
+    # authenticates on its cookies. A miss is non-fatal (viewer_urn -> null).
+    set viewer [own_profile_urn]
     set url "https://www.linkedin.com/voyager/api/graphql?includeWebMetadata=true&variables=(memberIdentity:[url_qcomp $token])&queryId=$::LI_CONTACT_QUERY"
     set body [fetch_voyager $url]
     set prof [contact_profile_entity $body]
     if {$prof eq ""} { error "no profile found for '$token' (bad vanity, or query id rotated)" }
-    return [dict create result [parse_contact $prof] cursor "" hasMore 0]
+    return [dict create result [parse_contact $prof $viewer] cursor "" hasMore 0]
 }
 
 proc serialiser_run {skillArgs} {
