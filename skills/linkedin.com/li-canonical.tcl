@@ -316,24 +316,54 @@ proc fetch_voyager {url} {
     return $body
 }
 
-# The logged-in member's OWN fsd_profile urn, read from /voyager/api/me - the tiny
-# self endpoint every LinkedIn page loads. The response carries the viewer's
-# miniProfile entityUrn (urn:li:fs_miniProfile:<id>); that <id> is the same opaque
-# profile id used across every urn form for this member, so it is returned as
-# urn:li:fsd_profile:<id> - the shape parse-profile/contact-info key on. This is how
-# a haul names which OWN account it was read as (ownership from the haul, never from
-# config), the same own-identity capture li-inbox does off its mailbox urn. Requires
-# a prior same-origin nav (fetch_voyager runs in-page); call after the view. Returns
-# "" if unreadable - a non-fatal miss (the caller emits null), unlike a queryId that
-# rotates, since /voyager/api/me is a stable endpoint, not a hashed GraphQL query.
-proc own_profile_urn {} {
-    if {[catch {fetch_voyager "https://www.linkedin.com/voyager/api/me"} body]} { return "" }
+# A /voyager/api/me body -> the signed-in member's identity, a dict
+# {urn first_name last_name public_identifier}, each "" when absent. The body is
+# LinkedIn's normalized {data, included} envelope; its MiniProfile entity carries
+# the viewer's miniProfile entityUrn (urn:li:fs_miniProfile:<id>) plus
+# firstName/lastName/publicIdentifier. That <id> is the same opaque profile id
+# used across every urn form for this member, so urn is returned as
+# urn:li:fsd_profile:<id> - the shape parse-profile/contact-info key on. The urn
+# comes off the raw body by regex (robust to a shape shift, the original
+# own_profile_urn extraction); the name fields are best-effort from the parsed
+# MiniProfile and stay "" when the body is not JSON or carries none. urn "" means
+# the body names no member - a sign-in body, a dead session. Pure parse, no
+# fetch, so it is offline-testable against a saved body.
+proc parse_me {body} {
+    set r [dict create urn "" first_name "" last_name "" public_identifier ""]
     if {[regexp {urn:li:fs_miniProfile:([A-Za-z0-9_-]+)} $body -> id]} {
-        return "urn:li:fsd_profile:$id"
+        dict set r urn "urn:li:fsd_profile:$id"
+    } elseif {[regexp {urn:li:fsd_profile:[A-Za-z0-9_-]+} $body m]} {
+        dict set r urn $m
     }
-    if {[regexp {urn:li:fsd_profile:[A-Za-z0-9_-]+} $body m]} { return $m }
-    return ""
+    catch {
+        set d [::json::json2dict $body]
+        foreach e [dict_get_or $d included {}] {
+            if {![string match {urn:li:fs_miniProfile:*} [dstr $e entityUrn]]} { continue }
+            dict set r first_name        [dstr $e firstName]
+            dict set r last_name         [dstr $e lastName]
+            dict set r public_identifier [dstr $e publicIdentifier]
+            break
+        }
+    }
+    return $r
 }
+
+# The logged-in member's OWN identity (parse_me's dict), read from /voyager/api/me
+# - the tiny self endpoint every LinkedIn page loads. This is how a haul names
+# which OWN account it was read as (ownership from the haul, never from config),
+# the same own-identity capture li-inbox does off its mailbox urn. Requires a
+# prior same-origin nav (fetch_voyager runs in-page); call after the view. An
+# unreadable endpoint returns the all-empty dict - a non-fatal miss (the caller
+# emits null), unlike a queryId that rotates, since /voyager/api/me is a stable
+# endpoint, not a hashed GraphQL query.
+proc own_profile {} {
+    if {[catch {fetch_voyager "https://www.linkedin.com/voyager/api/me"} body]} { set body "" }
+    return [parse_me $body]
+}
+
+# Just the urn ("" if unreadable) - the shape the existing callers
+# (li-connections, contact-info) consume.
+proc own_profile_urn {} { return [dict get [own_profile] urn] }
 
 # --- direct-tclsh entry (offline parser self-test against a saved body) ------
 # Skipped when sourced as a serialiser skill (no argv0 match).
