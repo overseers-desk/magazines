@@ -64,6 +64,38 @@ The page uses reCAPTCHA (`g-recaptcha-response` textarea exists in DOM) but it d
 
 Wait — the aria-labels might also be localised. On the Spanish account, aria-label was still in English ("Add a note", "Send without a note"). This needs verification if accounts in other locales (Chinese, Arabic) are used.
 
+## The email-gate "Connect" modal (diagnosed 2026-07-07)
+
+Three prominent accounts (`jasonmlemkin`, `nateherkelman`, `shane-parrish-050a2183`)
+consistently returned `status uncertain` and were retried forever. Diagnosis by
+diffing a working lease against a stuck one in the overseer wire log, then one live
+post-send DOM capture:
+
+- **Not the cause:** the send button label was `"Send invitation"` in BOTH the working
+  and stuck cases (so it is not a Follow/Message-primary mis-click), and the passive
+  reCAPTCHA frame loads on the successful invites too (so "recaptcha present" is not it).
+  The only wire-log difference was the post-send `#send-invite-modal` check: `false`
+  (modal closed → sent) on the ~35 that worked, `true` (modal open) on the three stuck.
+- **The cause:** for a member LinkedIn does not treat you as knowing, the custom-invite
+  page renders a **different** modal — header **"Connect"** (not "Add a note to your
+  invitation?"), body **"To verify this member knows you, please enter their email to
+  connect"**, an `<input type="email">`, and the **Send button rendered `disabled`**.
+  It still offers an "Add a note" button and a `#custom-message` textarea, so the skill's
+  existing email-gate check (which only fires in the *"Add a note button not found"*
+  branch) is bypassed, the note types fine, and the skill clicks a disabled Send — a
+  no-op. Modal never closes, no toast, no invite: permanent `uncertain`.
+- **Fix:** after a send that does not confirm, `stuck_modal_classifier_js` inspects the
+  still-open modal and returns a terminal token — `email_required` (email input /
+  `data-test-send-invite-modal-check-email-link` / the verify text present) or
+  `blocked_challenge` (a visible challenge) — leaving `uncertain` only for a modal with
+  no terminal signal. `send-invite.tcl`, both the serialiser and legacy paths.
+- **Caller note:** `spar-manager`'s `linkedin_send_one.tcl` maps every non-`sent` status to
+  `{error ...}` and leaves the row unstamped, so the row is re-dispatched on the next T6
+  run regardless of the reason string. The clearer status alone does NOT stop the retry
+  loop — spar must learn to treat `email_required`/`blocked_challenge` as terminal (e.g.
+  negative-cache the invite channel and route to email/Follow+DM). That is a spar-side
+  change, tracked separately.
+
 ## LinkedIn experiment flags observed (for future reference)
 
 These LIX (LinkedIn Experiment) keys appeared in the custom-invite page JSON state. They govern the connect flow and might change behaviour in future:

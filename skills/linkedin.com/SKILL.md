@@ -175,9 +175,16 @@ browser-serialiser linkedin.com/send-invite VANITY_NAME "Your note (≤300 chars
 - `toast` — text of LinkedIn's toast notification if present (e.g. "Invitation sent")
 - `modal_closed` — whether the modal disappeared after send (strong success signal)
 - `api_responses` — present for shape compatibility; the post-send network call is not harvested on the policed surface, so this array is empty
-- `status` — `"sent"` | `"uncertain"` | `"dry_run"`
+- `reason` — present only on a terminal non-send status (see below); a human-readable explanation
+- `status` — `"sent"` | `"email_required"` | `"blocked_challenge"` | `"uncertain"` | `"dry_run"`
 
-`status: "sent"` requires a toast present or the modal closed. `--dry-run` types the note but stops before the send click:
+`status: "sent"` requires a toast present or the modal closed. When the send does **not** confirm (modal still open, no toast), the skill classifies the stuck modal rather than blanket-returning `uncertain`:
+
+- **`email_required`** — LinkedIn does not treat you as knowing this member, so instead of the "Add a note" modal it renders a **"Connect"** modal that demands the recipient's email (`<input type="email">`, text "To verify this member knows you, please enter their email to connect") and keeps the Send button **disabled**. The click is a no-op; no invite is ever dispatched. This is **terminal** — do not retry on the invite channel; reach the person by email or Follow + DM. (Observed on high-profile/low-overlap accounts, e.g. Jason Lemkin / Nate Herk / Shane Parrish.) Note the same email-gate can also render before send; the pre-send guard reports it as an error there, this is the post-send counterpart when the gated modal still offers an "Add a note" button.
+- **`blocked_challenge`** — a visible security/verification challenge intercepted the send. Terminal on this channel without human interaction.
+- **`uncertain`** — no terminal signal; genuinely "sent but couldn't confirm". This one **is** retry-worthy.
+
+`--dry-run` types the note but stops before the send click:
 ```bash
 browser-serialiser linkedin.com/send-invite VANITY_NAME "note" --dry-run
 ```
