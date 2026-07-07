@@ -294,11 +294,27 @@ proc run_flow {c page_url note dry_run} {
 
     set success [expr {$api_ok || ($toast ne "" && !$api_failed) || ($modal_gone && !$api_failed)}]
 
-    return [dict create \
-        status [expr {$success ? "sent" : "uncertain"}] \
+    # Same terminal-vs-ambiguous classification as the serialiser path: a
+    # still-open modal that carries the email-gate or a challenge is a terminal
+    # reason (do not retry on the invite channel), not "uncertain".
+    set status [expr {$success ? "sent" : "uncertain"}]
+    set reason ""
+    if {!$success} {
+        set token [js $c [stuck_modal_classifier_js]]
+        if {$token ne "uncertain"} {
+            set status $token
+            set reason [stuck_modal_reason $token]
+            puts stderr "NOTE: send unconfirmed; modal classified terminal: $status — $reason"
+        }
+    }
+
+    set res [dict create \
+        status $status \
         toast $toast modal_closed $modal_gone \
         server_message_echo $server_message_echo \
         api_responses [api_responses_list $inv_events]]
+    if {$reason ne ""} { dict set res reason $reason }
+    return $res
 }
 
 # A list of {url ... status ...} dicts for the result's api_responses array.
@@ -312,6 +328,46 @@ proc api_responses_list {events} {
 }
 
 proc py_bool {v} { return [expr {$v ? "True" : "False"}] }
+
+# When the Send click does not confirm (modal still open, no toast, no invite
+# API success) the modal is NOT genuinely ambiguous for a class of accounts: it
+# has silently become a DIFFERENT modal that the invite cannot be dispatched from.
+# This JS reads that modal and returns a terminal reason token, so the caller can
+# tell "do not retry this on the invite channel" from a transient hiccup:
+#   email_required    LinkedIn does not treat the sender as knowing this member,
+#                     so the "Connect" modal demands the recipient's email and
+#                     keeps Send disabled (Lemkin/Herk/Parrish-class accounts).
+#   blocked_challenge a visible security/verification challenge intercepted send.
+#   uncertain         no terminal signal — genuinely "sent but unconfirmed".
+# Returned as a bare string; the two hosts pass their own evaluator.
+proc stuck_modal_classifier_js {} {
+    return {(function(){
+        var emailGate = !!document.querySelector('input[type="email"]')
+            || !!document.querySelector('[data-test-send-invite-modal-check-email-link]');
+        var dlg = document.querySelector('#artdeco-modal-outlet')
+            || document.querySelector('[role="dialog"]');
+        var txt = ((dlg ? dlg.innerText : '') + ' ' + document.body.innerText);
+        if (emailGate || /enter their email to connect|verify (this|that) member knows you|please enter their email/i.test(txt))
+            return 'email_required';
+        if (!!document.querySelector('iframe[title*="recaptcha challenge" i]')
+            || /security (check|verification)|unusual activity|solve this puzzle/i.test(txt))
+            return 'blocked_challenge';
+        return 'uncertain';
+    })()}
+}
+
+# Human-readable reason for a terminal classifier token ("" for uncertain).
+proc stuck_modal_reason {token} {
+    switch -- $token {
+        email_required {
+            return "LinkedIn will not dispatch this invite: it requires the recipient's email to connect (it does not treat the sender as knowing this member) and leaves the Send button disabled. Do not retry on the invite channel; reach them by email or Follow + DM."
+        }
+        blocked_challenge {
+            return "A LinkedIn security/verification challenge intercepted the send. Not retry-worthy on the invite channel without human interaction in the GUI browser."
+        }
+        default { return "" }
+    }
+}
 
 # Render the result dict as Python's json.dumps(indent=2, ensure_ascii=False).
 # Values are typed: status flags are JSON booleans, api_responses is an array of
@@ -407,9 +463,9 @@ proc main {} {
         }
     } elseif {$status eq "dry_run"} {
         puts "\nDRY RUN complete - no invite sent."
-    } elseif {$status eq "failed"} {
+    } elseif {$status eq "failed" || $status eq "email_required" || $status eq "blocked_challenge"} {
         set reason [expr {[dict exists $result reason] ? [dict get $result reason] : "unknown"}]
-        puts stderr "\nFAILED: $reason. No invitation sent."
+        puts stderr "\n[string toupper $status]: $reason. No invitation sent."
         exit 1
     } else {
         puts stderr "\nUNCERTAIN - could not confirm server acceptance. Check LinkedIn manually."
@@ -588,11 +644,28 @@ proc serialiser_run {skillArgs} {
     set api_failed 0
     set success [expr {$api_ok || ($toast ne "" && !$api_failed) || ($modal_gone && !$api_failed)}]
 
-    sv_emit_result [dict create \
-        status [expr {$success ? "sent" : "uncertain"}] \
+    # When the send did not confirm, classify the still-open modal into a
+    # terminal reason (email_required / blocked_challenge) instead of the
+    # retry-worthy "uncertain". "uncertain" is kept only for a modal that
+    # shows no terminal signal (truly "sent but unconfirmed").
+    set status [expr {$success ? "sent" : "uncertain"}]
+    set reason ""
+    if {!$success} {
+        set token [eval [stuck_modal_classifier_js]]
+        if {$token ne "uncertain"} {
+            set status $token
+            set reason [stuck_modal_reason $token]
+            log "Send unconfirmed and modal classified terminal: $status — $reason"
+        }
+    }
+
+    set res [dict create \
+        status $status \
         toast $toast modal_closed $modal_gone \
         server_message_echo $server_message_echo \
         api_responses [api_responses_list $inv_events]]
+    if {$reason ne ""} { dict set res reason $reason }
+    sv_emit_result $res
 }
 
 # Direct-tclsh entry: skipped when sourced as a serialiser skill (no argv0 match).
