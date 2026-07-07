@@ -1,6 +1,6 @@
 {
   "name": "magazines",
-  "description": "AI-executed skills for logged-in site access (LinkedIn, Instagram, Facebook, Reddit, Airbnb, Otter, and more) and travel and award search, with build-dossier, find-person, and serpapi research commands.",
+  "description": "Let Claude use the web signed in as you: skills drive your own logged-in browser and site APIs for LinkedIn, Instagram, Facebook, Reddit, travel and award search, plus build-dossier, find-person, and serpapi research commands.",
   "author": {
     "name": "The Overseer"
   }

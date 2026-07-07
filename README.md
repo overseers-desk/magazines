@@ -1,8 +1,17 @@
 # magazines
 
-A Claude Code plugin of AI-executed skills. Each skill drives your own logged-in Chromium through the `browser-serialiser` harness, or talks to a site's API with your credentials. Claude invokes a skill automatically when a request matches its description, so you rarely type the name.
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) [![Claude Code plugin](https://img.shields.io/badge/Claude_Code-plugin-d97757)](https://claude.com/claude-code)
 
-**A Chromium browser is required.** Everything here works by acting as you inside your own browser profile, so there is nothing to install per site and no passwords to hand over.
+Let Claude use the web signed in as you.
+
+magazines is a Claude Code plugin whose skills drive your own Chromium, with your own logged-in sessions, or talk to a site's API with your credentials. No password leaves your machine, because none is typed anywhere new. Claude invokes a skill automatically when a request matches its description, so you rarely type the name.
+
+## The moments it exists for
+
+- A name in your inbox rings no bell. One request comes back with who they are: LinkedIn profile, mutual history, every claim cited to its source.
+- qantas.com shows award seats one day at a time; the qantas skill sweeps a date range and returns point costs, taxes, and seat counts as one table.
+- A page returns 403 to every fetch tool your AI has, and opens fine for you, because you are logged in and the tool is not.
+- Research that used to be twenty open tabs (rail timetables, hotel prices, a supplier dashboard) comes back as a single brief.
 
 ## How the browser skills work
 
@@ -12,7 +21,7 @@ You sign in to a site once in your own Chromium browser, the ordinary way, then 
 
 - **Logged-in site access:** LinkedIn, Instagram, Facebook, Reddit, Airbnb, Otter, DeviantArt, GetYourGuide, and others.
 - **Travel and award search:** Qantas Classic Rewards, RENFE, Interline cruises, IHG, Marriott, Premier Inn, Flightnetwork.
-- **Slash commands (typed, `/magazines:<name>`):** `build-dossier` and `find-person` drive the site skills into a source-cited brief; `serpapi` runs Google Flights, Search, Maps, and Hotels lookups.
+- **Slash commands (typed, `/magazines:<name>`):** `build-dossier` and `find-person` run the site skills and compile a source-cited brief; `serpapi` runs Google Flights, Search, Maps, and Hotels lookups.
 - **Command-line tools:** `bin/brave-search "query" [count]` prints title/url/snippet web results from the Brave Search API. It reads its token from the same config file as the harness (`[brave.com]` `api_key`).
 
 Skills are namespaced `magazines:<skill>` (e.g. `magazines:linkedin-com`) and Claude invokes them automatically; the three commands you type yourself as `/magazines:build-dossier`, `/magazines:find-person`, `/magazines:serpapi`.
@@ -40,3 +49,6 @@ claude --plugin-dir /path/to/magazines
 
 The serialised-browsing command documents the harness, its [policed command surface](COMMAND-SURFACE.md) (the contract a new browser skill is written against), and the `--dump`/`--pdf` render modes.
 
+## License
+
+[MIT](LICENSE).
