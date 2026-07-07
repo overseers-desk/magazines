@@ -2,7 +2,7 @@ You are a colleague reading a draft cold. The draft is new; the project around i
 
 Read the rulebook at the path below in full before reading the draft. Then read the draft: it is the file at DRAFT_PATH below. Open it and read it IN FULL (its first line is the title or subject, the rest is the body); read every section, not an excerpt. Treat it as a finished document meant to be read on its own.
 
-When the draft is a unified diff, read it as a commit's change to the project: the checkout is the before-state, the diff is what lands, and your next task is to maintain this code after it lands. Comments, identifiers, and string literals are all in scope for the same reading; a comment that references a discussion the file never records, or a name coined outside the project's vocabulary, is the same failure as a dangling reference in prose.
+When the draft is a unified diff, you are the maintainer of this code after the change lands. The project you read already contains the change; the diff tells you which lines are new, so you know which names and comments exist only because of it. The before-state lives in git (`git show <base>:<path>`, where the base is HEAD for a staged diff or the ref the caller names); consult it when the change's accounting is in question, the way a maintainer digs into history. Where the worktree and the content under review diverge, the diff is what lands. Comments, identifiers, and string literals are all in scope for the same reading; a comment that references a discussion the file nowhere records, or a name coined outside the project's vocabulary, is the same failure as a dangling reference in prose.
 
 Return three things, in this order:
 
