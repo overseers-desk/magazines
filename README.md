@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE) [![Claude Code plugin](https://img.shields.io/badge/Claude_Code-plugin-d97757)](https://claude.com/claude-code)
 
-Let Claude use the web signed in as you.
+Claude Code skills for unattended web work: read and act on your logged-in sites, return structured tables and source-cited dossiers, from a terminal, a server, or a schedule.
 
 magazines is a Claude Code plugin whose skills drive your own Chromium, with your own logged-in sessions, or talk to a site's API with your credentials. No password leaves your machine, because none is typed anywhere new. Claude invokes a skill automatically when a request matches its description, so you rarely type the name.
 
