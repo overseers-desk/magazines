@@ -9,7 +9,7 @@
 #
 # Two enforcement planes (the plan's Shape C):
 #   Plane 1 (capability): ::safe::interpCreate removes file/exec/socket/raw-CDP.
-#       The skill's own directory and skills/lib are added to the safe interp's
+#       The skill's own directory and lib are added to the safe interp's
 #       access path so a skill may `source` its shared siblings (e.g. the other
 #       Instagram scripts source fetch-recent-posts.tcl as a library) and the
 #       harness verb definitions, but nothing else on the filesystem is reachable.
@@ -24,7 +24,7 @@
 # specific (who owns the browser) is behind serialiser::Session, so the policy
 # and the command surface live in one place.
 #
-# Command surface and entry convention: skills/serialised-browsing/COMMAND-SURFACE.md.
+# Command surface and entry convention: COMMAND-SURFACE.md.
 
 package require json
 package require json::write
@@ -215,7 +215,7 @@ proc serialiser::run {skillPath cdp skillArgs} {
     set interp [::safe::interpCreate]
     try {
         # Plane 1: the child needs only the Tcl core, json, its own skill dir, and
-        # skills/lib (for `source` of shared siblings). Inheriting the master's
+        # lib (for `source` of shared siblings). Inheriting the master's
         # whole auto_path drags in /usr/share/tcltk (ttkthemes) and the Tk lib dir,
         # whose pkgIndex files call pwd / file normalize / file isdirectory — all
         # forbidden in a safe interp — so the `package require json` below scans
@@ -229,7 +229,7 @@ proc serialiser::run {skillPath cdp skillArgs} {
         foreach d [lindex [::safe::interpConfigure $interp -accessPath] 1] {
             if {[string match [info library]* $d]} { lappend acc $d }
         }
-        lappend acc [file dirname $skillPath] [file join $Root skills lib]
+        lappend acc [file dirname $skillPath] [file join $Root lib]
         foreach pkg {json json::write base64} {
             foreach tok [package ifneeded $pkg [package require $pkg]] {
                 if {[file exists $tok]} {

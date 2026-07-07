@@ -5,8 +5,8 @@
 # command surface (nav/dump/eval/api/capture/.../emit). The skill never reaches a
 # socket, file, exec, or raw CDP; the harness drives the real browser and enforces
 # anti-ban web behaviour (pacing, view-before-fetch, 429/login backoff). See
-# skills/serialised-browsing/COMMAND-SURFACE.md for the surface and the entry
-# convention, and skills/lib/serialiser-harness.tcl for the policy.
+# COMMAND-SURFACE.md for the surface and the entry
+# convention, and lib/serialiser-harness.tcl for the policy.
 #
 # Usage:
 #     browser-serialiser <skill-ref> [skill args...]
@@ -39,10 +39,10 @@ package require json
 package require json::write
 
 set ::ScriptDir [file dirname [file normalize [info script]]]
-set ::Root [file dirname $::ScriptDir]   ;# toolbox root: holds bin/ and skills/
+set ::Root [file dirname $::ScriptDir]   ;# toolbox root: holds bin/, lib/, and skills/
 
-source [file join $::Root skills lib cdp-client.tcl]
-source [file join $::Root skills lib serialiser-harness.tcl]
+source [file join $::Root lib cdp-client.tcl]
+source [file join $::Root lib serialiser-harness.tcl]
 
 # ---------------------------------------------------------------------------
 # Config: UA + accept-lang from the [browser] section of config.ini, so the

@@ -1,9 +1,10 @@
 ---
-name: serialised-browsing
 description: "Activated when a website blocks fetching or gives 403, or a meaningful fetch requires a logged-in session: use a headless Chromium to fetch a page when curl or WebFetch cannot. Also accepts CDP."
 allowed-tools: Bash, Read
 argument-hint: <skill-ref and args, or a URL>
 ---
+
+Request (the command argument): **$ARGUMENTS**. A `<site>/<script>` skill-ref with its args, or a URL to fetch; if empty, treat this as a reference read.
 
 Canonical home of `browser-serialiser`, the harness that runs a browser skill inside a policed safe interpreter and drives the user's logged-in Chromium for it. Site-specific skills invoke it by reference; when a site skill covers the target, use that skill. This is the reference for the wrapper, the command surface, and the browser rationale, and the fallback for an ad-hoc page fetch.
 
@@ -38,6 +39,6 @@ The serialiser holds a single-browser lock and the overseer runs a watchdog; bot
 
 ## References
 
-- `${CLAUDE_PLUGIN_ROOT}/skills/serialised-browsing/COMMAND-SURFACE.md` — the verbs a skill calls and the entry convention (`serialiser_run`, one `emit`).
-- `${CLAUDE_PLUGIN_ROOT}/skills/serialised-browsing/BROWSER.md` — why Chromium and the live user-data-dir.
-- `${CLAUDE_PLUGIN_ROOT}/skills/serialised-browsing/chromium-process-model.md` — the Chromium process and launch facts.
+- `${CLAUDE_PLUGIN_ROOT}/COMMAND-SURFACE.md` — the verbs a skill calls and the entry convention (`serialiser_run`, one `emit`).
+- `${CLAUDE_PLUGIN_ROOT}/docs/BROWSER.md` — why Chromium and the live user-data-dir.
+- `${CLAUDE_PLUGIN_ROOT}/docs/chromium-process-model.md` — the Chromium process and launch facts.

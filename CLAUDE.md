@@ -15,11 +15,11 @@ sibling `office` plugin.
   `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/<script>`. Claude Code substitutes
   `${CLAUDE_PLUGIN_ROOT}` with the install path when the plugin loads. Prefer this
   over a hardcoded `$HOME/.claude/skills/...` for skill files.
-- The harness and the policed command surface for authenticated SPAs live in the
-  serialised-browsing skill: [`COMMAND-SURFACE.md`](skills/serialised-browsing/COMMAND-SURFACE.md)
-  is the contract a new TCL skill is written against (the verbs, view-before-fetch,
-  the per-call required headers, the type-B envelope), and
-  [`BROWSER.md`](skills/serialised-browsing/BROWSER.md) is beside it. Invoke a skill by
+- The harness (`bin/browser-serialiser`) and the policed command surface for
+  authenticated SPAs: [`COMMAND-SURFACE.md`](COMMAND-SURFACE.md) is the contract a
+  new TCL skill is written against (the verbs, view-before-fetch, the per-call
+  required headers, the type-B envelope), sitting at the top level beside `bin/`
+  and `lib/`, and [`BROWSER.md`](docs/BROWSER.md) records the rationale. Invoke a skill by
   reference through `browser-serialiser`; do not write a raw `flock ... chromium`
   invocation inline. The same harness also runs under an external host, the
   overseer (a desktop application in a separate project); it is a compatibility

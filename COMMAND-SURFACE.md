@@ -3,9 +3,9 @@
 A browser skill runs inside a per-run **safe interpreter** that exposes only the
 verbs below. The skill never opens a socket, file, subprocess, or raw CDP
 channel: each verb runs back in the harness (the master interpreter), which
-drives the real browser through `skills/lib/cdp-client.tcl` and enforces
+drives the real browser through `lib/cdp-client.tcl` and enforces
 anti-ban web behaviour. The harness is `bin/browser-serialiser` (standalone) and,
-later, the overseer (delegated); both share `skills/lib/serialiser-harness.tcl`,
+later, the overseer (delegated); both share `lib/serialiser-harness.tcl`,
 so this contract is identical in both hosts.
 
 This document is the contract a skill author writes against, and the contract the
@@ -37,7 +37,7 @@ prints what was emitted. A skill file may also keep its legacy `main` for direct
 library); the harness ignores everything but `serialiser_run`.
 
 A skill may `source` its sibling files in the same skill directory and anything
-in `skills/lib`, and nothing else: the safe interp's access path is exactly those
+in `lib`, and nothing else: the safe interp's access path is exactly those
 two directories. This preserves single-source-of-truth for shared components
 (e.g. the other Instagram scripts source `fetch-recent-posts.tcl` as their
 library).

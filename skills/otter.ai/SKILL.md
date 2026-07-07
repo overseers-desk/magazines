@@ -212,7 +212,7 @@ skill reaches the browser only through the command surface:
 
 The skill does not use Google Chrome; it runs under whatever Chrome-compatible
 browser the harness targets. The `otter.ai` view-before-fetch entries live in
-`skills/lib/serialiser-harness.tcl`.
+`lib/serialiser-harness.tcl`.
 
 ## API endpoints used
 
