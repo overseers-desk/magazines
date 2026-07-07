@@ -1,4 +1,4 @@
-# skillbooks
+# magazines
 
 A Claude Code plugin of AI-executed skills. Each skill drives your own logged-in Chromium through the `browser-serialiser` harness, or talks to a site's API with your credentials. Claude invokes a skill automatically when a request matches its description, so you rarely type the name.
 
@@ -12,22 +12,22 @@ You sign in to a site once in your own Chromium browser, the ordinary way, then 
 
 - **Logged-in site access:** LinkedIn, Instagram, Facebook, Reddit, Airbnb, Otter, DeviantArt, GetYourGuide, and others.
 - **Travel and award search:** Qantas Classic Rewards, RENFE, Interline cruises, IHG, Marriott, Premier Inn, Flightnetwork.
-- **Slash commands (typed, `/skillbooks:<name>`):** `build-dossier` and `find-person` drive the site skills into a source-cited brief; `serpapi` runs Google Flights, Search, Maps, and Hotels lookups.
+- **Slash commands (typed, `/magazines:<name>`):** `build-dossier` and `find-person` drive the site skills into a source-cited brief; `serpapi` runs Google Flights, Search, Maps, and Hotels lookups.
 - **Command-line tools:** `bin/brave-search "query" [count]` prints title/url/snippet web results from the Brave Search API. It reads its token from the same config file as the harness (`[brave.com]` `api_key`).
 
-Skills are namespaced `skillbooks:<skill>` (e.g. `skillbooks:linkedin-com`) and Claude invokes them automatically; the three commands you type yourself as `/skillbooks:build-dossier`, `/skillbooks:find-person`, `/skillbooks:serpapi`.
+Skills are namespaced `magazines:<skill>` (e.g. `magazines:linkedin-com`) and Claude invokes them automatically; the three commands you type yourself as `/magazines:build-dossier`, `/magazines:find-person`, `/magazines:serpapi`.
 
 ## Install
 
 ```sh
 claude plugin marketplace add overseers-desk/overseers-desk
-claude plugin install skillbooks@overseers-desk
+claude plugin install magazines@overseers-desk
 ```
 
 `claude plugin list` then shows it enabled. For development, load it from disk without installing; this reads the working tree live, so edits take effect without reinstalling:
 
 ```sh
-claude --plugin-dir /path/to/skillbooks
+claude --plugin-dir /path/to/magazines
 ```
 
 ## Prerequisites

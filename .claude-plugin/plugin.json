@@ -1,7 +1,7 @@
 {
-  "name": "skillbooks",
-  "description": "AI-executed skills for logged-in site access (LinkedIn, Instagram, Facebook, Reddit, Airbnb, Otter, and more), travel and award search, editorial review, and source-cited research.",
+  "name": "magazines",
+  "description": "AI-executed skills for logged-in site access (LinkedIn, Instagram, Facebook, Reddit, Airbnb, Otter, and more) and travel and award search, with build-dossier, find-person, and serpapi research commands.",
   "author": {
-    "name": "Weiwu Zhang"
+    "name": "The Overseer"
   }
 }
