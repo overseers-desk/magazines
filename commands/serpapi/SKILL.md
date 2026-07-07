@@ -41,31 +41,31 @@ Free plan allows 250 searches/month. Check usage at: `curl -s "https://serpapi.c
 ### Google Flights (one-way)
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py flights LHR BNE 2026-05-10 --currency EUR
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py flights LHR BNE 2026-05-10 --currency EUR
 ```
 
 ### Google Flights (return)
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py flights LHR BNE 2026-05-10 --return-date 2026-05-20 --currency EUR
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py flights LHR BNE 2026-05-10 --return-date 2026-05-20 --currency EUR
 ```
 
 ### Google Search
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py search "best noise cancelling headphones 2026"
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py search "best noise cancelling headphones 2026"
 ```
 
 ### Google Maps
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py maps "restaurants near New York"
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py maps "restaurants near New York"
 ```
 
 ### Google Maps reviews (review timeline)
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py reviews "<venue name> <suburb>" --max 5
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py reviews "<venue name> <suburb>" --max 5
 ```
 
 ## Flight search arguments
@@ -118,10 +118,10 @@ A venue's review timeline — each review's date, star rating, and text — come
 
 ```bash
 # By place name (resolves data_id via Maps first, then pages the reviews)
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py reviews "<venue name> <suburb>" --max 5
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py reviews "<venue name> <suburb>" --max 5
 
 # By data_id directly (skips the lookup, saving 1 search)
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py reviews "0x...:0x..." --sort newestFirst
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py reviews "0x...:0x..." --sort newestFirst
 ```
 
 | Argument | Description |
@@ -138,7 +138,7 @@ The subcommand wraps these two steps; run them manually only when you need the r
 1. **Find the place and its `data_id`.** The `maps` subcommand with `--json` returns the raw API response, where `local_results[0]` carries `data_id` (plus `place_id`, `rating`, and the `reviews` count). A strong single match instead arrives as `place_results`.
 
    ```bash
-   python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py maps "<venue name> <suburb>" --json
+   python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py maps "<venue name> <suburb>" --json
    # local_results[0].data_id  ->  0x...:0x...
    ```
 
@@ -208,13 +208,13 @@ This returns room types, rate options, amenities, and nearby places for a single
 ### Flight price comparison across dates
 ```bash
 for date in 2026-05-08 2026-05-09 2026-05-10; do
-    python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py flights LHR BNE "$date" --currency EUR
+    python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py flights LHR BNE "$date" --currency EUR
 done
 ```
 
 ### Raw JSON for programmatic processing
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/serpapi/search.py flights LHR BNE 2026-05-10 --currency EUR --json | python3 -c "
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py flights LHR BNE 2026-05-10 --currency EUR --json | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 all_flights = d.get('best_flights', []) + d.get('other_flights', [])
