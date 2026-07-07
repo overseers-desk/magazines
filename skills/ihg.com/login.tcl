@@ -13,7 +13,7 @@
 #   browser-serialiser ihg.com/login --check                          ;# probe the form, do not submit
 #
 # The safe interp cannot read config.ini, so credentials arrive as skill args;
-# the caller reads ~/.claude/skills/config.ini [ihg.com] and passes them.
+# the caller reads ~/.config/magazines/config.ini [ihg.com] and passes them.
 # Note: usernames may be a member number, an email, or a username.
 
 package require json

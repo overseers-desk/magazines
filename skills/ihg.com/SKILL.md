@@ -23,7 +23,7 @@ availability API). For the member's own account (stays, bookings, points), see
 
 `login.tcl` signs in to IHG One Rewards and reads the member's own data, driven through `browser-serialiser` (the serialised-browsing skill). IHG ends the session when the browser closes, so each run logs in fresh; there is no token to cache, and crude (pure-Python login) is not viable here.
 
-Credentials live in `~/.claude/skills/config.ini` under `[ihg.com]` (`username`, `password`; the username may be a member number, an email, or a username). The safe interpreter cannot read that file, so the caller reads it and passes the values as arguments. Read it with ConfigParser interpolation disabled (`configparser.ConfigParser(interpolation=None)`): the password can contain a literal `%`, which otherwise raises `InterpolationSyntaxError` and silently yields an empty password.
+Credentials live in `~/.config/magazines/config.ini` under `[ihg.com]` (`username`, `password`; the username may be a member number, an email, or a username). The safe interpreter cannot read that file, so the caller reads it and passes the values as arguments. Read it with ConfigParser interpolation disabled (`configparser.ConfigParser(interpolation=None)`): the password can contain a literal `%`, which otherwise raises `InterpolationSyntaxError` and silently yields an empty password.
 
 ```bash
 browser-serialiser ihg.com/login "$user" "$pass"            # account summary (name, tier, member #, points)

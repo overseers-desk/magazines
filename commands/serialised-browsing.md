@@ -34,7 +34,7 @@ The serialiser holds a single-browser lock and the overseer runs a watchdog; bot
 
 ## Prerequisites
 
-- `[browser] user_agent` set in `$HOME/.claude/skills/config.ini` (see `${CLAUDE_PLUGIN_ROOT}/config.ini.example`); the serialiser sends it so the fetch fingerprint matches the logged-in session.
+- `[browser] user_agent` set in `$HOME/.config/magazines/config.ini` (see `${CLAUDE_PLUGIN_ROOT}/config.ini.example`); the serialiser sends it so the fetch fingerprint matches the logged-in session.
 - A logged-in Chromium session for any site that needs one. A dump that comes back as a sign-in page means the profile is wrong or another Chromium holds the lock; investigate the plumbing rather than asking the user to log in again, since they are usually already logged in.
 
 ## References

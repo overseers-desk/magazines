@@ -26,7 +26,7 @@ sibling `office` plugin.
   target, not a runtime dependency, and standalone `browser-serialiser` needs no
   overseer installed (see COMMAND-SURFACE.md, "Why the sandbox holds with no
   overseer present").
-- Site credentials live in `$HOME/.claude/skills/config.ini`. The path is absolute
+- Site credentials live in `$HOME/.config/magazines/config.ini`. The path is absolute
   in the scripts and the wrapper, so it does not move with the plugin. The file is
   gitignored; do not commit it. Each skill's SKILL.md lists its keys under
   `Prerequisites`.

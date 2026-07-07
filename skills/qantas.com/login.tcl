@@ -12,7 +12,7 @@
 #     serialiser_run navigates the sign-in page, detects the form, types the
 #     credentials, clicks submit, then reads and parses the account page.
 #   - Direct tclsh (legacy, CDP_WS_URL from the harness/overseer relay),
-#     credentials from ~/.claude/skills/config.ini:
+#     credentials from ~/.config/magazines/config.ini:
 #         browser-serialiser qantas.com/login [--json|--check]
 
 package require json
@@ -170,9 +170,10 @@ proc qf::strip_thousands {s} {
 # Returns a 2-list {code dataDict}. code 0 on success (data carries the parsed
 # fields, or {} for --check); code 1 on failure (data carries {error ...}).
 proc qf::run {check_only debug} {
-    set cfg_file [file join $::env(HOME) .claude skills config.ini]
+    set base [expr {[info exists ::env(XDG_CONFIG_HOME)] && $::env(XDG_CONFIG_HOME) ne "" ? $::env(XDG_CONFIG_HOME) : [file join $::env(HOME) .config]}]
+    set cfg_file [file join $base magazines config.ini]
     if {![file exists $cfg_file]} {
-        puts stderr "ERROR: $cfg_file not found. See Prerequisites in the aesop qantas.com SKILL.md."
+        puts stderr "ERROR: $cfg_file not found. See Prerequisites in the qantas.com SKILL.md."
         exit 1
     }
     set cfg_files [list $cfg_file [file join [file dirname $cfg_file] config.local.ini]]
@@ -181,7 +182,7 @@ proc qf::run {check_only debug} {
     set pin [qf::ini_get $cfg_files qantas.com pin]
     foreach {k v} [list member_id $member_id last_name $last_name pin $pin] {
         if {$v eq ""} {
-            puts stderr "ERROR: ~/.claude/skills/config.ini missing \[qantas.com\] $k"
+            puts stderr "ERROR: ~/.config/magazines/config.ini missing \[qantas.com\] $k"
             exit 1
         }
     }
@@ -331,7 +332,7 @@ proc qf::render_human {data} {
 # bytes match.
 #
 # The safe interp cannot read config.ini, so the credentials arrive as skill
-# args; the SKILL.md instructs the caller to read ~/.claude/skills/config.ini and
+# args; the SKILL.md instructs the caller to read ~/.config/magazines/config.ini and
 # pass them. --check needs no credentials (it stops before the submit click).
 #
 #   browser-serialiser qantas.com/login <member_id> <last_name> <pin> [--json]

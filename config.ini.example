@@ -1,3 +1,6 @@
+# Copy this file to ${XDG_CONFIG_HOME:-$HOME/.config}/magazines/config.ini and fill in your values.
+# Each site skill lists the keys it needs under Prerequisites in its SKILL.md.
+
 [browser]
 # Match the UA and locale list of the browser you log into sites with, so that
 # headless/CDP runs present the same fingerprint as your authenticated session.

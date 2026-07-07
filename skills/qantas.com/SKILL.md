@@ -9,7 +9,7 @@ argument-hint: <origin> <destination> <date> [stops]   |   points
 Feature 1 (Classic Reward search) requires no login. Feature 2 (points balance) requires credentials.
 
 - **What:** Qantas Frequent Flyer member number, last name, and PIN
-- **Where:** `$HOME/.claude/skills/config.ini`, under the `[qantas.com]` section
+- **Where:** `$HOME/.config/magazines/config.ini`, under the `[qantas.com]` section
 - **Format:**
   ```ini
   [qantas.com]
@@ -18,7 +18,7 @@ Feature 1 (Classic Reward search) requires no login. Feature 2 (points balance) 
   pin = YOUR_PIN
   ```
 
-If Feature 2 is requested and the section is absent, pause and let the user know: "To read your Qantas points balance, add a `[qantas.com]` section with member_id, last_name, and pin to `$HOME/.claude/skills/config.ini`."
+If Feature 2 is requested and the section is absent, pause and let the user know: "To read your Qantas points balance, add a `[qantas.com]` section with member_id, last_name, and pin to `$HOME/.config/magazines/config.ini`."
 
 The skill has two independent features. Run whichever the user asked for; do not chain them.
 
@@ -54,7 +54,7 @@ Date handling: the Flight Reward Finder only holds live and future availability 
 
 Returns first name, tier, member ID, points, and status credits. Login + read happen in one session because cookies do not persist across invocations while the snap chromium browser is open (it locks the user-data-dir).
 
-The skill runs under the policed surface: `serialiser_run` navigates the sign-in page, detects the form, types the credentials, clicks submit, then reads and parses the account page. The safe interpreter cannot read `config.ini`, so read the credentials from `$HOME/.claude/skills/config.ini` (`[qantas.com]` member_id, last_name, pin — see Prerequisites) and pass them as arguments:
+The skill runs under the policed surface: `serialiser_run` navigates the sign-in page, detects the form, types the credentials, clicks submit, then reads and parses the account page. The safe interpreter cannot read `config.ini`, so read the credentials from `$HOME/.config/magazines/config.ini` (`[qantas.com]` member_id, last_name, pin — see Prerequisites) and pass them as arguments:
 
 ```bash
 browser-serialiser qantas.com/login <member_id> <last_name> <pin>            # human-readable

@@ -16,7 +16,7 @@ A Reddit search hit is always a **post** (submission, kind `t3`); there is no co
 
 ## Prerequisites
 
-`[browser] user_agent` set in `$HOME/.claude/skills/config.ini` (the serialiser exits 78 without it). Reddit's public `.json` does not require a logged-in session, but going through the user's Chromium profile keeps the fingerprint consistent and reduces throttling. If a dump comes back as a "blocked" or login interstitial, back off rather than hammer; Reddit throttles bursts.
+`[browser] user_agent` set in `$HOME/.config/magazines/config.ini` (the serialiser exits 78 without it). Reddit's public `.json` does not require a logged-in session, but going through the user's Chromium profile keeps the fingerprint consistent and reduces throttling. If a dump comes back as a "blocked" or login interstitial, back off rather than hammer; Reddit throttles bursts.
 
 ## 1. Search
 

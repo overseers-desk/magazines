@@ -33,7 +33,7 @@ claude --plugin-dir /path/to/magazines
 ## Prerequisites
 
 - **Chromium.** The browser skills drive a real Chromium (or a Chrome-compatible browser) against your own profile. Install it from your OS package manager or from chromium.org. Sign in to the sites you want a skill to reach, then close Chromium before invoking one.
-- **Credentials.** Site skills read `$HOME/.claude/skills/config.ini` (see `config.ini.example`). Each skill's SKILL.md lists the keys it needs under `Prerequisites`.
+- **Credentials.** Site skills read `~/.config/magazines/config.ini` (or `$XDG_CONFIG_HOME/magazines/config.ini` when that is set). Copy the top-level `config.ini.example` there and fill in the keys each skill's SKILL.md lists under `Prerequisites`.
 - **Tcl 9+.** The `browser-serialiser` harness and the browser skills' scripts run on `tclsh` 9 or newer; 8.x is not supported. macOS: `brew install tcl-tk`. Linux: install your distribution's Tcl 9 package.
 - **Browser harness.** Browser-driving skills run under `browser-serialiser`, shipped in `bin/` and placed on `PATH` while the plugin is enabled. It launches the user's logged-in Chromium against the real user-data-dir and locks it while running, so close your everyday Chromium before invoking a browser skill. macOS needs `flock` and `gtimeout`: `brew install util-linux coreutils` (Linux ships both).
 - **Logged-in sessions.** Browser skills expect an existing signed-in Chromium session for the target site. If a fetch returns a sign-in page, the session has expired; log in and retry.

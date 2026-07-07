@@ -3,14 +3,14 @@
 # Real web search via Brave Search API. Prints concise text results
 # (title / url / snippet) for an agent to read. No tool schema involved.
 #
-# The subscription token is read from the user skills config file, the SAME
-# file browser-serialiser reads: $HOME/.claude/skills/config.ini, section
-# [brave.com], key api_key. No key is committed in this file; copy
+# The subscription token is read from the user config file, the SAME file
+# browser-serialiser reads: ${XDG_CONFIG_HOME:-$HOME/.config}/magazines/config.ini,
+# section [brave.com], key api_key. No key is committed in this file; copy
 # config.ini.example to that path and fill in your Brave token. Absent key or
 # missing config file is a fatal error naming what it needs.
 set -euo pipefail
 
-CONFIG="$HOME/.claude/skills/config.ini"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/magazines/config.ini"
 
 # Read one value from config.ini's [section] key. Mirrors browser-serialiser's
 # config_get: walk lines, track the current [section] header, and on a match of

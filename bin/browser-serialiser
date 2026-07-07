@@ -50,7 +50,9 @@ source [file join $::Root lib serialiser-harness.tcl]
 # ---------------------------------------------------------------------------
 
 proc config_path {} {
-    return [file join $::env(HOME) .claude skills config.ini]
+    set base [expr {[info exists ::env(XDG_CONFIG_HOME)] && $::env(XDG_CONFIG_HOME) ne ""
+                    ? $::env(XDG_CONFIG_HOME) : [file join $::env(HOME) .config]}]
+    return [file join $base magazines config.ini]
 }
 
 # Standalone diagnostics-log directory. A fixed system location, mirroring the

@@ -42,15 +42,16 @@ _COOKIE_FILE = Path(tempfile.gettempdir()) / "interline-travel-cookies.json"
 _COOKIE_MAX_AGE = 3600 * 2  # reuse session for 2 hours
 
 def _load_creds():
-    cfg_file = Path.home() / ".claude" / "skills" / "config.ini"
+    base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    cfg_file = base / "magazines" / "config.ini"
     if not cfg_file.exists():
-        sys.exit(f"Error: {cfg_file} not found. See Prerequisites in the aesop interlinetravel.com.au SKILL.md.")
+        sys.exit(f"Error: {cfg_file} not found. See Prerequisites in the interlinetravel.com.au SKILL.md.")
     cp = configparser.ConfigParser(interpolation=None)
     cp.read([cfg_file, cfg_file.parent / "config.local.ini"])
     email = cp.get("interlinetravel.com.au", "email", fallback="").strip()
     password = cp.get("interlinetravel.com.au", "password", fallback="").strip()
     if not (email and password):
-        sys.exit("Error: ~/.claude/skills/config.ini missing [interlinetravel.com.au] email / password.")
+        sys.exit("Error: ~/.config/magazines/config.ini missing [interlinetravel.com.au] email / password.")
     return {"INTERLINE_EMAIL": email, "INTERLINE_PASSWORD": password}
 
 def _make_opener():

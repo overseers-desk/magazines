@@ -17,7 +17,7 @@ Usage:
     # Google Maps reviews (review timeline, newest first)
     python3 search.py reviews "Joe's Diner Brooklyn" --max 5
 
-API key is read from SERPAPI_KEY env var or [serpapi] api_key in ~/.claude/skills/config.ini.
+API key is read from SERPAPI_KEY env var or [serpapi] api_key in ~/.config/magazines/config.ini.
 """
 
 import argparse
@@ -38,13 +38,14 @@ def get_api_key():
     key = os.environ.get("SERPAPI_KEY", "").strip()
     if key:
         return key
-    cfg_file = Path.home() / ".claude" / "skills" / "config.ini"
+    base = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+    cfg_file = base / "magazines" / "config.ini"
     cp = configparser.ConfigParser(interpolation=None)
     cp.read([cfg_file, cfg_file.parent / "config.local.ini"])
     key = cp.get("serpapi", "api_key", fallback="").strip()
     if key:
         return key
-    sys.exit("No API key found. Set SERPAPI_KEY or add api_key under [serpapi] in ~/.claude/skills/config.ini")
+    sys.exit("No API key found. Set SERPAPI_KEY or add api_key under [serpapi] in ~/.config/magazines/config.ini")
 
 
 def serpapi_request(params):

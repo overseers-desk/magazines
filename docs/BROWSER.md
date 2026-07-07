@@ -47,7 +47,7 @@ Skills split into two groups by whether the decisions above apply.
 
 **Browser skills** ride D1-D5. Examples: otter.ai, ihg.com, qantas.com, linkedin.com, facebook.com, instagram.com, supplier.getyourguide.com, atdw-online.com.au, australia.skal.org, interlinetravel.com.au, deviantart.com, marriott.com. Each runs Chromium against the user's user-data-dir through the serialiser harness, which dumps DOM or hosts a CDP session, runs the task, exits, releases the lock.
 
-**API / non-browser skills** are not affected by D1-D5 because they do not touch a browser. Examples: serpapi, renfe.com, claude-api, send-email, mailroom. Credentials live in environment variables or `~/.claude/skills/config.ini`.
+**API / non-browser skills** are not affected by D1-D5 because they do not touch a browser. Examples: serpapi, renfe.com, claude-api, send-email, mailroom. Credentials live in environment variables or `~/.config/magazines/config.ini`.
 
 User-data-dirs per platform: `~/snap/chromium/common/chromium` on Linux snap, `~/.config/chromium` on Linux non-snap, `~/Library/Application Support/Chromium` on macOS (Chromium installed via the Homebrew cask). The snap-vs-non-snap probe and the canonical launch flags live in `bin/browser-serialiser`, the harness all skills run under.
 

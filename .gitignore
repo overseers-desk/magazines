@@ -18,6 +18,6 @@ __pycache__/
 *.tmp
 *.pid
 
-# Local site credentials. The real file lives in $HOME/.claude/skills/config.ini.
+# Local site credentials. The real file lives in $HOME/.config/magazines/config.ini.
 # Never commit a copy; config.ini.example is the tracked template.
 config.ini

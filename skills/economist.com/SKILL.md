@@ -40,4 +40,4 @@ browser-serialiser economist.com/fetch-article /leaders/2026/06/25/the-ai-backla
 
 - A logged-in Economist subscriber session in the shared Chromium profile. A
   fetch that comes back as a subscribe wall means the profile is logged out.
-- `[browser] user_agent` in `$HOME/.claude/skills/config.ini` (serialised-browsing skill).
+- `[browser] user_agent` in `$HOME/.config/magazines/config.ini` (serialised-browsing skill).
