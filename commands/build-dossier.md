@@ -1,10 +1,11 @@
 ---
-name: build-dossier
 description: "Deep source-cited dossier on a subject (person, business, family/principals, panel, entity warranting multi-section briefing). Briefing depth: multi-page, quotation-heavy, every claim sourced. Triggers: dossier, deep brief, in-depth profile, briefing-depth research, research file on a named subject."
 argument-hint: <subject: a person, a business, a family + their business(es), a panel, etc; with whatever seed information is available, plus an output folder if known>
 ---
 
-## What this skill does
+Subject to research (the command argument): **$ARGUMENTS**. If empty, ask the user for a subject before proceeding.
+
+## What this command does
 
 Produce a dossier deep enough that the next reader can chair a meeting, draft substantive correspondence, run a roleplay simulation, or make a contracting decision from it. The output is multi-page, source-cited, and quotation-heavy. Summaries do not pass.
 

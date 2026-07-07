@@ -1,10 +1,11 @@
 ---
-name: find-person
 description: "Identify a person from partial info (name, organisation, industry, location, known experience, email, approximate/heard spelling), then on instruction produce a lightweight profile or full dossier. Triggers: find/identify/look up/research a person, build a dossier."
 argument-hint: <seed: full name, name + organisation, email, name + industry + location, etc.>
 ---
 
-## What this skill does
+Seed to identify (the command argument): **$ARGUMENTS**. If empty, ask the user for a name or other identifying detail before searching.
+
+## What this command does
 
 Identification first. Profile and dossier are optional follow-on steps that depend on identification succeeding. If the person cannot be identified, halt - there is no profile or dossier to build on an unconfirmed identity.
 

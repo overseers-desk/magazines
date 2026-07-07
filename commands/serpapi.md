@@ -1,8 +1,10 @@
 ---
-name: serpapi
 description: "SerpApi (Google Flights/Search/Maps/Hotels): web search, local business lookup; secondary/verification source for flights and hotels — not primary for flight prices or hotel brand searches."
+argument-hint: <search request, e.g. maps \"restaurants near New York\", or leave empty to be prompted>
 allowed-tools: Bash, Read, Write
 ---
+
+Search request (the command argument): **$ARGUMENTS**. Pick the matching subcommand below.
 
 # SerpApi Search
 
