@@ -90,6 +90,12 @@ Re-pitch the passage for a reader arriving cold. The tells: a present stated as 
 
 Example: a report opens "The switch to monthly billing fixes the backlog." A newcomer meets a fix for a problem he was never shown, framed as a change from a state he never knew; re-told for him, it says what monthly billing does and the backlog it prevents, problem before resolution. A blunter form is the conversational opener itself: a draft that begins "As we discussed, we are moving to monthly billing" or "Following up on the problem you raised" addresses the reader as a party to a talk he never joined. Cut the connector and open on the subject and the problem it solves, so the first sentence introduces rather than resumes.
 
+# Code diffs
+
+When the draft is a staged diff, the three failure modes take their code forms. Short of context: a comment referencing a discussion the file nowhere records ("the bug", "as agreed", a machine constraint named only in the talk), an identifier coined in the conversation rather than the project's vocabulary, a workaround whose reason lives only in the talk (R12's code form). Residue: a commented-out alternative, a TODO restating a settled decision, a comment narrating the change instead of the code. Insider pitch: a comment describing the new state as a change from a before only the conversation knew.
+
+The cure order differs from prose. For code, prefer deleting the conversational reference; explain only when the reference earns its place in the file, because a maintainer reads code, and the shortest comment that still carries the reason beats a paragraph reconstructing a conversation. The query discipline is unchanged: surface the gap, and "this was left open" remains a complete answer; a diff owes the reader what it needs to maintain the code, not a clarification of everything the conversation touched.
+
 # How the colleague responds
 
 Three outputs, in this order:
