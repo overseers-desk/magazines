@@ -34,6 +34,9 @@ want Sonnet, so the model the workflow runs under matters:
   stopped; the user needs to log in to otter.ai in their browser first.
 - For `capture`: the business repos (each with a `knowledge-capture/` folder) must
   be present on disk; see the capture workflow below.
+- `[otter.ai] auto_push` in `config.ini` — optional, default off. Set it to `true`
+  on a machine whose operator wants each capture pushed to the business repo's
+  remote as well as committed (step 8).
 
 ## Capabilities
 
@@ -183,7 +186,16 @@ whose title is not already a done-signal: skip titles matching
      or domain-specific things to capture, follow it.
 8. **Commit** both into that repo: `git add` the two paths, then
    `git commit -m "Add <name>"`. If the commit fails, stop for this recording (do
-   not rename).
+   not rename). Then **push** if, and only if, `auto_push` is on:
+
+   ```bash
+   git config -f "${XDG_CONFIG_HOME:-$HOME/.config}"/magazines/config.ini otter.ai.auto_push
+   ```
+
+   Prints `true` on a machine whose operator has opted in; absent (non-zero exit)
+   everywhere else, and the capture stays a local commit. On `true`, `git push` in
+   the business repo. A push failure does not stop the recording: the commit stands,
+   report the failure and carry on to the rename.
 9. **Rename** in Otter to mark done. For a freshly written capture the title is
    `<business-folder>/<name>.txt`; for an already-captured recording (step 3) use
    the existing file's stem, `<business-folder>/<existing-stem>.txt`. The next run

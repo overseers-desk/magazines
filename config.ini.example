@@ -23,6 +23,11 @@ supplier_id = <ID>
 email = <EMAIL>
 password = <PASSWORD>
 
+[otter.ai]
+# Off unless set. On true, `capture` pushes each meeting it commits to the
+# business repo's remote, rather than leaving the commit local.
+auto_push = false
+
 [qantas.com]
 member_id = <ID>
 last_name = <SURNAME>
