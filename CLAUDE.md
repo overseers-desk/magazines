@@ -1,35 +1,25 @@
-# skillbooks — notes for AI sessions
+# magazines — notes for AI sessions
 
-This repo is one Claude Code plugin. Skills live in `skills/<skill>/`, the
-`browser-serialiser` harness sits in `bin/` (on PATH while the plugin is enabled),
-`config.ini.example` sits in the root and `.claude-plugin/` holds the plugin
-manifest, `plugin.json`. The marketplace that lists this plugin no longer lives
-here; it sits in a separate repo, `overseers-desk/overseers-desk`, alongside the
-sibling `office` plugin.
+This repo is one Claude Code plugin. The layout and sandbox rules that must
+hold are in [`INVARIANTS.md`](INVARIANTS.md); a change that breaks one is a
+design change, the owner's to make. `config.ini.example` sits in the root. The
+marketplace that lists this plugin sits in a separate repo,
+`overseers-desk/overseers-desk`.
 
 **Before any web-access work** (writing a new browser skill, or repairing one that broke), read the diagnosis methodology at [`../aesop/webworks/`](../aesop/webworks/README.md). It is the standing antidote to the firemaning, the premature commitment to "profile corrupt / fingerprint detected / we are rate-limited", that derails this work; the procedure and the case studies (`STORY.md`) live there.
 
 ## Conventions
 
-- Inside a SKILL.md, reference sibling scripts and assets as
-  `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/<script>`. Claude Code substitutes
-  `${CLAUDE_PLUGIN_ROOT}` with the install path when the plugin loads. Prefer this
-  over a hardcoded `$HOME/.claude/skills/...` for skill files.
 - The harness (`bin/browser-serialiser`) and the policed command surface for
   authenticated SPAs: [`COMMAND-SURFACE.md`](COMMAND-SURFACE.md) is the contract a
   new TCL skill is written against (the verbs, view-before-fetch, the per-call
   required headers, the type-B envelope), sitting at the top level beside `bin/`
-  and `lib/`, and [`BROWSER.md`](docs/BROWSER.md) records the rationale. Invoke a skill by
-  reference through `browser-serialiser`; do not write a raw `flock ... chromium`
-  invocation inline. The same harness also runs under an external host, the
-  overseer (a desktop application in a separate project); it is a compatibility
-  target, not a runtime dependency, and standalone `browser-serialiser` needs no
-  overseer installed (see COMMAND-SURFACE.md, "Why the sandbox holds with no
-  overseer present").
-- Site credentials live in `$HOME/.config/magazines/config.ini`. The path is absolute
-  in the scripts and the wrapper, so it does not move with the plugin. The file is
-  gitignored; do not commit it. Each skill's SKILL.md lists its keys under
-  `Prerequisites`.
+  and `lib/`, and [`BROWSER.md`](docs/BROWSER.md) records the rationale. The same
+  harness also runs under an external host, the overseer (a desktop application
+  in a separate project); it is a compatibility target, not a runtime dependency,
+  and standalone `browser-serialiser` needs no overseer installed (see
+  COMMAND-SURFACE.md, "Why the sandbox holds with no overseer present").
+- Each skill's SKILL.md lists its config keys under `Prerequisites`.
 - A SKILL.md `description` is a discovery surface, not documentation: its only job
   is to make the model invoke the skill when the situation calls for it. How the
   skill works belongs in the body and scripts, which the model reads after it
@@ -54,7 +44,7 @@ claude --plugin-dir . -p --dangerously-skip-permissions "<natural language reque
 ```
 
 Or inspect what the plugin exposes without running it:
-`claude --plugin-dir . plugin details skillbooks`. Calling a script directly
+`claude --plugin-dir . plugin details magazines`. Calling a script directly
 with `python3` or `tclsh` tests the script, not the skill trigger; a skill is not
 working until `claude -p` returns real data.
 
