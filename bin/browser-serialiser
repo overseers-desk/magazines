@@ -356,7 +356,7 @@ proc browser_teardown {pid port userDataDir} {
 # not a safe interp: they are the generic, non-policed counterpart to the policed
 # skill-by-reference mode, the one-shot DOM dump and PDF render of a single URL.
 # They reuse the same lockfile + launch + teardown, drive the browser directly over
-# cdp-client (no skill, no policing surface), and so may write files (--pdf).
+# the cdp module (no skill, no policing surface), and so may write files (--pdf).
 # Browser config (UA/lang) is read the same way the skill path reads it, so the
 # render presents the logged-in fingerprint.
 # ---------------------------------------------------------------------------
@@ -564,6 +564,9 @@ proc overseer_stream_line {line} {
 # absent. When the overseer IS up it owns the outcome: a skill fault from /run is
 # returned as a delegated error (we do NOT silently re-launch our own Chromium and
 # contend with the overseer for the shared profile). POST /run carries the skill ref,
+# the skill handed in as same-machine absolute paths - skillPath (our own resolved
+# body) and libDir (the harness dir; skills/lib, the <root>/skills/lib shape the
+# runner's harness anchor derives the root from - here a committed symlink to ../lib),
 # its args as a JSON array string, and our pid as the clientId - the rotation key the
 # overseer fairly queues us by, and its presence is what opts us into the streamed
 # reply: progress/heartbeat frames while we queue and run, then the terminal
@@ -573,7 +576,10 @@ proc serialiser_delegate {skillRef skillArgs} {
     if {![overseer_up]} { return [dict create delegated 0] }
     set port [overseer_port]
     set argsJson [args_to_json $skillArgs]
-    set body "{\"skillRef\":[json::write string $skillRef],\"argsJson\":[json::write string $argsJson],\"clientId\":[json::write string [pid]]}"
+    serialiser::setRoot $::Root
+    if {[catch {serialiser::resolveSkill $skillRef} skillPath]} { die 64 $skillPath }
+    set libDir [file join $::Root skills lib]
+    set body "{\"skillRef\":[json::write string $skillRef],\"skillPath\":[json::write string $skillPath],\"libDir\":[json::write string $libDir],\"argsJson\":[json::write string $argsJson],\"clientId\":[json::write string [pid]]}"
     set bodyBytes [encoding convertto utf-8 $body]
     if {[catch {socket 127.0.0.1 $port} sock]} { die 65 "overseer /run connect failed: $sock" }
     array unset ::ovsd

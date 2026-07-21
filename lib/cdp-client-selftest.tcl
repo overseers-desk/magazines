@@ -15,7 +15,7 @@
 package require cdp
 
 # Offline path (a live target unavailable): a frame round-trip on a multibyte
-# payload. Mask a client frame with cdp-client's own framing, then unmask it
+# payload. Mask a client frame with the cdp module's own framing, then unmask it
 # here (mirroring an RFC6455 server) and confirm the bytes survive. Self-
 # contained: no socket, no cross-repo source.
 proc unmask_client_frame {framed} {
