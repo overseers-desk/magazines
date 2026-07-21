@@ -565,8 +565,8 @@ proc overseer_stream_line {line} {
 # returned as a delegated error (we do NOT silently re-launch our own Chromium and
 # contend with the overseer for the shared profile). POST /run carries the skill ref,
 # the skill handed in as same-machine absolute paths - skillPath (our own resolved
-# body) and libDir (the harness dir; skills/lib, the <root>/skills/lib shape the
-# runner's harness anchor derives the root from - here a committed symlink to ../lib),
+# body) and libDir (skills/lib, a committed symlink to ../lib; the runner derives
+# the serialiser root two levels above libDir, so the shape matters),
 # its args as a JSON array string, and our pid as the clientId - the rotation key the
 # overseer fairly queues us by, and its presence is what opts us into the streamed
 # reply: progress/heartbeat frames while we queue and run, then the terminal
