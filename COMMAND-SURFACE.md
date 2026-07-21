@@ -76,7 +76,7 @@ with `dwell` instead.
 | `veto` | `veto <urlGlob>` | live veto list | Declare a URL the harness must refuse if the page tries to fetch it (a mutation guard, e.g. mark-as-seen). |
 | `type` | `type <text>` | "" | Insert text into the focused element (`Input.insertText`). Paced. |
 | `click` | `click <cssSelector>` | 1 or 0 | Click the first matching element in-page. Paced. |
-| `key` | `key <keyname>` | "" | Dispatch a trusted key press to the focused element (`Input.dispatchKeyEvent`). Needed where a rich-text editor ignores a synthetic event, e.g. a send-on-Enter message composer with no Send button. Known keys: `Enter`. Paced. |
+| `key` | `key <keyname>` | "" | Dispatch a trusted key press to the focused element (`Input.dispatchKeyEvent`). Needed where a rich-text editor ignores a synthetic event, e.g. a send-on-Enter message composer with no Send button. Known keys: `Enter`, `Backspace`. Paced. |
 | `state` | `state` | dict | The harness's view of the run: `terminal` (""/`rate-limited`/`logged-out`/`checkpoint`), `lastNav`, `pages`. A skill reads `terminal` to stop gracefully. |
 | `emit` | `emit <result>` | "" | The skill's single output. The harness returns it as the run result. |
 | `dwell` | `dwell <seconds>` | "" | A deliberate human-ish pause the skill may request (reading time between views). The harness owns timing. |
