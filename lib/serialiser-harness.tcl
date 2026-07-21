@@ -60,7 +60,13 @@ namespace eval serialiser {
 # Setup.
 # ---------------------------------------------------------------------------
 
-# Anchor the toolbox root. $root is the directory that contains bin/ and skills/.
+# Anchor the toolbox root. $root is the directory that contains bin/, lib/, and
+# skills/. This is the anchoring contract, stated once: skill refs resolve under
+# <Root>/skills/, and the safe interp's access whitelist is the skill's own dir
+# plus <Root>/lib. skills/lib is a committed symlink to ../lib, so a host that
+# knows only the lib dir it was handed (shaped <root>/skills/lib) derives this
+# same Root as two dirnames up, and both spellings of the lib dir are one
+# directory.
 proc serialiser::setRoot {root} {
     variable Root
     set Root [file normalize $root]
