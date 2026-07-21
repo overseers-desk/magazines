@@ -293,13 +293,13 @@ proc serialiser::run {skillPath cdp skillArgs} {
 # ---------------------------------------------------------------------------
 
 proc serialiser::InjectVerbs {interp} {
-    foreach verb {nav dump eval api capture harvest veto type click state emit dwell log} {
+    foreach verb {nav dump eval api capture harvest veto type click key state emit dwell log} {
         $interp alias $verb [list serialiser::Verb_$verb]
     }
 }
 
 # ---------------------------------------------------------------------------
-# The 11 surface verbs (signatures documented in COMMAND-SURFACE.md). Each is a
+# The surface verbs (signatures documented in COMMAND-SURFACE.md). Each is a
 # master-interp proc reached only through its alias.
 # ---------------------------------------------------------------------------
 
@@ -477,6 +477,28 @@ proc serialiser::Verb_click {selector} {
     set syn [string map [list {["[SEL]"][0]} [json::write string $selector]] $syn]
     set r [$Cdp evaluate $syn]
     return [expr {$r eq "true" || $r eq 1 ? 1 : 0}]
+}
+
+# key <keyname>  -- dispatch a TRUSTED key press to the focused element (a real CDP
+# Input.dispatchKeyEvent keyDown+keyUp pair). As with `click`'s trusted mouse event,
+# a synthetic in-page KeyboardEvent is isTrusted=false, and rich-text composers
+# (Draft.js, Quill) ignore it; the send-on-Enter messaging editor is one such case,
+# so the harness dispatches the real event. Paced with the `type` class. A known key
+# maps to its virtual-key code; an unknown name errors rather than sending nothing.
+# Returns "".
+proc serialiser::Verb_key {keyname} {
+    variable Cdp
+    serialiser::Pace type
+    switch -- $keyname {
+        Enter     { set vk 13; set code Enter;     set text "\r" }
+        Backspace { set vk 8;  set code Backspace; set text "" }
+        default   { error "key: unknown key '$keyname' (known: Enter, Backspace)" }
+    }
+    $Cdp cdp Input.dispatchKeyEvent [dict create \
+        type keyDown windowsVirtualKeyCode $vk nativeVirtualKeyCode $vk key $keyname code $code text $text]
+    $Cdp cdp Input.dispatchKeyEvent [dict create \
+        type keyUp windowsVirtualKeyCode $vk nativeVirtualKeyCode $vk key $keyname code $code]
+    return ""
 }
 
 # state  -- the harness's view of the run for the skill: a dict with
