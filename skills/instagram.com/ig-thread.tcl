@@ -81,7 +81,7 @@ proc pb_ig_thread {a} {
         set cursor $oldest
     }
     # Raw page items are a debugging concern: log them to the overseer, never into
-    # the result the engine maps to rows (parity with ig-thread.js session.log).
+    # the result persistThread maps to rows (parity with ig-thread.js session.log).
     log "ig-thread.raw igThreadId=$igThreadId count=[llength $rawItems]"
     set result [parse_thread $igThreadId [dict create messages $msgs complete $complete viewer $viewer] $pk2fbid]
     return [dict create result $result cursor "" hasMore 0]

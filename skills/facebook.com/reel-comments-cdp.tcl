@@ -24,7 +24,7 @@
 
 package require json
 
-# The legacy CDP engine is for the direct-tclsh path only; under the serialiser
+# The legacy cdp package is for the direct-tclsh path only; under the serialiser
 # harness raw CDP is removed (the policed verbs replace it), so source it only
 # when it is not already present and reachable. Sourcing it inside the safe
 # interp is a no-op (the file is outside the access path / cdp already absent).

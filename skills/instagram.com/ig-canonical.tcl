@@ -477,8 +477,9 @@ proc envelope_ok {r} {
     set h [expr {[dict get $r hasMore] ? "true" : "false"}]
     return [json::write object result [dict get $r result] cursor $c hasMore $h fault null]
 }
-# The fault shape lets the engine discriminate a terminal "removed" page (skip the
-# handle / terminate a dead thread) from a transient unrecognised fault (retry).
+# The fault shape lets the BI server's persist discriminate a terminal "removed" page
+# (skip the handle / terminate a dead thread) from a transient unrecognised fault
+# (retry).
 # A playbook signals a non-default shape by leading its error with "<shape>: "
 # (e.g. "removed: ..."); we strip the recognised tag so the detail stays human and
 # default to "unrecognised" for everything else. Only known tags are honoured.

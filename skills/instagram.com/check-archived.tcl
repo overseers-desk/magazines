@@ -251,8 +251,8 @@ proc serialiser_run {skillArgs} {
 }
 
 # ---------------------------------------------------------------------------
-# Direct-tclsh entry (parity with the serialiser path; uses the legacy CDP
-# engine the sourced keystone provides via ig::). Kept so the script runs under
+# Direct-tclsh entry (parity with the serialiser path; uses the legacy cdp
+# package the sourced keystone provides via ig::). Kept so the script runs under
 # `tclsh check-archived.tcl ...` for development, mirroring its siblings.
 # ---------------------------------------------------------------------------
 

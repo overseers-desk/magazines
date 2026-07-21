@@ -16,7 +16,7 @@
 
 package require json
 
-# Legacy CDP engine, kept for the direct-tclsh path (ig::main and each sibling's
+# The legacy cdp package, kept for the direct-tclsh path (ig::main and each sibling's
 # own main, which call cdp::connect when run as `tclsh X.tcl ...` outside the
 # serialiser). Sourced only when not already present, so loading this file under
 # the serialiser harness (where the policed verbs replace raw CDP) is a no-op

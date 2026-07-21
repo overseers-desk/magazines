@@ -24,7 +24,7 @@
 
 package require json
 
-# Legacy CDP engine, kept for the direct-tclsh path (main, which calls
+# The legacy cdp package, kept for the direct-tclsh path (main, which calls
 # cdp::connect when run as `tclsh otter-cdp.tcl ...` outside the serialiser).
 # Sourced only when not already present, so loading this file under the
 # serialiser harness (where the policed verbs replace raw CDP and the socket

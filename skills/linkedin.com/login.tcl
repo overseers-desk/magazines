@@ -14,8 +14,8 @@
 # Clicking "continue" mints a session — an outward action. The serialiser path
 # performs it through the policed `click` verb; `--check` stops before any click.
 
-# Legacy CDP engine, sourced only for the direct-tclsh path; under the serialiser
-# harness the policed verbs replace raw CDP, so loading is a no-op there.
+# The legacy cdp package, sourced only for the direct-tclsh path; under the
+# serialiser harness the policed verbs replace raw CDP, so loading is a no-op there.
 if {![namespace exists cdp]} {
     catch { ::tcl::tm::path add [file normalize [file join [file dirname [info script]] .. .. lib]]; package require cdp }
 }

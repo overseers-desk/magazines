@@ -11,8 +11,8 @@
 #     browser-serialiser linkedin.com/send-message VANITY_NAME "Message text"
 #     browser-serialiser linkedin.com/send-message VANITY_NAME "Message text" --dry-run   # stop before clicking Send
 
-# Legacy CDP engine, sourced only for the direct-tclsh path; under the serialiser
-# harness the policed verbs replace raw CDP, so loading is a no-op there.
+# The legacy cdp package, sourced only for the direct-tclsh path; under the
+# serialiser harness the policed verbs replace raw CDP, so loading is a no-op there.
 if {![namespace exists cdp]} {
     catch { ::tcl::tm::path add [file normalize [file join [file dirname [info script]] .. .. lib]]; package require cdp }
 }

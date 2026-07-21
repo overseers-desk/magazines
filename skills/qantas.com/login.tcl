@@ -17,7 +17,7 @@
 
 package require json
 
-# Legacy CDP engine, kept for the direct-tclsh path (qf::run / qf::main, which
+# The legacy cdp package, kept for the direct-tclsh path (qf::run / qf::main, which
 # call cdp::connect when run as `tclsh login.tcl ...` outside the serialiser).
 # Sourced only when not already present, so loading this file under the
 # serialiser harness (where the policed verbs replace raw CDP) is a no-op rather
