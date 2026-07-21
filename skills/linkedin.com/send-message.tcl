@@ -506,32 +506,46 @@ proc serialiser_run {skillArgs} {
         return
     }
 
-    # Locate the Send control.
-    set send_label [eval {(function() {
-            var btns = Array.from(document.querySelectorAll("button"));
-            // The messaging Send control is an icon button with a stable class and
-            // often an empty aria-label/textContent, so match the class first.
-            var b = btns.find(function(b) { return /msg-form__send/.test(b.className || ""); });
-            if (!b) b = btns.find(function(b) {
-                var label = (b.getAttribute("aria-label") || b.textContent || "").toLowerCase().trim();
-                return label === "send" || label === "enviar";
-            });
-            if (b) { b.setAttribute("data-sv-send","1"); }
-            return b ? (b.getAttribute("aria-label") || b.textContent.trim() || "send-btn") : null;
-        })()}]
-    if {$send_label eq "null" || $send_label eq ""} {
-        set _btns [eval {Array.from(document.querySelectorAll("button")).map(function(b){return (b.getAttribute("aria-label")||"")+"|"+(b.textContent||"").trim()+"|"+(b.className||"").substring(0,30)}).filter(function(s){return s.length>2}).slice(0,40).join(" ;; ")}]
-        sv_emit_result [dict create status error reason "Send button not found" buttons $_btns]
-        return
-    }
-
-    # THE IRREVERSIBLE SEND. In the wiring test, this click is a stub that records
-    # but does nothing; live, it dispatches the message.
-    log "Clicking send button: '$send_label'"
-    eval {document.querySelector('[data-sv-send="1"]').click()}
-
-    log "Waiting for server response..."
+    # THE IRREVERSIBLE SEND. The constant across LinkedIn's messaging UIs is that
+    # Enter in the focused composer sends; the Send button and its send-options
+    # menu are the variable presentation, and some rollouts drop the button
+    # entirely. So send with a trusted Enter first (a synthetic KeyboardEvent is
+    # isTrusted=false and the editor ignores it, hence the harness verb). Only if
+    # the composer does not clear (an account with "press Enter to send" off) fall
+    # back to a real Send button, first removing the newline Enter left behind.
+    log "Sending with Enter in the composer..."
+    eval "document.querySelector([json::write string $compose_sel]).focus()"
+    dwell 0.3
+    key Enter
     dwell 4
+
+    set remaining [eval "document.querySelector([json::write string $compose_sel])?.textContent?.trim()"]
+    if {[string trim $remaining] ne "" && $remaining ne "null"} {
+        log "Composer not cleared; send-on-Enter is off. Removing the newline and clicking Send."
+        eval "document.querySelector([json::write string $compose_sel]).focus()"
+        key Backspace
+        dwell 0.3
+        # A real Send button, not the "msg-form__send-toggle" split-button (which
+        # only opens the send-options menu).
+        set send_label [eval {(function() {
+                var btns = Array.from(document.querySelectorAll("button"));
+                function isReal(b){
+                    var c = b.className || "";
+                    if (/msg-form__send-toggle/.test(c)) return false;
+                    if (/msg-form__send-button/.test(c)) return true;
+                    var l = (b.getAttribute("aria-label") || b.textContent || "").toLowerCase().trim();
+                    return l === "send" || l === "enviar";
+                }
+                var b = btns.find(isReal);
+                if (b) { b.setAttribute("data-sv-send","1"); return b.getAttribute("aria-label") || b.textContent.trim() || "send-btn"; }
+                return null;
+            })()}]
+        if {$send_label ne "null" && $send_label ne ""} {
+            log "Send via button: '$send_label'"
+            click {[data-sv-send="1"]}
+            dwell 4
+        }
+    }
 
     set toast [eval {document.querySelector(".artdeco-toast-item__message, [data-test-artdeco-toast-item]")?.textContent?.trim() || null}]
     if {$toast eq "null"} { set toast "" }
@@ -540,7 +554,7 @@ proc serialiser_run {skillArgs} {
     set compose_cleared [expr {[string trim $remaining] eq "" || $remaining eq "null"}]
 
     # The post-send messaging network call is not harvestable on this surface (the
-    # send is a click, not a capture); success reads from the DOM signals the
+    # send is a UI action, not a capture); success reads from the DOM signals the
     # legacy path also accepts: a toast or the compose area clearing.
     set msg_events {}
     set api_ok 0
