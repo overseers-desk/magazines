@@ -25,7 +25,7 @@
 #   Standalone: when the overseer is absent the serialiser launches its own headless
 #   Chromium on the user's REAL logged-in profile (lockfile /tmp/chromium.lock,
 #   --headless=new --remote-debugging-port on a random port, --user-data-dir=<profile>),
-#   polls /json for the page-target ws url, connects via cdp-client, runs the skill,
+#   polls /json for the page-target ws url, connects via the cdp module, runs the skill,
 #   and tears the browser down on every exit. Launch/teardown mirrors the overseer's
 #   ov::launch_chromium / ov::release (random port, ~40s cold-start poll budget for
 #   snap Chromium, kill by launch PID AND by debug port plus a Singleton sweep so
@@ -41,7 +41,8 @@ package require json::write
 set ::ScriptDir [file dirname [file normalize [info script]]]
 set ::Root [file dirname $::ScriptDir]   ;# toolbox root: holds bin/, lib/, and skills/
 
-source [file join $::Root lib cdp-client.tcl]
+::tcl::tm::path add [file join $::Root lib]
+package require cdp
 source [file join $::Root lib serialiser-harness.tcl]
 
 # ---------------------------------------------------------------------------

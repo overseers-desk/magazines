@@ -4,7 +4,7 @@
 # the skill into a per-run SAFE interpreter (Tcl Safe Base) and exposes a fixed
 # POLICED COMMAND SURFACE: a skill calls verbs like `nav`, `eval`, `api`, `emit`;
 # each verb runs back in the MASTER interpreter, where the harness drives the
-# real browser through cdp-client.tcl and enforces web-behaviour policy. The
+# real browser through the cdp module and enforces web-behaviour policy. The
 # skill never reaches a socket, a file, exec, or raw CDP.
 #
 # Two enforcement planes (the plan's Shape C):

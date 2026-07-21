@@ -23,7 +23,7 @@ package require json
 # serialiser harness (where the policed verbs replace raw CDP) is a no-op rather
 # than a re-definition. The harness path uses serialiser_run.
 if {![namespace exists cdp]} {
-    catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
+    catch { ::tcl::tm::path add [file normalize [file join [file dirname [info script]] .. .. lib]]; package require cdp }
 }
 
 namespace eval qf {}

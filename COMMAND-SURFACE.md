@@ -3,7 +3,7 @@
 A browser skill runs inside a per-run **safe interpreter** that exposes only the
 verbs below. The skill never opens a socket, file, subprocess, or raw CDP
 channel: each verb runs back in the harness (the master interpreter), which
-drives the real browser through `lib/cdp-client.tcl` and enforces
+drives the real browser through the `cdp` module (vendored at `lib/cdp-1.0.tm`) and enforces
 anti-ban web behaviour. The harness is `bin/browser-serialiser` (standalone) and,
 later, the overseer (delegated); both share `lib/serialiser-harness.tcl`,
 so this contract is identical in both hosts.

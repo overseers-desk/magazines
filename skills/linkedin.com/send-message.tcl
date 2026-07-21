@@ -14,7 +14,7 @@
 # Legacy CDP engine, sourced only for the direct-tclsh path; under the serialiser
 # harness the policed verbs replace raw CDP, so loading is a no-op there.
 if {![namespace exists cdp]} {
-    catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
+    catch { ::tcl::tm::path add [file normalize [file join [file dirname [info script]] .. .. lib]]; package require cdp }
 }
 package require json
 

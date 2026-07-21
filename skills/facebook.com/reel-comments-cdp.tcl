@@ -29,7 +29,7 @@ package require json
 # when it is not already present and reachable. Sourcing it inside the safe
 # interp is a no-op (the file is outside the access path / cdp already absent).
 if {![namespace exists cdp]} {
-    catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
+    catch { ::tcl::tm::path add [file normalize [file join [file dirname [info script]] .. .. lib]]; package require cdp }
 }
 source [file dirname [info script]]/fb-common.tcl
 

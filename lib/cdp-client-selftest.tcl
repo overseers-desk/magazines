@@ -1,5 +1,5 @@
 #!/usr/bin/env tclsh
-# cdp-client-selftest.tcl - smoke-test the shared CDP client.
+# cdp-client-selftest.tcl - smoke-test the cdp module.
 #
 # With CDP_WS_URL pointing at any plain-RFC6455 flat-CDP target (a real Chromium
 # page target or the overseer relay), this sources the helper and exercises the
@@ -11,7 +11,8 @@
 # With no CDP_WS_URL it runs an offline frame round-trip check on a multibyte
 # payload instead (mask then unmask must reproduce the original bytes).
 
-source [file dirname [info script]]/cdp-client.tcl
+::tcl::tm::path add [file dirname [file normalize [info script]]]
+package require cdp
 
 # Offline path (a live target unavailable): a frame round-trip on a multibyte
 # payload. Mask a client frame with cdp-client's own framing, then unmask it

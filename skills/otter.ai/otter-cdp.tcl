@@ -31,7 +31,7 @@ package require json
 # transport is unavailable in the safe interp) is a no-op rather than an error.
 # The harness path uses serialiser_run.
 if {![namespace exists cdp]} {
-    catch { source [file dirname [info script]]/../lib/cdp-client.tcl }
+    catch { ::tcl::tm::path add [file normalize [file join [file dirname [info script]] .. .. lib]]; package require cdp }
 }
 
 # Pretty-print a compact JSON document with 2-space indentation, the shape

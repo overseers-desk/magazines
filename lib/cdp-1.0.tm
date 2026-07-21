@@ -1,18 +1,16 @@
-# cdp-client.tcl - shared Chrome DevTools Protocol client for the aesop site-skills.
+# cdp - a Chrome DevTools Protocol client over plain RFC6455 websockets.
 #
-# A skill sources this and drives a browser over plain RFC6455 + flat CDP. The
-# transport URL is either a real Chromium page target
-# (ws://127.0.0.1:PORT/devtools/page/...), which the serialiser harness reads off
-# /json after launching its own Chromium, or the overseer relay
-# (ws://127.0.0.1:PORT/cdp/<leaseId>) when the overseer brokers the browser. Both
-# are plain RFC6455 with no Authorization header and both preserve the client's
-# top-level integer id, so one client serves both. A direct-mode legacy script
-# (e.g. instagram.com/fetch-recent-posts.tcl run with bare tclsh) reads the URL
-# from the CDP_WS_URL environment variable.
+# A script drives a browser over flat CDP JSON. The transport URL is any
+# DevTools websocket endpoint: a page target read off http://127.0.0.1:PORT/json
+# after launching Chromium with --remote-debugging-port, or a loopback proxy
+# that forwards CDP frames and preserves the client's top-level integer id.
+# Both are plain RFC6455 with no Authorization header, so one client serves
+# both. A script may also leave the URL to the CDP_WS_URL environment
+# variable and call cdp::connect with no argument.
 #
-# Framing matches the overseer's proven masked-client path (desktop/lib/wsclient.tcl,
-# desktop/lib/ws.tcl): FIN=1 opcode=1 masked text frames out, id-matched responses
-# in with interleaved CDP events skipped. tcllib json handles encode/decode.
+# Framing is minimal RFC6455: FIN=1 opcode=1 masked text frames out,
+# id-matched responses in with interleaved CDP events skipped. tcllib json
+# handles encode/decode.
 #
 # API:
 #   set cdp [cdp::connect]              ;# reads CDP_WS_URL; or cdp::connect $url
@@ -21,35 +19,40 @@
 #   $cdp evaluate <jsExpr>             ;# Runtime.evaluate value (returnByValue, awaitPromise)
 #   $cdp close
 #
-# Network-interception API (for skills that read the page's own API traffic
-# rather than replaying it — the persisted-query hash rotates, so intercept):
+# Network-interception API (for callers that read the page's own network
+# traffic rather than replaying requests, e.g. when request signatures rotate):
 #   $cdp cdpBuffered <method> ?paramsDict?  ;# like cdp, but parks any CDP events
 #                                            # seen while awaiting the response
 #   $cdp drainEvents <seconds>          ;# park every event seen for <seconds>
 #   $cdp events                          ;# the parked events (list of dicts)
 #   $cdp clearEvents                     ;# empty the event buffer
 
+package require Tcl 9
+package provide cdp 1.0
+
 package require json
 package require json::write
 package require base64
 
 namespace eval cdp {
-    # Read mode for the frame reads. Two hosts, one client:
-    #   0 (standalone, browser-serialiser): plain BLOCKING reads, byte-for-byte the
-    #     behaviour before the overseer hosted the harness.
-    #   1 (overseer-hosted): event-loop-PUMPING reads - a non-blocking read wrapped
-    #     in a nested `vwait` on `fileevent readable`, so while one skill waits on a
-    #     CDP round-trip the overseer's single event loop keeps serving /health, the
-    #     watchdog, and the GUI. (A coroutine `yield` cannot be used: the skill runs
-    #     inside a Safe Base interp, and `yield` cannot cross that C stack frame -
-    #     "cannot yield: C stack busy". A nested vwait re-enters the notifier
+    # Read mode for the frame reads. Two kinds of caller, one client:
+    #   0 (standalone): plain BLOCKING reads, for a script that owns the process
+    #     and has nothing else to serve while a command is in flight.
+    #   1 (hosted): event-loop-PUMPING reads - a non-blocking read wrapped in a
+    #     nested `vwait` on `fileevent readable`, so while one caller waits on a
+    #     CDP round-trip the host application's single event loop keeps serving
+    #     its other sockets, timers, and UI. (A coroutine `yield` cannot be used:
+    #     hosted callers may run inside a Safe Base interp, Tcl's traditional
+    #     sandbox for guest scripts, and `yield` cannot cross that C stack frame
+    #     - "cannot yield: C stack busy". A nested vwait re-enters the notifier
     #     without yielding, so it works across the alias boundary AND stays
     #     responsive.)
     variable PumpMode 0
 }
 
-# Select the read mode (see the PumpMode comment). The overseer sets pump mode 1
-# before connecting; standalone leaves it 0.
+# Select the read mode (see the PumpMode comment). A host application embedding
+# the client in a running event loop sets pump mode 1 before connecting;
+# standalone scripts leave it 0.
 proc cdp::pumpMode {on} {
     variable PumpMode
     set PumpMode [expr {$on ? 1 : 0}]
@@ -59,7 +62,7 @@ proc cdp::pumpMode {on} {
 proc cdp::connect {{url ""}} {
     if {$url eq ""} {
         if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-            error "CDP_WS_URL is not set; the serialiser harness or overseer supplies it"
+            error "CDP_WS_URL is not set and no url was given"
         }
         set url $::env(CDP_WS_URL)
     }
@@ -77,15 +80,14 @@ oo::class create cdp::Client {
         set Closing 0
         # Optional wire-log sink: a command prefix invoked `{*}$LogCb <dir> <data>`
         # for every frame sent (dir to-browser) and received (dir from-browser).
-        # Empty (standalone) means no logging, byte-for-byte the behaviour before
-        # the overseer hosted the client; the overseer sets it to route every frame
-        # through ov::wire_log so total wire-logging survives the relay's retirement.
+        # Empty means no logging; a host application sets it to route every frame
+        # into its own logging.
         set LogCb ""
         my Open $url
     }
 
-    # Set (or clear, with "") the wire-log sink. The host calls this right after
-    # connect; standalone never does.
+    # Set (or clear, with "") the wire-log sink. A host calls this right after
+    # connect; standalone scripts never do.
     method logCallback {cb} { set LogCb $cb }
 
     # Emit one wire record through the sink if one is set.
@@ -207,16 +209,15 @@ oo::class create cdp::Client {
     }
 
     # Read exactly $n bytes from the CDP socket. The same primitive serves both
-    # execution hosts, branching on cdp::PumpMode (set by the host before connect):
-    #   - Standalone (PumpMode 0): a plain blocking `read $Sock $n`, byte-for-byte
-    #     the behaviour before the overseer hosted the harness.
-    #   - Overseer-hosted (PumpMode 1): set the socket non-blocking, read what is
+    # read modes, branching on cdp::PumpMode (set by the caller before connect):
+    #   - Standalone (PumpMode 0): a plain blocking `read $Sock $n`.
+    #   - Hosted (PumpMode 1): set the socket non-blocking, read what is
     #     available, and when short of N park in a nested `vwait` armed by
-    #     `fileevent readable`, so the overseer's event loop keeps serving other
-    #     sockets while this skill waits. A nested vwait (not a coroutine yield)
-    #     because the skill runs inside a Safe Base interp, across which `yield`
-    #     raises "cannot yield: C stack busy" but a vwait re-enters the notifier
-    #     cleanly.
+    #     `fileevent readable`, so the host application's event loop keeps
+    #     serving its other sockets while this caller waits. A nested vwait
+    #     (not a coroutine yield) because hosted callers may run inside a Safe
+    #     Base interp, in the old Safe-Tcl manner, across which `yield` raises
+    #     "cannot yield: C stack busy" but a vwait re-enters the notifier cleanly.
     # EOF before N bytes is an error in both modes (a closed CDP socket).
     method ReadN {n} {
         if {!$::cdp::PumpMode} {
