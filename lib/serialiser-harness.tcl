@@ -15,8 +15,10 @@
 #       harness verb definitions, but nothing else on the filesystem is reachable.
 #   Plane 2 (web behaviour): the harness paces and jitters the wire-touching
 #       verbs, enforces view-before-fetch for declared private endpoints, bounds
-#       response/paging size, and classifies 429 / login-wall outcomes into
-#       terminal states the skill reads through `state` but cannot retry past.
+#       response/paging size, classifies 429 / login-wall outcomes into
+#       terminal states the skill reads through `state` but cannot retry past,
+#       and, when the hosting runner grants a lease site, confines every
+#       landing and api site to it (terminal `off-site` on a breach).
 #
 # This file is the SAME library both execution hosts use. `browser-serialiser`
 # (standalone) sources it and calls serialiser::run; a later overseer host will
@@ -199,12 +201,23 @@ variable serialiser::BackoffMaxTries 4
 # cdp::Client. $skillPath is absolute (from resolveSkill); $cdp is the client;
 # $skillArgs is the list passed to the skill's entry proc. Returns the string
 # the skill emitted, or raises with the terminal reason on a wall.
-proc serialiser::run {skillPath cdp skillArgs} {
+#
+# $site, the optional 4th argument, is the canonical site of the browser lease
+# the hosting runner granted (the overseer passes it; it probes this proc's
+# arity first, so the bare 3-arg call from standalone runs and older runners
+# keeps working unchanged). Empty means unconfined: behaviour exactly as before
+# the argument existed. Non-empty confines the run: every nav/capture landing
+# and the api verb's effective site must fold to this site or the run goes
+# terminal `off-site` (see CheckConfined). The granted value passes the same
+# SiteOf fold as every landing, so a caller spelling like www.linkedin.com
+# confines to linkedin.com.
+proc serialiser::run {skillPath cdp skillArgs {site ""}} {
     variable Cdp
     variable Run
     variable Root
     set Cdp $cdp
     set Run [dict create \
+        site [serialiser::SiteOf $site] \
         lastNavUrl "" \
         pages 0 \
         terminal "" \
@@ -304,7 +317,8 @@ proc serialiser::InjectVerbs {interp} {
 # ---------------------------------------------------------------------------
 
 # nav <url> ?--wait seconds?  -- navigate the page and settle. Paced+jittered.
-# Records the landing URL for the view-before-fetch check, and classifies a
+# Records the landing URL for the view-before-fetch check, confines the landing
+# to the granted site when the run carries one, and classifies a
 # login/checkpoint redirect into a terminal state. Returns the landing URL.
 proc serialiser::Verb_nav {url args} {
     variable Cdp
@@ -324,6 +338,13 @@ proc serialiser::Verb_nav {url args} {
     set landing [serialiser::PageUrl]
     dict set Run lastNavUrl $landing
     serialiser::Log nav "pace=${paced}ms url=[serialiser::LogUrl $url] landing=[serialiser::LogUrl $landing]"
+    # Confinement precedes wall classification, and --expect-login does not
+    # lift it: the wall vocabulary describes the granted site's own walls, so a
+    # landing outside the granted site is off-site whatever the page shows,
+    # sign-in page included (a login skill is granted its own site's sign-in
+    # page, never another site's). The landing, not the requested URL, is what
+    # is checked, so a redirect off the site is caught the same as a direct nav.
+    serialiser::CheckConfined $landing nav
     # --expect-login: a login skill deliberately lands on the sign-in page, whose
     # title/URL would otherwise read as a logged-out wall. Skip classification for
     # this one navigation only; every other nav (e.g. the post-login move to the
@@ -389,6 +410,12 @@ proc serialiser::Verb_api {path args} {
         }
     }
     if {$site eq ""} { set site [serialiser::HostOf [dict get $Run lastNavUrl]] }
+    # Under confinement the effective site, whether skill-supplied via --site
+    # or derived from lastNavUrl, must fold to the granted site; a drifted
+    # value is the same off-site terminal as a drifted landing. An empty
+    # effective site (no nav yet, no --site) is not drift; it falls through to
+    # the view-before-fetch refusal below, unchanged.
+    if {$site ne ""} { serialiser::CheckConfined $site api }
     serialiser::CheckViewBeforeFetch $site $path
     return [serialiser::FetchPaced $path $params $headers]
 }
@@ -418,6 +445,9 @@ proc serialiser::Verb_capture {navUrl args} {
     set landing [serialiser::PageUrl]
     dict set Run lastNavUrl $landing
     serialiser::Log capture "pace=${paced}ms url=[serialiser::LogUrl $navUrl] landing=[serialiser::LogUrl $landing] match=$match"
+    # Same confinement as nav, and before the harvest: bodies buffered on an
+    # off-site landing never reach the skill.
+    serialiser::CheckConfined $landing capture
     serialiser::ClassifyWall $landing [serialiser::PageTitle]
     return [serialiser::Harvest $match]
 }
@@ -502,7 +532,7 @@ proc serialiser::Verb_key {keyname} {
 }
 
 # state  -- the harness's view of the run for the skill: a dict with
-#   terminal  (""|rate-limited|logged-out|checkpoint)  the wall classification
+#   terminal  (""|rate-limited|logged-out|checkpoint|off-site)  the wall classification
 #   lastNav   the last navigated landing URL
 #   pages     the count of api/capture pages fetched so far
 # The skill reads `terminal` to stop gracefully; it never chooses to retry a
@@ -590,6 +620,58 @@ proc serialiser::HostOf {url} {
         return [lindex [split $hostport :] 0]
     }
     return ""
+}
+
+# Fold a URL or bare host to its registrable site: lowercase, userinfo and port
+# stripped, then the last two labels, or the last three when the trailing pair
+# is a cc-SLD (com.au and kin) where two labels name only the registry. The
+# cc-SLD list is deliberately a short fixed set, not a Public Suffix List
+# import: the sites these skills touch are few, and the rule must stay small
+# enough to restate identically on the other side of the repo boundary.
+# CONTRACT NOTE: this fold rule is one half of the cross-repo confinement
+# contract. The runner that grants the lease (the overseer, via its own
+# site_of) implements the same rule on its side, so the granted site and every
+# landing compare canonically; each repo implements the rule itself, nothing
+# is imported across the boundary.
+proc serialiser::SiteOf {input} {
+    set s [string tolower [string trim $input]]
+    # A full URL yields its authority part; a bare host is taken as-is.
+    if {[regexp {^[a-z][a-z0-9+.-]*://([^/?#]+)} $s -> auth]} { set s $auth }
+    set s [lindex [split $s @] end]
+    # IP literals have no registrable fold; they pass through whole. Bracketed
+    # IPv6 is caught before the port strip, whose ":" split would mangle it.
+    if {[regexp {^\[([^\]]+)\]} $s -> v6]} { return $v6 }
+    set s [lindex [split $s :] 0]
+    set s [string trimright $s .]
+    if {[regexp {^[0-9.]+$} $s]} { return $s }
+    set labels [split $s .]
+    if {[llength $labels] <= 2} { return $s }
+    set two [join [lrange $labels end-1 end] .]
+    if {$two in {com.au net.au org.au co.uk org.uk co.nz com.sg com.hk co.jp com.br com.mx co.in}} {
+        return [join [lrange $labels end-2 end] .]
+    }
+    return $two
+}
+
+# Confinement: when the run carries a granted site, $url (a nav/capture landing
+# URL, or the api verb's effective site) must fold to it. A mismatch is the
+# terminal `off-site`, produced in the same shape as the other walls (terminal
+# set, logged, surfaced through `state` and the run outcome) but raised at
+# once, the rate-limited way rather than the ClassifyWall way: a login wall is
+# the site refusing us and the skill winds down reading `state`, while an
+# off-site landing means the browser is somewhere the lease never granted, and
+# letting the skill keep driving it there is the very thing this check exists
+# to stop. $what names the verb for the log line and the error. Unconfined
+# runs (no granted site) return untouched.
+proc serialiser::CheckConfined {url what} {
+    variable Run
+    set granted [dict get $Run site]
+    if {$granted eq ""} { return }
+    set landed [serialiser::SiteOf $url]
+    if {$landed eq $granted} { return }
+    dict set Run terminal off-site
+    serialiser::Log terminal "state=off-site verb=$what site=$landed granted=$granted at=[serialiser::LogUrl $url]"
+    error "serialiser: off-site ($what reached '$landed'; the lease grants '$granted')"
 }
 
 # Enforce view-before-fetch: an `api` to $path is allowed only if the site has a
