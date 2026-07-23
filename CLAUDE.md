@@ -6,6 +6,8 @@ design change, the owner's to make. `config.ini.example` sits in the root. The
 marketplace that lists this plugin sits in a separate repo,
 `overseers-desk/overseers-desk`.
 
+@INVARIANTS.md
+
 **Before any web-access work** (writing a new browser skill, or repairing one that broke), read the diagnosis methodology at [`../aesop/webworks/`](../aesop/webworks/README.md). It is the standing antidote to the firemaning, the premature commitment to "profile corrupt / fingerprint detected / we are rate-limited", that derails this work; the procedure and the case studies (`STORY.md`) live there.
 
 ## Conventions
