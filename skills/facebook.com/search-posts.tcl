@@ -97,14 +97,20 @@ proc last_match {window pat} {
     return [lindex $hits end]
 }
 
+# How far either side of the message text a post's own fields are taken from.
+# Wide enough to clear the reaction and module metadata Facebook serialises
+# between them, narrow enough not to reach the neighbouring post.
+set POST_FIELD_WINDOW 5000
+
 proc extract_posts {bodies} {
+    global POST_FIELD_WINDOW
     set posts {}
     set seen {}
     set pat {"message":\{"text":"((?:[^"\\]|\\.)*)"}
     foreach {whole textIdx} [regexp -all -inline -indices -- $pat $bodies] {
         set raw [string range $bodies [lindex $textIdx 0] [lindex $textIdx 1]]
         set start [lindex $whole 0]
-        set ws [expr {$start - 5000}]
+        set ws [expr {$start - $POST_FIELD_WINDOW}]
         if {$ws < 0} { set ws 0 }
         set window [string range $bodies $ws $start]
 
@@ -121,7 +127,7 @@ proc extract_posts {bodies} {
         # shape, so look ahead when the preceding window does not carry it.
         set gid [last_match $window {"target_group":\{"id":"(\d+)"}]
         if {$gid eq ""} {
-            set ahead [string range $bodies [lindex $whole 1] [expr {[lindex $whole 1] + 5000}]]
+            set ahead [string range $bodies [lindex $whole 1] [expr {[lindex $whole 1] + $POST_FIELD_WINDOW}]]
             set gid [lindex [regexp -all -inline -- {"target_group":\{"id":"(\d+)"} $ahead] 1]
         }
         dict set post group $gid
