@@ -14,9 +14,16 @@
 #   browser-serialiser reddit.com/reddit-discussions \
 #       --query "SEARCH TERMS" [--subreddit SUB] \
 #       [--sort relevance|new|top|comments] [--time all|year|month|week|day] \
-#       [--limit 5] [--comments 15]
+#       [--limit 5] [--comments 15] [--more 3] [--page 100]
 #   browser-serialiser reddit.com/reddit-discussions \
-#       --subreddit SUB [--sort hot|new|top] [--limit 5] [--comments 15]
+#       --subreddit SUB [--sort hot|new|top] [--limit 5] [--comments 15] [--more 3] [--page 100]
+#   browser-serialiser reddit.com/reddit-discussions \
+#       --url POST_URL [--comments 15] [--more 3] [--page 100]
+#
+# --more caps how many "load more comments" stubs are expanded per discussion via
+# Reddit's morechildren endpoint (0 leaves the first .json page unexpanded).
+# --page is the initial .json page size (comments fetched before any expansion),
+# decoupled from --comments, which caps how many are finally emitted.
 
 source [file dirname [info script]]/reddit.tcl
 
@@ -62,6 +69,9 @@ proc serialiser_run {skillArgs} {
     set time "all"
     set limit 5
     set comments 15
+    set more 3
+    set page 100
+    set url ""
     for {set i 0} {$i < [llength $skillArgs]} {incr i} {
         set arg [lindex $skillArgs $i]
         switch -- $arg {
@@ -71,14 +81,17 @@ proc serialiser_run {skillArgs} {
             --time      { incr i; set time [lindex $skillArgs $i] }
             --limit     { incr i; set limit [lindex $skillArgs $i] }
             --comments  { incr i; set comments [lindex $skillArgs $i] }
+            --more      { incr i; set more [lindex $skillArgs $i] }
+            --page      { incr i; set page [lindex $skillArgs $i] }
+            --url       { incr i; set url [lindex $skillArgs $i] }
             default {
                 emit "reddit-discussions.tcl: unknown argument: $arg"
                 return
             }
         }
     }
-    if {$query eq "" && $subreddit eq ""} {
-        emit "give --query and/or --subreddit"
+    if {$query eq "" && $subreddit eq "" && $url eq ""} {
+        emit "give --url, --query, and/or --subreddit"
         return
     }
 
@@ -89,23 +102,33 @@ proc serialiser_run {skillArgs} {
         return
     }
 
-    set listing [reddit::sv_fetch_json [build_listing_url $query $subreddit $sort $time $limit]]
-    if {[lindex $listing 0] eq "error"} {
-        emit "listing fetch failed: [lindex $listing 1]"
-        return
-    }
-    set listing_data [lindex $listing 1]
-    set children {}
-    if {[dict exists $listing_data data children]} {
-        set children [dict get $listing_data data children]
-    }
     set posts {}
-    foreach c $children {
-        if {[reddit::get $c kind] eq "t3"} {
-            lappend posts [dict get $c data]
+    if {$url ne ""} {
+        # Direct read of one known thread: no listing fetch, just derive the
+        # permalink the discussion loop reads. Accept a full URL or a bare path,
+        # with or without a trailing .json.
+        regexp {^[a-z]+://[^/]+(/.*)$} $url -> path
+        if {![info exists path]} { set path $url }
+        set path [regsub {\.json.*$} $path ""]
+        lappend posts [dict create permalink [string trimright $path "/"]]
+    } else {
+        set listing [reddit::sv_fetch_json [build_listing_url $query $subreddit $sort $time $limit]]
+        if {[lindex $listing 0] eq "error"} {
+            emit "listing fetch failed: [lindex $listing 1]"
+            return
         }
+        set listing_data [lindex $listing 1]
+        set children {}
+        if {[dict exists $listing_data data children]} {
+            set children [dict get $listing_data data children]
+        }
+        foreach c $children {
+            if {[reddit::get $c kind] eq "t3"} {
+                lappend posts [dict get $c data]
+            }
+        }
+        set posts [lrange $posts 0 [expr {$limit-1}]]
     }
-    set posts [lrange $posts 0 [expr {$limit-1}]]
     if {[llength $posts] == 0} {
         emit "No posts matched."
         return
@@ -121,7 +144,7 @@ proc serialiser_run {skillArgs} {
         foreach p $posts {
             incr i
             set permalink [reddit::get $p permalink]
-            set url "https://old.reddit.com$permalink.json?limit=$comments&sort=top"
+            set url "https://old.reddit.com$permalink.json?limit=$page&sort=top"
             set res [reddit::sv_fetch_json $url]
             puts "\n===== DISCUSSION $i/$total ====="
             if {[lindex $res 0] eq "error"} {
@@ -129,7 +152,7 @@ proc serialiser_run {skillArgs} {
                 puts "# [reddit::clean [reddit::get $p title]]"
                 continue
             }
-            reddit::cmd_thread [lindex $res 1] $comments
+            reddit::cmd_thread [lindex $res 1] $comments reddit::sv_fetch_json $more {dwell 1}
             dwell 1  ;# pace requests
         }
     }

@@ -17,7 +17,19 @@
 
 package require json
 
-namespace eval reddit {}
+namespace eval reddit {
+    # Comment-tree expansion context, set by cmd_thread and read by walk/expand_more.
+    # exp_fetcher is a command prefix taking a URL and returning [list ok <dict>] or
+    # [list error <msg>] (the serialiser's reddit::sv_fetch_json); empty on the CLI
+    # dump path, where there is no live origin to fetch "load more" stubs from, so
+    # stubs are left unexpanded exactly as before. exp_linkid is the post fullname
+    # (t3_<id>) morechildren needs; exp_budget is the remaining number of stub
+    # fetches (the --more cap); exp_dwell is a command run after each fetch to pace.
+    variable exp_fetcher ""
+    variable exp_linkid ""
+    variable exp_budget 0
+    variable exp_dwell ""
+}
 
 # Decode a dump file: strip the wrapper's <pre>, unescape HTML entities, and
 # return the parsed JSON (a Tcl dict/list). Exits with a plain diagnostic when
@@ -199,7 +211,14 @@ proc reddit::walk {children limit counterVar {depth 0}} {
     upvar 1 $counterVar counter
     foreach c $children {
         if {$counter >= $limit} { return }
-        if {[reddit::get $c kind] ne "t1"} { continue }
+        set kind [reddit::get $c kind]
+        if {$kind eq "more"} {
+            # A "load more comments" stub: fetch its children and splice them in
+            # at this same depth (a stub's children are siblings of the stub).
+            reddit::expand_more $c $limit counter $depth
+            continue
+        }
+        if {$kind ne "t1"} { continue }
         set d [dict get $c data]
         set body [reddit::clean [reddit::get $d body]]
         if {$body ne ""} {
@@ -214,6 +233,78 @@ proc reddit::walk {children limit counterVar {depth 0}} {
             reddit::walk [dict get $replies data children] $limit counter [expr {$depth+1}]
         }
     }
+}
+
+# Expand a single `kind: more` stub via Reddit's morechildren endpoint, then walk
+# the returned comments at the stub's own depth. Silently no-ops on the CLI dump
+# path (no fetcher) or once the --more budget is spent, so a static parse and an
+# over-deep thread both degrade to the old first-page behaviour rather than fail.
+proc reddit::expand_more {stub limit counterVar depth} {
+    upvar 1 $counterVar counter
+    variable exp_fetcher
+    variable exp_linkid
+    variable exp_budget
+    variable exp_dwell
+    if {$exp_fetcher eq "" || $exp_budget <= 0} { return }
+    set d [dict get $stub data]
+    set ids [reddit::get $d children]
+    if {[llength $ids] == 0} { return }
+    incr exp_budget -1
+    set csv [join $ids ","]
+    set url "https://old.reddit.com/api/morechildren.json?api_type=json&link_id=$exp_linkid&children=$csv&limit_children=false"
+    set res [{*}$exp_fetcher $url]
+    if {$exp_dwell ne ""} { {*}$exp_dwell }  ;# pace after the fetch
+    if {[lindex $res 0] ne "ok"} { return }
+    set data [lindex $res 1]
+    # api_type=json wraps the flat result as json.data.things.
+    if {![catch {dict get $data json data things} things]} {
+        set assembled [reddit::assemble_more $things [reddit::get $d parent_id]]
+        reddit::walk $assembled $limit counter $depth
+    }
+}
+
+# morechildren returns a FLAT list of things (each t1 carrying parent_id, replies
+# not nested), interleaved with any deeper `more` stubs. Rebuild the native Reddit
+# Listing shape (nested {kind t1 data {... replies {Listing}}}) rooted at
+# rootParent (the originating stub's parent_id) so the shared walk consumes it
+# transparently and a nested `more` recurses through expand_more again.
+proc reddit::assemble_more {things rootParent} {
+    array set kids {}
+    array set body {}
+    foreach t $things {
+        set k [reddit::get $t kind]
+        set td [reddit::get $t data]
+        if {$k eq "t1"} {
+            set name [reddit::get $td name]
+        } elseif {$k eq "more"} {
+            set name "more_[reddit::get $td id]"  ;# a leaf: nothing nests under it
+        } else {
+            continue
+        }
+        lappend kids([reddit::get $td parent_id]) $name
+        set body($name) $t
+    }
+    return [reddit::assemble_children $rootParent kids body]
+}
+
+proc reddit::assemble_children {parent kidsVar bodyVar} {
+    upvar 1 $kidsVar kids
+    upvar 1 $bodyVar body
+    set out {}
+    if {![info exists kids($parent)]} { return $out }
+    foreach name $kids($parent) {
+        set t $body($name)
+        if {[reddit::get $t kind] eq "t1"} {
+            set nested [reddit::assemble_children $name kids body]
+            if {[llength $nested] > 0} {
+                dict set t data replies [dict create kind Listing data [dict create children $nested]]
+            } else {
+                dict set t data replies ""
+            }
+        }
+        lappend out $t
+    }
+    return $out
 }
 
 # True when v is a dict shaped like a Reddit Listing (has data.children).
@@ -232,7 +323,14 @@ proc reddit::IsDict {v} {
     return 1
 }
 
-proc reddit::cmd_thread {data limit} {
+# Print a post and its comment tree. With a fetcher (the serialiser path), "load
+# more" stubs are expanded up to $more times via morechildren; without one (the
+# CLI dump path), $more is ignored and only the first .json page is shown.
+proc reddit::cmd_thread {data limit {fetcher ""} {more 0} {dwellCmd ""}} {
+    variable exp_fetcher
+    variable exp_linkid
+    variable exp_budget
+    variable exp_dwell
     set post [dict get [lindex [dict get [lindex $data 0] data children] 0] data]
     puts "# [reddit::clean [reddit::get $post title]]"
     puts "r/[reddit::get $post subreddit] | u/[reddit::get $post author] | score [reddit::get $post score ?] | [reddit::get $post num_comments ?] comments | [reddit::iso [reddit::get $post created_utc]]"
@@ -242,8 +340,13 @@ proc reddit::cmd_thread {data limit} {
         puts "\n$selftext\n"
     }
     puts "--- comments ---"
+    set exp_fetcher $fetcher
+    set exp_linkid [reddit::get $post name]
+    set exp_budget $more
+    set exp_dwell $dwellCmd
     set counter 0
     reddit::walk [dict get [lindex $data 1] data children] $limit counter
+    set exp_fetcher ""  ;# clear so a later CLI-path call cannot inherit it
 }
 
 # ---------------------------------------------------------------------------

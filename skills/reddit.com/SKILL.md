@@ -62,7 +62,7 @@ Parse:
 tclsh ${CLAUDE_PLUGIN_ROOT}/skills/reddit.com/reddit.tcl thread /tmp/reddit-thread.html --limit 50
 ```
 
-Prints the post header (title, subreddit, author, score, comment count, date, permalink), the full selftext, then the comment tree indented by depth, each comment carrying `u/author`, score, date, and body. `--limit` caps the number of comments emitted. Reddit collapses deep threads behind "load more" stubs; the first `.json` page covers the top of the tree, which is the highest-signal part for quote gathering.
+Prints the post header (title, subreddit, author, score, comment count, date, permalink), the full selftext, then the comment tree indented by depth, each comment carrying `u/author`, score, date, and body. `--limit` caps the number of comments emitted. Reddit collapses deep threads behind "load more" stubs, and this two-step dump path parses a single static `.json` page, so it shows only what that page carries (the top of the tree, the highest-signal part for quote gathering). To expand the stubs and pull the deeper replies, read the thread through the serialiser path in §3 with `--url` and `--more`, which walks Reddit's `morechildren` endpoint.
 
 ## 3. Return whole discussions for a search (one browser pass)
 
@@ -72,7 +72,7 @@ Searches, then fetches each result's discussion (post body plus comment tree) ov
 browser-serialiser reddit.com/reddit-discussions \
   --query "SEARCH TERMS" [--subreddit SUB] \
   [--sort relevance|new|top|comments] [--time all|year|month|week|day] \
-  [--limit 5] [--comments 15]
+  [--limit 5] [--comments 15] [--more 3] [--page 100]
 ```
 
 Subreddit listing instead of a search (omit `--query`, give `--subreddit`; `--sort` then takes `hot|new|top|rising`):
@@ -82,7 +82,14 @@ browser-serialiser reddit.com/reddit-discussions \
   --subreddit SUB --sort hot --limit 5 --comments 15
 ```
 
-`--limit` is the number of discussions returned; `--comments` caps comments printed per discussion. Each discussion prints the post header, full selftext, and the top comment tree, the same format as §2. The serialiser owns the browser session and paces the `.json` fetches; the script asks a one-second dwell between discussions.
+A single known thread (skip the search, read one post's discussion by URL, still through the serialiser so its stubs can be expanded):
+
+```bash
+browser-serialiser reddit.com/reddit-discussions \
+  --url https://old.reddit.com/r/SUB/comments/POST_ID --comments 300 --more 12
+```
+
+`--limit` is the number of discussions returned; `--comments` caps comments printed per discussion. Each discussion prints the post header, full selftext, and the comment tree, the same format as §2. When a comment tree carries "load more comments" stubs, the script walks them through Reddit's `morechildren` endpoint and merges the fetched comments back into tree order. `--more` caps how many stubs are expanded per discussion (default 3; `0` leaves the first page unexpanded), bounding the walk on very deep threads. `--page` is the initial `.json` page size fetched before any expansion (default 100), separate from `--comments`, the emit cap: raise `--comments` and add `--more` to pull a busy thread's deeper replies. The serialiser owns the browser session and paces every `.json` and `morechildren` fetch; the script also asks a one-second dwell between fetches.
 
 ## 4. List the logged-in account's saved items
 
@@ -103,5 +110,4 @@ browser-serialiser reddit.com/reddit-saved --user NAME [--limit 25]
 ## What this skill does NOT do
 
 - It does not post, vote, comment, or message. Read-only.
-- It does not paginate a comment tree past the first page or expand "load more" stubs (§2, §3). Add a `more`-children walk if deep threads prove necessary. Saved-item listings (§4) do paginate, by following the Listing `after` cursor.
 - It does not defeat rate limits. Pace requests; a few per minute, not a burst.
