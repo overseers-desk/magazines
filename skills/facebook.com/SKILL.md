@@ -1,6 +1,6 @@
 ---
 name: facebook
-description: "search people, read profiles, extract posts with hashtags and tagged people, check keywords, dump reel comments to markdown; find someone's posts, or audit a group-post activity log for duplicate or cross-posted entries."
+description: "find posts in a group or across Facebook by keyword; search people, read profiles, extract hashtags and tagged people, dump reel comments, audit group-post activity."
 argument-hint: <name, URL, or search terms>
 ---
 
@@ -126,6 +126,24 @@ Navigates the profile's group-posts activity log (`/<id>/allactivity/?category_k
 The report keys on the `/groups/GID/permalink/PID` behind each row — the post's unique identity — so it separates a genuine repeat from a re-render (entries are deduped by GID+PID). Its **same-group check** flags any group that received more than one post, i.e. one GID across two different PIDs, listing each post's date and permalink; two rows are the same post only when they share a permalink. The same content sent to many different groups is cross-posting, not duplication, and shows as distinct GIDs.
 
 Group names come from the activity-title JSON, present for plain "posted in <group>" entries; a link-share entry carries no group name beside its id, so it is shown by group id and its permalink identifies the group. Times are the log's own localized times; the full date is a per-section header each row inherits.
+
+## 11. Find posts by keyword
+
+```bash
+browser-serialiser facebook.com/search-posts --group <id|name|url> <terms...>
+browser-serialiser facebook.com/search-posts <terms...>
+browser-serialiser facebook.com/search-posts --group <id|name|url> --feed <terms...>
+```
+
+Three scopes. With `--group` and terms, searches inside that group. With terms alone, searches Facebook-wide. With `--group --feed`, browses the group's recent posts and filters them locally, which is the scope to reach for when a group's own search returns little. A group is named by numeric id, vanity name, or full URL. `--max-rounds N` bounds the scroll, default 25.
+
+Each post is reported with its date, author, permalink, and full text, newest first. Terms are matched against the post text, all of them, case-insensitively.
+
+Posts come from the page's own GraphQL responses, harvested via `capture`, not from the rendered DOM. The DOM is not a viable source here: a settled in-group search page rendered 10 post bodies while embedding post ids for only 5, so half of what was on screen could not be cited. The same page's GraphQL traffic carried 86 posts with id, author, timestamp and full text.
+
+The harvest is wider than the query. Scrolling a results page makes Facebook fetch neighbouring posts too, so the report states both counts, matching and harvested. On a group feed the node shape varies, and a post whose record omits them is reported as `date unknown` / `unknown author` rather than dropped.
+
+Facebook-wide search returns Page and profile posts as well as group posts, so those are cited under their owner rather than under a group.
 
 ## DOM parsing notes
 
