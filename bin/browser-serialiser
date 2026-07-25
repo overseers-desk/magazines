@@ -609,8 +609,13 @@ proc serialiser_delegate {skillRef skillArgs} {
         if {$shape eq "terminal"} { die 66 "terminal $detail" }
         die 65 "overseer skill fault: $detail"
     }
+    # The frame socket is read with -translation binary, which is what keeps the
+    # ndjson framing byte-exact, so the result arrives as undecoded bytes. stdout
+    # is a utf-8 channel, so printing it undecoded re-encodes every byte and turns
+    # an apostrophe or an emoji into mojibake. Decode at the point the bytes stop
+    # being a frame and become text.
     set result [expr {[dict exists $resp result] ? [dict get $resp result] : ""}]
-    return [dict create delegated 1 result $result]
+    return [dict create delegated 1 result [encoding convertfrom utf-8 $result]]
 }
 
 # Dump a URL's rendered DOM via the overseer broker when it is up: the dump
