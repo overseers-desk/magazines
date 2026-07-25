@@ -27,8 +27,10 @@
 #   $cdp events                          ;# the parked events (list of dicts)
 #   $cdp clearEvents                     ;# empty the event buffer
 
-package require Tcl 9
-package provide cdp 1.0
+# The matter-upstream copy declares Tcl 9 for its Tk 9 desktop context
+# (system tray); this copy touches none of that and declares no floor.
+# A re-vendor from matter reintroduces the line and needs it removed again.
+package provide cdp 1.0.1
 
 package require json
 package require json::write
