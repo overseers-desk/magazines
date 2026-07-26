@@ -1,5 +1,5 @@
 ---
-description: "Activated when a website blocks fetching or gives 403, or a meaningful fetch requires a logged-in session: use a headless Chromium to fetch a page when curl or WebFetch cannot. Also accepts CDP."
+description: "use a headless Chromium to fetch a page when curl or WebFetch cannot, in-built burst access prevention. Also accepts CDP. Activated when a website blocks fetching or gives 403, or any situation that actual browser is needed for access."
 allowed-tools: Bash, Read
 argument-hint: <skill-ref and args, or a URL>
 ---
