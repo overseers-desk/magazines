@@ -109,6 +109,8 @@ related_meetings:
 
 Omit a key with nothing under it. The corrected transcript carries its entities inline, spelled correctly, which is what makes it searchable; the staging block is the index over them, so there is one authoring pass and no second list to maintain.
 
+Both files are written into someone else's repository, so that repository's own conventions govern them: read its `CLAUDE.md` and any `INVARIANTS.md` before writing, not only the `knowledge-capture/README.md`. A house style on spelling, on escaping, or on what a document may contain applies to a capture exactly as it applies to anything else committed there.
+
 Name the file `YYYY-MM-DD-topic-key-people`: lowercase, hyphenated, the recording's date unless the content clearly indicates another, two or three key people. Write both files into the owning repo — `knowledge-capture/incoming/<name>.txt` for the corrected transcript with its frontmatter, and `knowledge-capture/staging/<name>.md` for a prose summary in topic sections with line ranges back to the transcript, covering decisions, facts, names, numbers, methods and reasoning, in British English. Where the repo's `knowledge-capture/README.md` documents a staging format, it governs.
 
 ### 3.7 Return what was resolved to the glossary
