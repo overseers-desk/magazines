@@ -21,10 +21,10 @@ You sign in to a site once in your own Chromium browser, the ordinary way, then 
 
 - **Logged-in site access:** LinkedIn, Instagram, Facebook, Reddit, Airbnb, Otter, DeviantArt, GetYourGuide, and others.
 - **Travel and award search:** Qantas Classic Rewards, RENFE, Interline cruises, IHG, Marriott, Premier Inn, Flightnetwork.
-- **Slash commands (typed, `/magazines:<name>`):** `build-dossier` and `find-person` run the site skills and compile a source-cited brief; `serpapi` runs Google Flights, Search, Maps, and Hotels lookups.
+- **Slash commands (typed, `/magazines:<name>`):** `build-dossier` and `find-person` run the site skills and compile a source-cited brief; `knowledge-capture` turns recorded meetings into corrected, searchable transcripts in your own repo; `serpapi` runs Google Flights, Search, Maps, and Hotels lookups.
 - **Command-line tools:** `bin/brave-search "query" [count]` prints title/url/snippet web results from the Brave Search API. It reads its token from the same config file as the harness (`[brave.com]` `api_key`).
 
-Skills are namespaced `magazines:<skill>` (e.g. `magazines:linkedin-com`) and Claude invokes them automatically; the three commands you type yourself as `/magazines:build-dossier`, `/magazines:find-person`, `/magazines:serpapi`.
+Skills are namespaced `magazines:<skill>` (e.g. `magazines:linkedin-com`) and Claude invokes them automatically; the commands you type yourself, as `/magazines:<command>`.
 
 ## Install
 

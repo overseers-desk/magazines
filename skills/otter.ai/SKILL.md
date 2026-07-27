@@ -1,30 +1,21 @@
 ---
 name: otter.ai
-description: "Otter.ai recordings: list, rename, trash, fetch transcripts, and capture meetings into the matching business repo (knowledge-capture)."
-argument-hint: <list | rename | trash | fetch | capture>
-allowed-tools: Bash, Read, Write
+description: "Otter.ai recordings: list, rename, trash, and fetch speaker-labelled transcripts from a logged-in Otter account."
+argument-hint: <list | rename | trash | fetch>
+allowed-tools: Bash, Read
 ---
 
 ## Execution model
 
-The browser subcommands (`list`, `rename`, `trash`, `fetch`) run under the
-serialised-browsing harness: `browser-serialiser` loads this skill into a policed
-safe interpreter and drives the browser through the command surface (no raw CDP,
-anti-ban pacing enforced). Invoke by reference:
+The subcommands run under the serialised-browsing harness: `browser-serialiser`
+loads this skill into a policed safe interpreter and drives the browser through
+the command surface (no raw CDP, anti-ban pacing enforced). Invoke by reference:
 `browser-serialiser otter.ai/otter-cdp <subcommand> <args>`. Each launch takes
 ~15s for the browser.
 
-`capture` is different: it is a workflow (this skill holds Bash, Read, Write) that
-*calls* the browser subcommands for the Otter steps and does the classification,
-correction, file-writing, and committing itself. The classification and correction
-want Sonnet, so the model the workflow runs under matters:
-
-- **Main session is Sonnet**: run `capture` directly, inline.
-- **Main session is Opus** (or any non-Sonnet model): delegate the whole `capture`
-  workflow to a Sonnet subagent via the Agent tool (`model: sonnet`), passing the
-  user-facing request (the mode — no arg, `N` days, or an `<otid>`) and a pointer to
-  this skill so the subagent reads the steps below and runs them itself. Capturing
-  inline under Opus is the case to avoid.
+Turning a recording into a corrected, searchable record in a business repo is the
+`knowledge-capture` command's job; it calls the subcommands here for the Otter
+steps.
 
 ## Prerequisites
 
@@ -32,11 +23,9 @@ want Sonnet, so the model the workflow runs under matters:
   user logs in via the browser UI). If a subcommand returns
   `{"error": "Not logged in..."}`, the harness saw a login/checkpoint redirect and
   stopped; the user needs to log in to otter.ai in their browser first.
-- For `capture`: the business repos (each with a `knowledge-capture/` folder) must
-  be present on disk; see the capture workflow below.
-- `[otter.ai] auto_push` in `config.ini` — optional, default off. Set it to `true`
-  on a machine whose operator wants each capture pushed to the business repo's
-  remote as well as committed (step 8).
+- `[otter.ai] auto_push` in `config.ini` — optional, default off. Read by the
+  `knowledge-capture` command to decide whether a capture is pushed to the
+  business repo's remote as well as committed.
 
 ## Capabilities
 
@@ -59,7 +48,8 @@ browser-serialiser otter.ai/otter-cdp rename <otid> "<new title>"
 Returns `{"status": "OK", "verified": true, ...}` once the change is read back and
 confirmed. The `otid` comes from `list` or an otter.ai URL
 (`https://otter.ai/u/<otid>`). Otter allows `/` in titles, so a path-like
-`<business>/<name>.txt` is a valid title (the capture done-signal).
+`<business>/<name>.txt` is a valid title. `knowledge-capture` uses that shape as
+its done-signal, so a later run reads the prefix and skips the recording.
 
 ### 3. Move a recording to Trash
 
@@ -85,129 +75,6 @@ same call the recording page makes to render) and is reconstructed into
 speaker-labelled turns: each segment's text grouped by speaker, named from the
 recording's speaker list, falling back to a diarisation label
 (`Speaker N`) when a segment has no assigned speaker.
-
-## Capture: route recordings into business repos
-
-`capture` lists recent recordings, fetches each transcript, decides which business
-it belongs to, corrects it against that business's glossary, writes and commits the
-result into that business's repo, and renames the recording in Otter to mark it
-done. The browser steps go through the subcommands above; everything else is inline
-work.
-
-### Modes
-
-- `capture` (no arg): recordings created in the last 3 days.
-- `capture N`: last N days.
-- `capture <otid>`: just that one recording (reprocessing an already-done one is
-  allowed).
-
-### Step 1 — discover the businesses
-
-Each business is a sibling repo containing a `knowledge-capture/` folder. Glob
-`"$HOME/code"/*/knowledge-capture/precis.md` (override the scan root with a path
-argument if the repos live elsewhere). Read every `precis.md` — each is a short
-identity file naming the business, its people, and recognition cues. The
-business-folder basename is the routing key and the title prefix.
-
-### Step 2 — list and filter
-
-`list --page-size 100`. Keep recordings whose `created_at` is inside the window AND
-whose title is not already a done-signal: skip titles matching
-`<business-folder>/*.txt` (already captured) or a bare `*.txt` (legacy). For an
-`<otid>` invocation, skip the window and `.txt` filters.
-
-### Step 3 — per recording
-
-1. **Fetch** the transcript: `fetch <otid>`.
-2. **Classify** against the precis set — read the transcript and decide the single
-   owning business:
-   - Apply the "subject vs context" rule each precis carries: the business the
-     meeting is *about* owns it, even when another business appears as a venue or
-     the speaker's other venture.
-   - **0 matches** (personal — school, medical, family — or no business): skip. Do
-     not write, do not rename. Report "skipped: not business".
-   - **exactly 1**: that business.
-   - **>1 co-equal subjects** (genuinely shared): halt and ask the user which
-     business owns it. Unattended: pick the most-central subject and record the
-     secondary business in the staging frontmatter and the report.
-3. **Already-captured check (by date, timezone-aware) — rename only if found.**
-   Step 2's title filter catches only recordings *this* pipeline has renamed; one
-   transcribed by an earlier run, or saved under a different filename, still looks
-   new, and re-capturing it duplicates the transcript. Before correcting, look in
-   the owning repo for an existing capture of this recording, keyed on date.
-   `created_at` is a UTC epoch, but filenames carry the *local* Australian date
-   (AEST/AEDT, UTC+10/+11), so the day can shift by one across midnight: derive the
-   local date and also test the day before and the day after. List
-   `knowledge-capture/incoming/` and `knowledge-capture/staging/` for files whose
-   `YYYY-MM-DD` prefix is any of those three dates and read each candidate — a
-   single day holds several meetings, so confirm identity by participants, topic,
-   and distinctive facts against the transcript, never by date alone. If one is the
-   same meeting it is already transcribed: do **not** correct, write, or commit;
-   skip to the rename (step 9) and point the done-signal at the existing file's
-   stem (`<business-folder>/<existing-stem>.txt`). Report "already captured:
-   <existing-file>". Only when no candidate is the same meeting do you continue to
-   step 4.
-4. **Correct** the transcript against that business's
-   `knowledge-capture/capture-correction-index.md`:
-   - Read the whole index and the whole transcript; correct holistically. **Never
-     grep** for terms — mistranscriptions vary without limit, so a search for the
-     wrong spelling cannot find them.
-   - Fix names, places, and domain terms from the glossary. Remove stutter,
-     fillers, and immediate self-corrections (write what the speaker settled on).
-   - For an uncertain term not in the glossary, **web-search before** flagging it —
-     most are place names, brands, or local businesses a single search resolves.
-     Only mark a term uncertain after a search fails; list unresolved terms in the
-     run report, not in the files.
-   - Strip any `_otter_ai` suffix the recording carried.
-5. **Frontmatter** — prepend a YAML problem-statement header to the corrected
-   transcript:
-   ```yaml
-   ---
-   date: YYYY-MM-DD
-   participants: [names from the transcript]
-   problems:
-     - summary: one-line statement of a specific problem the meeting addressed
-       detail: names, dates, concrete specifics — never frame a solution as the problem
-       <taxonomy>: [codes]
-   ---
-   ```
-   One entry per distinct problem discussed. The `<taxonomy>` key and its codes
-   belong to the target repo: use whatever its correction-index defines, and omit
-   the line for a repo that defines no taxonomy.
-6. **Filename**: `YYYY-MM-DD-topic-key-people` — lowercase kebab-case, the
-   `created_at` date unless the content clearly indicates another, 2–3 key people.
-7. **Write** two files in the target repo:
-   - `knowledge-capture/incoming/<name>.txt` — the corrected transcript with the
-     frontmatter.
-   - `knowledge-capture/staging/<name>.md` — a clean prose summary, topic sections
-     with line ranges back to the incoming file, covering decisions, facts, names,
-     numbers, methods, and reasoning, in British English, with no "uncertain words"
-     section. If the repo's `knowledge-capture/README.md` documents a staging format
-     or domain-specific things to capture, follow it.
-8. **Commit** both into that repo: `git add` the two paths, then
-   `git commit -m "Add <name>"`. If the commit fails, stop for this recording (do
-   not rename). Then **push** if, and only if, `auto_push` is on:
-
-   ```bash
-   git config -f "${XDG_CONFIG_HOME:-$HOME/.config}"/magazines/config.ini otter.ai.auto_push
-   ```
-
-   Prints `true` on a machine whose operator has opted in; absent (non-zero exit)
-   everywhere else, and the capture stays a local commit. On `true`, `git push` in
-   the business repo. A push failure does not stop the recording: the commit stands,
-   report the failure and carry on to the rename.
-9. **Rename** in Otter to mark done. For a freshly written capture the title is
-   `<business-folder>/<name>.txt`; for an already-captured recording (step 3) use
-   the existing file's stem, `<business-folder>/<existing-stem>.txt`. The next run
-   sees the prefix and skips it. Read-back verification only scans the recent
-   recordings page, so renaming an older recording can report a false failure —
-   confirm by fetching the recording's title rather than trusting the verify flag.
-
-### Step 4 — report
-
-Per recording: title → business, fetch / commit / rename status, and any uncertain
-terms with the web searches you ran. List skipped recordings with the reason and a
-checklist of the web searches performed.
 
 ## How it works
 
