@@ -1,4 +1,7 @@
-#!/usr/bin/env tclsh
+#!/bin/sh
+# the next line restarts under the newest tclsh available (the sh trampoline from
+# the tclsh man page: sh runs the exec, Tcl reads it as part of this comment) \
+exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 # browser-serialiser - run a browser skill inside a per-run policing harness.
 #
 # A browser skill is loaded into a SAFE interpreter that exposes only a policed
@@ -44,6 +47,7 @@ set ::Root [file dirname $::ScriptDir]   ;# toolbox root: holds bin/, lib/, and 
 ::tcl::tm::path add [file join $::Root lib]
 package require cdp
 source [file join $::Root lib serialiser-harness.tcl]
+source [file join $::Root lib serialiser-tray.tcl]
 
 # ---------------------------------------------------------------------------
 # Config: UA + accept-lang from the [browser] section of config.ini, so the
@@ -183,7 +187,8 @@ proc enforce_min_gap {} {
     if {$elapsed >= $minGap} return
     set wait [expr {$minGap - $elapsed}]
     serialiser::Log gap "waited=${wait}s min=${minGap}s"
-    after [expr {$wait * 1000}]
+    tray::waiting "pacing gap (${wait}s)"
+    tray::sleep [expr {$wait * 1000}]
 }
 
 # Acquire the single-browser lock so two serialiser runs never drive the shared
@@ -241,7 +246,7 @@ proc lock_acquire {waitSecs} {
         if {[clock milliseconds] >= $deadline} {
             error "lock-wait timeout after ${waitSecs}s on $lockPath" {} {SERIALISER_LOCK 1}
         }
-        after 250
+        tray::sleep 250
     }
 }
 
@@ -407,7 +412,7 @@ proc run_dump {url timeoutSecs} {
         render_navigate $cdp $url $timeoutSecs
         set html [$cdp evaluate {document.documentElement.outerHTML}]
         puts $html
-    }} $url $timeoutSecs]]
+    }} $url $timeoutSecs] [serialiser::LogUrl $url]]
 }
 
 # --pdf: launch, navigate, Page.printToPDF, decode the base64 and write it to
@@ -426,7 +431,7 @@ proc run_pdf {outfile url timeoutSecs} {
         set f [open $outfile wb]
         puts -nonewline $f $bytes
         close $f
-    }} $url $timeoutSecs $outfile]]
+    }} $url $timeoutSecs $outfile] [serialiser::LogUrl $url]]
 }
 
 # Shared body for the render modes: take the lock, launch Chromium on the real
@@ -435,7 +440,7 @@ proc run_pdf {outfile url timeoutSecs} {
 # exit code. Mirrors run_standalone's lock/launch/teardown and error mapping;
 # the only difference is it drives the browser directly instead of through the
 # safe-interp harness.
-proc render_session {timeoutSecs cfg body} {
+proc render_session {timeoutSecs cfg body {trayLabel ""}} {
     set ua [dict get $cfg ua]
     set lang [dict get $cfg lang]
 
@@ -448,6 +453,8 @@ proc render_session {timeoutSecs cfg body} {
     set launched 0
     set launchPid ""
     set rc 0
+    tray::init
+    tray::waiting "queued for browser"
     if {[catch {
         set lockToken [lock_acquire 600]
         set br [browser_launch $binary $udd $ua $lang $port]
@@ -455,6 +462,7 @@ proc render_session {timeoutSecs cfg body} {
         set wsUrl [dict get $br wsurl]
         set launched 1
         set cdp [cdp::connect $wsUrl]
+        tray::active $trayLabel
         try {
             {*}$body $cdp
         } finally {
@@ -474,6 +482,7 @@ proc render_session {timeoutSecs cfg body} {
         }
     }
     if {$launched} { browser_teardown $launchPid $port $udd }
+    tray::done
     lock_release $lockToken
     return $rc
 }
@@ -606,7 +615,13 @@ proc serialiser_delegate {skillRef skillArgs} {
         set f [dict get $resp fault]
         set shape [expr {[dict exists $f shape] ? [dict get $f shape] : "skill"}]
         set detail [expr {[dict exists $f detail] ? [dict get $f detail] : ""}]
-        if {$shape eq "terminal"} { die 66 "terminal $detail" }
+        if {$shape eq "terminal"} {
+            if {$detail in {logged-out checkpoint}} {
+                tray::notify "Browser skill stopped" \
+                    "Log in to [file dirname $skillRef] in Chromium, then retry."
+            }
+            die 66 "terminal $detail"
+        }
         die 65 "overseer skill fault: $detail"
     }
     # The frame socket is read with -translation binary, which is what keeps the
@@ -690,6 +705,8 @@ proc run_standalone {skillRef skillArgs} {
     set rc 0
     set out ""
     serialiser::Log run "ref=$skillRef port=$port udd=$udd argv=[join $skillArgs { }]"
+    tray::init
+    tray::waiting "queued for browser"
     if {[catch {
         set lockToken [lock_acquire 600]
         set br [browser_launch $binary $udd $ua $lang $port]
@@ -697,6 +714,7 @@ proc run_standalone {skillRef skillArgs} {
         set wsUrl [dict get $br wsurl]
         set launched 1
         set cdp [cdp::connect $wsUrl]
+        tray::active $skillRef
         try {
             set out [serialiser::run $skillPath $cdp $skillArgs]
         } finally {
@@ -705,7 +723,12 @@ proc run_standalone {skillRef skillArgs} {
     } err errOpts]} {
         set code [dict get $errOpts -errorcode]
         if {[lindex $code 0] eq "SERIALISER_TERMINAL"} {
-            puts stderr "browser-serialiser: terminal [lindex $code 1]"
+            set wall [lindex $code 1]
+            puts stderr "browser-serialiser: terminal $wall"
+            if {$wall in {logged-out checkpoint}} {
+                tray::notify "Browser skill stopped" \
+                    "Log in to [file dirname $skillRef] in Chromium, then retry."
+            }
             set rc 66
         } elseif {[lindex $code 0] eq "SERIALISER_LOCK"} {
             puts stderr "browser-serialiser: $err"
@@ -719,6 +742,7 @@ proc run_standalone {skillRef skillArgs} {
         }
     }
     if {$launched} { browser_teardown $launchPid $port $udd }
+    tray::done
     lock_release $lockToken
     serialiser::Log end "ref=$skillRef rc=$rc"
     if {$rc == 0} { puts $out }

@@ -344,6 +344,7 @@ proc serialiser::Verb_nav {url args} {
     set landing [serialiser::PageUrl]
     dict set Run lastNavUrl $landing
     serialiser::Log nav "pace=${paced}ms url=[serialiser::LogUrl $url] landing=[serialiser::LogUrl $landing]"
+    catch {::tray::page [serialiser::LogUrl $landing]}   ;# standalone host only; no ::tray under the overseer
     # Confinement precedes wall classification, and --expect-login does not
     # lift it: the wall vocabulary describes the granted site's own walls, so a
     # landing outside the granted site is off-site whatever the page shows,
@@ -451,6 +452,7 @@ proc serialiser::Verb_capture {navUrl args} {
     set landing [serialiser::PageUrl]
     dict set Run lastNavUrl $landing
     serialiser::Log capture "pace=${paced}ms url=[serialiser::LogUrl $navUrl] landing=[serialiser::LogUrl $landing] match=$match"
+    catch {::tray::page [serialiser::LogUrl $landing]}   ;# standalone host only; no ::tray under the overseer
     # Same confinement as nav, and before the harvest: bodies buffered on an
     # off-site landing never reach the skill.
     serialiser::CheckConfined $landing capture

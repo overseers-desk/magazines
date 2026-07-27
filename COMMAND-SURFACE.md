@@ -112,6 +112,24 @@ This is host-side, not a skill capability: the harness writes it from the truste
 interp, so the sandbox is untouched. It is the standalone counterpart of the
 overseer's own `/log` sink, letting a ban post-mortem read the cadence and the wall
 from the harness's record rather than reconstructing it from the browser History DB.
+## Tray icon (standalone)
+
+While a standalone run's process lives, it shows a system-tray icon (Tk 9's
+`tk systray`; menu-bar item on macOS): an amber ring while queued for the
+profile lock or pacing the inter-run gap, a teal disc while the browser is
+driven, with the skill and its current query-stripped page in the tooltip.
+Presence answers "is an agent on the shared profile right now"; absence means
+idle, and each queued run shows its own icon, so the tray shows the queue. A
+run that dies on a login wall fires a desktop notification naming the site to
+log in to, since its icon vanishes with the process; the notification fires on
+the overseer-delegated path too (a login wall needs the user's hand whichever
+host hit it), while the icon itself stays standalone-only, the overseer being
+the status surface when it runs the job. Host machinery like the diagnostics
+log (`lib/serialiser-tray.tcl`), not a skill capability: nothing is added to
+the verb surface. It needs Tcl/Tk 9 and a display; the harness's sh trampoline
+header picks `tclsh9.0` where installed, and on a Tcl 8.6-only or headless
+machine no icon or notification appears and nothing else changes.
+
 ## Cross-run spacing (standalone)
 
 The `/tmp/chromium.lock` gives mutual exclusion (one browser on the profile at a
