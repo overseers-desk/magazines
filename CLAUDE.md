@@ -21,6 +21,11 @@ marketplace that lists this plugin sits in a separate repo,
   in a separate project); it is a compatibility target, not a runtime dependency,
   and standalone `browser-serialiser` needs no overseer installed (see
   COMMAND-SURFACE.md, "Why the sandbox holds with no overseer present").
+- Every entry under `skills/` is a website skill, named for the site's domain and
+  reaching that one site. Work that orchestrates several of them, or that does no
+  browsing at all, is a command under `commands/` (`find-person`,
+  `knowledge-capture`). A workflow placed in `skills/` reads as a site and gets
+  invoked as one.
 - Each skill's SKILL.md lists its config keys under `Prerequisites`.
 - A SKILL.md `description` is a discovery surface, not documentation: its only job
   is to make the model invoke the skill when the situation calls for it. How the
