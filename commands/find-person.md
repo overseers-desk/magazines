@@ -163,4 +163,3 @@ Output: a markdown document, returned in the conversation by default. If the dos
 - **Masked emails are not emails.** A data-broker result like `b***@example.com` is a hint about a pattern, not a usable address. If the unmasked form cannot be verified, leave it unrecorded.
 - **Person vs. role.** If profiling shows the named person no longer holds the role the user is asking about, surface the mismatch rather than producing a dossier on a no-longer-relevant party.
 - **Identification gates everything.** If §1 ends in "unidentifiable", do not run §3 or §4. The user gets the search trace and a request for a stronger constraint.
-- **Word budget.** This file stays at or under 2600 words. An edit that adds material cuts an equal amount elsewhere first - the file does not grow by accretion.
