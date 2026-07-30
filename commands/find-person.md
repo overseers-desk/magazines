@@ -1,9 +1,9 @@
 ---
 description: "Identify a person from partial info (name, organisation, industry, location, known experience, email, approximate/heard spelling), then on instruction produce a lightweight profile or full dossier. Triggers: find/identify/look up/research a person, build a dossier."
-argument-hint: <seed: full name, name + organisation, email, name + industry + location, etc.>
+argument-hint: <seed: name, name + organisation, email, name + industry + location> [profile|dossier]
 ---
 
-Seed to identify (the command argument): **$ARGUMENTS**. If empty, ask the user for a name or other identifying detail before searching.
+The command argument: **$ARGUMENTS** - a seed to identify, and optionally the mode (§2). If empty, ask for a name or other identifying detail before searching.
 
 ## What this command does
 
@@ -96,13 +96,9 @@ A single signal is not confirmation. Two profiles with the same name and city bu
 
 If the seed names a role rather than a person ("the head of X at Y"), identify whoever currently holds the role. Sources the user is remembering may be stale; the answer is the current holder. If the named person no longer holds the role, surface the mismatch before proceeding - the user may want to redirect to the current holder.
 
-## 2. Confirm and choose the goal
+## 2. Mode
 
-After identification:
-
-1. Tell the user who was identified and the strength of evidence.
-2. If the original request did not name a goal, treat identification itself as the goal and stop there: the record from §1.4 is the answer. A bare seed is already the request to find the person and report back - it is not a prompt to choose a product tier. Mention, without asking, that a lightweight profile or full dossier can be produced next if wanted. This command runs and gets left: the user comes back expecting an answer, not a stalled question.
-3. If the original request named a goal (e.g. "build a dossier on X"), proceed to that goal without re-asking - but pause if identification was weak so the user can adjust the seed before more fetches are spent.
+The argument sets the mode: `profile` runs §3, `dossier` runs §4. Absent either, the §1.4 record is the deliverable. Every mode reports the identification and the strength of its evidence.
 
 ## 3. Lightweight profile
 
