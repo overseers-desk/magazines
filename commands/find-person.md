@@ -101,7 +101,7 @@ If the seed names a role rather than a person ("the head of X at Y"), identify w
 After identification:
 
 1. Tell the user who was identified and the strength of evidence.
-2. If the original request did not name a goal, treat identification itself as the goal and stop there: the record from §1.4 is the answer. A bare seed is already the request to find the person and report back - it is not a prompt to choose a product tier. Mention, without asking, that a lightweight profile or full dossier can be produced next if wanted.
+2. If the original request did not name a goal, treat identification itself as the goal and stop there: the record from §1.4 is the answer. A bare seed is already the request to find the person and report back - it is not a prompt to choose a product tier. Mention, without asking, that a lightweight profile or full dossier can be produced next if wanted. This command runs and gets left: the user comes back expecting an answer, not a stalled question.
 3. If the original request named a goal (e.g. "build a dossier on X"), proceed to that goal without re-asking - but pause if identification was weak so the user can adjust the seed before more fetches are spent.
 
 ## 3. Lightweight profile
@@ -163,3 +163,4 @@ Output: a markdown document, returned in the conversation by default. If the dos
 - **Masked emails are not emails.** A data-broker result like `b***@example.com` is a hint about a pattern, not a usable address. If the unmasked form cannot be verified, leave it unrecorded.
 - **Person vs. role.** If profiling shows the named person no longer holds the role the user is asking about, surface the mismatch rather than producing a dossier on a no-longer-relevant party.
 - **Identification gates everything.** If §1 ends in "unidentifiable", do not run §3 or §4. The user gets the search trace and a request for a stronger constraint.
+- **Word budget.** This file stays at or under 2600 words. An edit that adds material cuts an equal amount elsewhere first - the file does not grow by accretion.
