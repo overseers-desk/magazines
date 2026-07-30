@@ -101,10 +101,8 @@ If the seed names a role rather than a person ("the head of X at Y"), identify w
 After identification:
 
 1. Tell the user who was identified and the strength of evidence.
-2. If the original request did not name a goal, ask the user: identify only, lightweight profile, or full dossier?
+2. If the original request did not name a goal, treat identification itself as the goal and stop there: the record from §1.4 is the answer. A bare seed is already the request to find the person and report back - it is not a prompt to choose a product tier. Mention, without asking, that a lightweight profile or full dossier can be produced next if wanted.
 3. If the original request named a goal (e.g. "build a dossier on X"), proceed to that goal without re-asking - but pause if identification was weak so the user can adjust the seed before more fetches are spent.
-
-If the user chose identify-only, stop. The output is the record from §1.4.
 
 ## 3. Lightweight profile
 
