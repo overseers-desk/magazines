@@ -17,7 +17,7 @@ browser-serialiser <site>/<script> <args>
 # e.g. browser-serialiser instagram.com/ig-profile HANDLE
 ```
 
-The skill never opens a socket or touches the disk: capability confinement and anti-ban pacing are enforced by the harness, not by the skill. When an overseer is running on `localhost:11402`, `browser-serialiser` delegates to it (the overseer owns the one logged-in browser, so it serialises the run with its own work); when no overseer is running, the serialiser launches its own Chromium standalone.
+The skill never opens a socket or touches the disk: capability confinement and anti-ban pacing are enforced by the harness, not by the skill. When an overseer is running on `localhost:11402`, `browser-serialiser` delegates to it (the overseer owns the one logged-in browser, so it serialises the run with its own work); when no overseer is running, the serialiser launches its own Chromium standalone. A run already queued on the profile lock re-checks for an overseer when its turn comes and hands the job over instead of launching, so an overseer started mid-backlog takes over as the queue drains.
 
 An **ad-hoc fetch** (the curl/WebFetch fallback). For a page no site skill covers:
 

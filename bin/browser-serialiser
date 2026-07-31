@@ -26,7 +26,12 @@ exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 #   /browser/dump (a one-shot DOM render). Either way the overseer owns the outcome: a
 #   fault is returned as the run's failure, never silently re-launched here.
 #   Standalone: when the overseer is absent the serialiser launches its own headless
-#   Chromium on the user's REAL logged-in profile (lockfile /tmp/chromium.lock,
+#   Chromium on the user's REAL logged-in profile. The who-launches decision is
+#   remade after the lock wait: a run queued on the lockfile re-probes the overseer
+#   once it wins the lock, and hands the job over when one has come up meanwhile
+#   (lock_acquire_yielding), so a backlog drains into an overseer that started
+#   mid-queue instead of racing it for the profile. The overseer honours the same
+#   lockfile across its own launches. (Lockfile /tmp/chromium.lock,
 #   --headless=new --remote-debugging-port on a random port, --user-data-dir=<profile>),
 #   polls /json for the page-target ws url, connects via the cdp module, runs the skill,
 #   and tears the browser down on every exit. Launch/teardown mirrors the overseer's
@@ -408,11 +413,16 @@ proc render_navigate {cdp url timeoutSecs} {
 # the standalone lock/launch/teardown. Default timeout 15s.
 proc run_dump {url timeoutSecs} {
     set cfg [render_browser_config]
+    # The dump's overseer door needs the URL's host as its gate key; a URL
+    # with no parseable host has no door and runs standalone under the lock.
+    set host ""
+    regexp {^[a-z][a-z0-9+.-]*://([^/:]+)} $url -> host
+    set handover [expr {$host ne "" ? [list dump_handover $url $timeoutSecs $host] : ""}]
     return [render_session $timeoutSecs $cfg [list apply {{url timeoutSecs cdp} {
         render_navigate $cdp $url $timeoutSecs
         set html [$cdp evaluate {document.documentElement.outerHTML}]
         puts $html
-    }} $url $timeoutSecs] [serialiser::LogUrl $url]]
+    }} $url $timeoutSecs] [serialiser::LogUrl $url] $handover]
 }
 
 # --pdf: launch, navigate, Page.printToPDF, decode the base64 and write it to
@@ -440,7 +450,7 @@ proc run_pdf {outfile url timeoutSecs} {
 # exit code. Mirrors run_standalone's lock/launch/teardown and error mapping;
 # the only difference is it drives the browser directly instead of through the
 # safe-interp harness.
-proc render_session {timeoutSecs cfg body {trayLabel ""}} {
+proc render_session {timeoutSecs cfg body {trayLabel ""} {handover ""}} {
     set ua [dict get $cfg ua]
     set lang [dict get $cfg lang]
 
@@ -456,17 +466,24 @@ proc render_session {timeoutSecs cfg body {trayLabel ""}} {
     tray::init
     tray::waiting "queued for browser"
     if {[catch {
-        set lockToken [lock_acquire 600]
-        set br [browser_launch $binary $udd $ua $lang $port]
-        set launchPid [dict get $br pid]
-        set wsUrl [dict get $br wsurl]
-        set launched 1
-        set cdp [cdp::connect $wsUrl]
-        tray::active $trayLabel
-        try {
-            {*}$body $cdp
-        } finally {
-            catch {$cdp close}
+        set L [lock_acquire_yielding 600 $handover]
+        if {[dict get $L done]} {
+            # An overseer that came up mid-queue ran the job; its reply is the
+            # run's stdout, the same bytes the body would have printed.
+            puts [dict get $L out]
+        } else {
+            set lockToken [dict get $L token]
+            set br [browser_launch $binary $udd $ua $lang $port]
+            set launchPid [dict get $br pid]
+            set wsUrl [dict get $br wsurl]
+            set launched 1
+            set cdp [cdp::connect $wsUrl]
+            tray::active $trayLabel
+            try {
+                {*}$body $cdp
+            } finally {
+                catch {$cdp close}
+            }
         }
     } err errOpts]} {
         set code [dict get $errOpts -errorcode]
@@ -665,6 +682,46 @@ proc dump_delegate {url timeoutSecs host} {
     return [dict create delegated 1 dom [expr {[dict exists $resp dom] ? [dict get $resp dom] : ""}]]
 }
 
+# Win the launch lock, yielding to an overseer that came up while we queued.
+# A waiter parked on the lockfile probed /health before joining the queue, when
+# no overseer answered; the answer that matters is the one at launch time, so
+# it is asked again the moment the lock is won. $handover is a command prefix
+# run after releasing the lock -- the overseer's own launch parks on the
+# lockfile, so delegating while holding it would deadlock the pair -- returning
+# {handled 1 out <stdout text>} when the overseer took the job, {handled 0}
+# when it is gone again, in which case the lock is re-taken and the standalone
+# run proceeds. Empty $handover (a job the overseer has no door for, e.g.
+# --pdf) skips the re-probe: the held lockfile is what makes that safe, since
+# the overseer parks its grants on it for the run's whole span.
+# Returns {done 1 out <text>} on handover, else {done 0 token <lock token>}.
+proc lock_acquire_yielding {waitSecs handover} {
+    while 1 {
+        set token [lock_acquire $waitSecs]
+        if {$handover eq "" || ![overseer_up]} {
+            return [dict create done 0 token $token]
+        }
+        lock_release $token
+        set h [{*}$handover]
+        if {[dict get $h handled]} {
+            return [dict create done 1 out [dict get $h out]]
+        }
+    }
+}
+
+# The two handover halves lock_acquire_yielding drives: each re-tries its
+# delegate door and reports whether the overseer took the job.
+proc skill_handover {skillRef skillArgs} {
+    set d [serialiser_delegate $skillRef $skillArgs]
+    if {![dict get $d delegated]} { return [dict create handled 0] }
+    return [dict create handled 1 out [dict get $d result]]
+}
+
+proc dump_handover {url secs host} {
+    set d [dump_delegate $url $secs $host]
+    if {![dict get $d delegated]} { return [dict create handled 0] }
+    return [dict create handled 1 out [dict get $d dom]]
+}
+
 # Encode a Tcl list of skill args as a JSON array string (each element a JSON
 # string), matching what /run expects to json2dict back into a list.
 proc args_to_json {skillArgs} {
@@ -708,17 +765,25 @@ proc run_standalone {skillRef skillArgs} {
     tray::init
     tray::waiting "queued for browser"
     if {[catch {
-        set lockToken [lock_acquire 600]
-        set br [browser_launch $binary $udd $ua $lang $port]
-        set launchPid [dict get $br pid]
-        set wsUrl [dict get $br wsurl]
-        set launched 1
-        set cdp [cdp::connect $wsUrl]
-        tray::active $skillRef
-        try {
-            set out [serialiser::run $skillPath $cdp $skillArgs]
-        } finally {
-            catch {$cdp close}
+        set L [lock_acquire_yielding 600 [list skill_handover $skillRef $skillArgs]]
+        if {[dict get $L done]} {
+            # An overseer that came up mid-queue ran the skill; its reply is
+            # the run's output.
+            set out [dict get $L out]
+            serialiser::Log run "ref=$skillRef handed over to overseer"
+        } else {
+            set lockToken [dict get $L token]
+            set br [browser_launch $binary $udd $ua $lang $port]
+            set launchPid [dict get $br pid]
+            set wsUrl [dict get $br wsurl]
+            set launched 1
+            set cdp [cdp::connect $wsUrl]
+            tray::active $skillRef
+            try {
+                set out [serialiser::run $skillPath $cdp $skillArgs]
+            } finally {
+                catch {$cdp close}
+            }
         }
     } err errOpts]} {
         set code [dict get $errOpts -errorcode]
