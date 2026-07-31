@@ -10,14 +10,14 @@ Canonical home of `browser-serialiser`, the harness that runs a browser skill in
 
 ## Two ways it runs
 
-A **skill by reference** (the normal path). The serialiser loads the skill into a per-run safe interpreter that exposes only the policed verbs (navigate, fetch, dump, type, click, and the rest in COMMAND-SURFACE.md), drives the browser through them, and returns the skill's result:
+A **skill by reference** (the normal path). The serialiser loads the skill into a per-run safe interpreter that exposes only the policed verbs (`nav`, `api`, `capture`, `dump`, `type`, `click`, and the rest in COMMAND-SURFACE.md), drives the browser through them, and returns the skill's result:
 
 ```bash
 browser-serialiser <site>/<script> <args>
 # e.g. browser-serialiser instagram.com/ig-profile HANDLE
 ```
 
-The skill never opens a socket or touches the disk: capability confinement and anti-ban pacing are enforced by the harness, not by the skill. When an overseer is running on `localhost:11402`, `browser-serialiser` delegates to it (the overseer owns the one logged-in browser, so it serialises the run with its own work); when no overseer is running, the serialiser launches its own Chromium standalone. A run already queued on the profile lock re-checks for an overseer when its turn comes and hands the job over instead of launching, so an overseer started mid-backlog takes over as the queue drains.
+The skill never opens a socket or touches the disk: capability confinement and anti-ban pacing are enforced by the harness, not by the skill. Who drives the browser is decided per run, by the handshake below.
 
 An **ad-hoc fetch** (the curl/WebFetch fallback). For a page no site skill covers:
 
@@ -27,6 +27,18 @@ browser-serialiser --pdf  [-t SECONDS] OUT URL                # print to PDF
 ```
 
 Redirect a dump to a file: dumps run several MB and flood context if returned inline. Parse the file selectively, or hand it to a Haiku/Sonnet subagent, and keep raw DOM out of the main session.
+
+## Working beside an overseer
+
+One logged-in Chromium profile serves every agent on the machine, so `browser-serialiser` and an overseer (a resident broker that owns the profile while it runs, answering on `127.0.0.1:11402`, or the port in `BI_OVERSEER_PORT`) must never launch on it at once. The serialiser needs nothing from the caller for this; the handshake is built in:
+
+- **Overseer up at entry**: the run delegates. A skill-ref goes to the overseer's `POST /run`, a `--dump` to its `POST /browser/dump`; the overseer serialises the run with its own work and paces it per host. The overseer then owns the outcome: a fault comes back as this run's failure, and the serialiser does not launch its own Chromium to retry.
+- **No overseer**: the run is standalone. It queues on the profile lock (`/tmp/chromium.lock`, a PID-stamped exclusive-create file; a waiter sweeps a holder whose PID is dead), launches its own headless Chromium on the logged-in profile, and tears it down on every exit path.
+- **Overseer arrives mid-wait**: the who-launches decision is remade when the lock is won, the moment before a launch would happen. The run releases the lock and delegates as above, so a backlog parked on the lockfile drains into an overseer that started while it waited. Release comes first because the overseer parks its own launches while the lockfile is held; delegating while holding it would deadlock both sides.
+- **Overseer arrives mid-run**: nothing changes for this run. The overseer starts parked beside a live standalone browser, holds its browser jobs, and takes over when the run's teardown frees the profile.
+- **`--pdf`**: the overseer has no PDF door, so this mode always runs standalone under the lock, which the overseer honours for the run's whole span.
+
+So it is safe to start a run while no overseer is up, and safe for an overseer to start at any point after; neither side needs the other stopped first. The overseer's half of the contract is enforced where the overseer is built, not here.
 
 ## Do not blame the user's browser
 
