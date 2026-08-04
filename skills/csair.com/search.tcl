@@ -500,11 +500,18 @@ proc serialiser_run {skillArgs} {
             emit [cz::render_text $ita $origin $dest $date $adults $children $infants]
         }
     } else {
+        # The booking app prices a multi-leg journey one leg at a time: this
+        # response covers the first leg alone, which its own requestId spells
+        # out (base64 of "sliceGrid:B2C_SEARCH_<DEP>-<ARR>_<date>_..."). The
+        # totals on those rows are therefore not a whole-journey fare, and
+        # printing them beside the queried legs would read as one. Reaching
+        # the rest means selecting a leg and capturing what the app asks next.
         set modestr [expr {$mode == 1 ? "return" : "multi-city"}]
-        if {$asJson} {
-            emit [cz::render_multi_json $ita $modestr $legs $adults $children $infants]
-        } else {
-            emit [cz::render_multi_text $ita $modestr $legs $adults $children $infants]
+        set legstrs {}
+        foreach leg $legs {
+            lassign $leg d a dt
+            lappend legstrs "$d-$a $dt"
         }
+        emit "$modestr search reaches only the first leg: csair.com prices a multi-leg journey by selecting one leg at a time, and a single search returns [join $legstrs {, }] as first-leg options with no whole-journey total. Price each leg as its own one-way search, remembering that separate one-ways are not what the airline charges for a through-fare."
     }
 }

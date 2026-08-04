@@ -35,6 +35,18 @@ Parameters:
   picks its default for the route.
 - `--json` — structured output instead of the text table.
 
+## Return and multi-city reach only the first leg
+
+`--return YYYY-MM-DD` and a repeatable `--leg DEP-ARR-YYYY-MM-DD` compose the
+trip modes the booking app's own parser accepts, and the app answers them.
+What comes back is the first leg's options: the site prices a multi-leg
+journey by selecting one leg and then offering the next, and the response
+says so in its own requestId, which decodes to
+`sliceGrid:B2C_SEARCH_<DEP>-<ARR>_<date>_...`. Those rows carry totals, but
+they are not a whole-journey fare, so the skill reports the limit instead of
+printing them beside the queried legs where they would read as one. Reaching
+the later legs means selecting one and capturing what the app asks next.
+
 ## Output
 
 Per itinerary: origin/destination times with day offsets, total duration and
