@@ -46,7 +46,7 @@ that itinerary) with the lowest total and the per-brand totals
 party, not one passenger. `--json` adds the fare/tax split per cabin and
 brand, and aircraft types per segment.
 
-A route/date combination the booking app serves but has no seats for returns
+A route/date combination the booking app serves but has no seats for, returns
 "No itineraries", a normal answer.
 
 ## Failure modes

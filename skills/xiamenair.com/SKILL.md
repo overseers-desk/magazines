@@ -47,7 +47,8 @@ Parameters:
 - `date` — `YYYY-MM-DD`, today or later; a past date is refused before any
   request.
 - `--adults N` / `--children N` / `--infants N` — defaults 1/0/0. Adults at
-  least 1, each count 0–9, infants at most the adult count.
+  least 1, infants at most the adult count, at most 5 passengers in total
+  (the API's own cap).
 - `--cabin` — `ECONOMY` (default), `BUSINESS`, `FIRST`, or `ANY`. `ANY`
   returns every fare family the itinerary sells, economy through first, in
   one answer.

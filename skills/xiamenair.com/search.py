@@ -330,10 +330,15 @@ def main():
         die(EXIT_VALIDATION, "bad route: origin and destination are both %s" % args.origin)
     for name, v in (("adults", args.adults), ("children", args.children),
                     ("infants", args.infants)):
-        if not 0 <= v <= 9:
-            die(EXIT_VALIDATION, "bad passenger count: %s must be 0-9, got %d" % (name, v))
+        if not 0 <= v <= 5:
+            die(EXIT_VALIDATION, "bad passenger count: %s must be 0-5, got %d" % (name, v))
     if args.adults < 1:
         die(EXIT_VALIDATION, "bad passenger count: at least 1 adult")
+    # The API caps a party at 5 (OJ-01-0629 on a larger one); catching it here
+    # spares the caller a round trip.
+    if args.adults + args.children + args.infants > 5:
+        die(EXIT_VALIDATION, "bad passenger count: at most 5 passengers in total, got %d"
+            % (args.adults + args.children + args.infants))
     if args.infants > args.adults:
         die(EXIT_VALIDATION, "bad passenger count: infants (%d) exceed adults (%d)"
             % (args.infants, args.adults))
