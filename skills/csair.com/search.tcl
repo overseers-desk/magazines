@@ -5,17 +5,39 @@
 #   https://oversea.csair.com/tk/au/en/book/flights?m=<M>&t=<SEGS>&p=<ADT><CNN><INF>[&cy=CCC]
 #
 #   m = trip mode: 0 one-way, 1 return, 2 multi-city (2..5 segments);
-#   t = comma-separated segments, each <DEP>-<ARR>-<YYYYMMDD>, uppercase IATA
-#   (city or airport codes), origin != dest per segment; a return is two
-#   segments (out, back); p = three digits adults/children/infants,
-#   adults >= 1, infants <= adults, total < 10; cy = optional display
-#   currency.
+#   t = for m=0 one <DEP>-<ARR>-<YYYYMMDD>; for m=1 ONE entry
+#   <DEP>-<ARR>-<OUTDATE>-<BACKDATE> (the app's parser copies entry 0 over
+#   entry 1 and reads the fourth dash part as the back date, cities reversed,
+#   so a comma-separated reversed pair is rejected before any network); for
+#   m=2 comma-separated <DEP>-<ARR>-<YYYYMMDD> entries. Codes are uppercase
+#   IATA (city or airport), origin != dest per segment; p = three digits
+#   adults/children/infants, adults >= 1, infants <= adults, total < 10;
+#   cy = optional display currency.
 #
 # On load the app resolves the params, obtains an opaque token, and
 # router-pushes to /book/shop?enc=<token>, where it fires GET /api/shop/search;
 # that response body is the fare list. One capture over *api/shop/* collects it.
 # The enc token is short-lived and never part of this skill's interface:
 # parameters in, fares out.
+#
+# A multi-leg journey (m=1 or m=2) is priced the way the site's own UI does it,
+# one leg at a time: the first search covers leg 1 only. Selecting an option
+# fixes {session, solutionSet} from that leg's response plus the chosen brand's
+# id, and the app then form-POSTs /api/shop/next/<tripIdx> with
+#   country, language, execution (from /api/shop/decryptArgs),
+#   date  = every leg's YYYY-MM-DD joined ",",
+#   so    = each prior selection as session_solutionSet_brandId joined "|",
+#   cabin / brandCode / segments = the immediately previous selection
+#           (segments: per segment "ORG|DST|YYYY-MM-DD|CZnnnn" joined ","),
+#   tripType = S/R/M for m=0/1/2,
+# which returns the next leg's grid in the same ita shape. Later legs'
+# saleTotal amounts are cumulative whole-journey running totals: the app's own
+# price display subtracts the previous selection's amount to show "+diff"
+# (prevAmount in its PriceBar/CabinBtn getters), so the FINAL leg's rows carry
+# the whole-journey fare. This skill fixes every leg before the last to its
+# cheapest bookable brand and prints the final leg's options as whole-journey
+# totals. Each /api/shop/next call is fired from the page context (eval), the
+# same origin and cookies as the app's own call.
 #
 # The app accepts dates in the window today+2 .. today+1 year only. Outside the
 # window, or on any parameter set it rejects, it falls back to the empty search
@@ -203,11 +225,48 @@ proc cz::render_text {ita origin dest date adults children infants} {
     return $out
 }
 
-# Return / multi-city text render. $mode is "return" or "multi-city"; $legs is
-# a list of {dep arr date} triples as queried. Rows render exactly as one-way
-# rows do, day offsets against each slice's own departure date.
-proc cz::render_multi_text {ita mode legs adults children infants} {
-    set grid [cz::dget $ita sliceGrid]
+# The cheapest bookable brand across every row and cabin: returns
+# {row cabinKey brand} or "" when no brand carries both an id and a saleTotal
+# (the app's own search handler filters those out as unbookable).
+proc cz::pick_cheapest {rows} {
+    set best {}
+    set bestAmt Inf
+    foreach row $rows {
+        if {[catch {dict get $row cell} cell]} continue
+        dict for {ck cab} $cell {
+            if {$cab eq "" || [catch {dict get $cab brand} brands]} continue
+            foreach b $brands {
+                if {[cz::dget $b id] eq ""} continue
+                if {[catch {dict get $b saleTotal amount} amt]} continue
+                if {![string is double -strict $amt]} continue
+                if {$amt < $bestAmt} {
+                    set bestAmt $amt
+                    set best [list $row $ck $b]
+                }
+            }
+        }
+    }
+    return $best
+}
+
+# One selected leg as a text block: each segment line plus the fixed
+# cabin/brand. No amount: a non-final leg's numbers are not a whole-journey
+# fare, and the journey totals appear on the final leg's options.
+proc cz::sel_text {n sel} {
+    lassign $sel row ck cabinLabel brand
+    set slice [cz::dget $row slice]
+    set base [lindex [cz::dget $slice departure] 0]
+    set out "\nLeg $n fixed to $cabinLabel [cz::dget $brand brandCodeLabel]:"
+    foreach seg [cz::dget $slice segment] {
+        append out "\n   [cz::seg_line $seg $base]"
+    }
+    return $out
+}
+
+# Whole-journey text render: the fixed selections for legs 1..N-1, then the
+# final leg's options whose amounts are the whole-journey totals.
+proc cz::render_journey_text {finalIta mode legs selections adults children infants} {
+    set grid [cz::dget $finalIta sliceGrid]
     set rows [cz::dget $grid row]
     set column [cz::dget $grid column]
 
@@ -217,12 +276,18 @@ proc cz::render_multi_text {ita mode legs adults children infants} {
         lappend legstrs "$d → $a $dt"
     }
     set journey [join $legstrs ", "]
-    set head "China Southern $journey, $mode, adults $adults children $children infants $infants (totals cover the whole party)"
-    if {![llength $rows]} {
-        return "$head\n\nNo itineraries for $journey."
+    set out "China Southern $journey, $mode, adults $adults children $children infants $infants (totals cover the whole party)"
+    append out "\nEvery leg before the last is fixed to its cheapest option below; each amount on the final leg's options is the WHOLE-JOURNEY total for that combination."
+    set n 0
+    foreach sel $selections {
+        incr n
+        append out "\n[cz::sel_text $n $sel]"
     }
-
-    set out $head
+    if {![llength $rows]} {
+        append out "\n\nNo itineraries for the final leg with these selections."
+        return $out
+    }
+    append out "\n\nFinal leg options, whole-journey totals:"
     set n 0
     foreach row $rows {
         incr n
@@ -305,10 +370,11 @@ proc cz::render_json {ita origin dest date adults children infants} {
         itineraries [json::write array {*}$itins]]
 }
 
-# Return / multi-city JSON render: a legs array as queried instead of the
-# one-way origin/destination/date echo.
-proc cz::render_multi_json {ita mode legs adults children infants} {
-    set grid [cz::dget $ita sliceGrid]
+# Whole-journey JSON render: selectedLegs echoes the fixed choice per earlier
+# leg (no amounts, same reasoning as the text render); journeyOptions holds
+# the final leg's rows, whose every amount is the whole-journey total.
+proc cz::render_journey_json {finalIta mode legs selections adults children infants} {
+    set grid [cz::dget $finalIta sliceGrid]
     set column [cz::dget $grid column]
     set itins {}
     foreach row [cz::dget $grid row] {
@@ -322,11 +388,69 @@ proc cz::render_multi_json {ita mode legs adults children infants} {
             destination [json::write string $a] \
             date [json::write string $dt]]
     }
+    set seljson {}
+    foreach sel $selections {
+        lassign $sel row ck cabinLabel brand
+        set slice [cz::dget $row slice]
+        set segjson {}
+        foreach seg [cz::dget $slice segment] {
+            set pairs [list \
+                flight [json::write string "[cz::dget $seg marketCarrier][cz::dget $seg marketFlight]"]]
+            if {[cz::dget $seg operationCarrier] ne ""} {
+                lappend pairs operatedBy [json::write string \
+                    "[cz::dget $seg operationCarrier][cz::dget $seg operationFlight]"]
+            }
+            lappend pairs \
+                origin [json::write string [cz::dget $seg origin]] \
+                destination [json::write string [cz::dget $seg destination]] \
+                departure [json::write string [join [cz::dget $seg departure] " "]] \
+                arrival [json::write string [join [cz::dget $seg arrival] " "]]
+            lappend segjson [json::write object {*}$pairs]
+        }
+        lappend seljson [json::write object \
+            cabin [json::write string $cabinLabel] \
+            brand [json::write string [cz::dget $brand brandCodeLabel]] \
+            brandCode [json::write string [cz::dget $brand brandCode]] \
+            segments [json::write array {*}$segjson]]
+    }
     return [json::write object \
         mode [json::write string $mode] \
         legs [json::write array {*}$legjson] \
         passengers [json::write object adults $adults children $children infants $infants] \
-        itineraries [json::write array {*}$itins]]
+        selectedLegs [json::write array {*}$seljson] \
+        journeyOptions [json::write array {*}$itins]]
+}
+
+# The page-context JS for one /api/shop/next/<tripIdx> call: the same
+# form-encoded POST the app fires on a selection, through AwsWafIntegration
+# when the WAF script is loaded (its own http client does the same). Returns a
+# JSON wrapper {status, body} so a non-200 is distinguishable from a refusal
+# envelope, which arrives as HTTP 200.
+proc cz::next_js {tripIdx execution dates sos cabin brandCode segments tripType} {
+    set form [json::write object \
+        country [json::write string au] \
+        language [json::write string en] \
+        execution [json::write string $execution] \
+        date [json::write string [join $dates ","]] \
+        so [json::write string [join $sos "|"]] \
+        cabin [json::write string $cabin] \
+        brandCode [json::write string $brandCode] \
+        segments [json::write string $segments] \
+        tripType [json::write string $tripType]]
+    return [string map [list @FORM@ $form @PATH@ "/api/shop/next/$tripIdx"] {
+    (async () => {
+        const body = new URLSearchParams(@FORM@).toString();
+        const opts = {method: 'POST', credentials: 'include',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+            body: body};
+        const f = window.AwsWafIntegration
+            ? (u, o) => window.AwsWafIntegration.fetch(u, o)
+            : (u, o) => fetch(u, o);
+        const resp = await f('@PATH@', opts);
+        const text = await resp.text();
+        return JSON.stringify({status: resp.status, body: text});
+    })()
+    }]
 }
 
 proc serialiser_run {skillArgs} {
@@ -445,10 +569,20 @@ proc serialiser_run {skillArgs} {
         }
     }
 
-    set tsegs {}
-    foreach leg $legs {
-        lassign $leg d a dt
-        lappend tsegs "$d-$a-[string map {- ""} $dt]"
+    if {$mode == 1} {
+        # One t entry carrying both dates; the app's parser reads the fourth
+        # dash part as the back date and reverses the cities itself. A
+        # comma-separated reversed pair is rejected client-side before any
+        # network (see header).
+        lassign [lindex $legs 0] d a dt
+        set backdt [lindex [lindex $legs 1] 2]
+        set tsegs [list "$d-$a-[string map {- ""} $dt]-[string map {- ""} $backdt]"]
+    } else {
+        set tsegs {}
+        foreach leg $legs {
+            lassign $leg d a dt
+            lappend tsegs "$d-$a-[string map {- ""} $dt]"
+        }
     }
     set url "$cz::BASE?m=$mode&t=[join $tsegs ","]&p=$adults$children$infants"
     if {$currency ne ""} { append url "&cy=$currency" }
@@ -499,19 +633,86 @@ proc serialiser_run {skillArgs} {
         } else {
             emit [cz::render_text $ita $origin $dest $date $adults $children $infants]
         }
-    } else {
-        # The booking app prices a multi-leg journey one leg at a time: this
-        # response covers the first leg alone, which its own requestId spells
-        # out (base64 of "sliceGrid:B2C_SEARCH_<DEP>-<ARR>_<date>_..."). The
-        # totals on those rows are therefore not a whole-journey fare, and
-        # printing them beside the queried legs would read as one. Reaching
-        # the rest means selecting a leg and capturing what the app asks next.
-        set modestr [expr {$mode == 1 ? "return" : "multi-city"}]
-        set legstrs {}
-        foreach leg $legs {
-            lassign $leg d a dt
-            lappend legstrs "$d-$a $dt"
+        return
+    }
+
+    # Multi-leg: the first search covered leg 1 only (its requestId is base64
+    # of "sliceGrid:B2C_SEARCH_<DEP>-<ARR>_<date>_..."). Walk the remaining
+    # legs the way the UI does: fix the cheapest option, POST /api/shop/next,
+    # repeat. The final leg's amounts are the whole-journey totals (header).
+    set modestr [expr {$mode == 1 ? "return" : "multi-city"}]
+    set tripType [expr {$mode == 1 ? "R" : "M"}]
+    set execution ""
+    foreach t $triples {
+        lassign $t u status b
+        if {[string match "*/api/shop/decryptArgs*" $u] && $status == 200} {
+            catch {set execution [dict get [json::json2dict $b] execution]}
         }
-        emit "$modestr search reaches only the first leg: csair.com prices a multi-leg journey by selecting one leg at a time, and a single search returns [join $legstrs {, }] as first-leg options with no whole-journey total. Price each leg as its own one-way search, remembering that separate one-ways are not what the airline charges for a through-fare."
+    }
+    if {$execution eq ""} {
+        emit "no fare payload: the fare page loaded but its /api/shop/decryptArgs response (the execution id every next-leg request needs) did not arrive within the capture window"
+        return
+    }
+    set dates {}
+    foreach leg $legs { lappend dates [lindex $leg 2] }
+
+    set selections {}
+    set sos {}
+    set curIta $ita
+    set nLegs [llength $legs]
+    for {set idx 1} {$idx < $nLegs} {incr idx} {
+        set grid [cz::dget $curIta sliceGrid]
+        set rows [cz::dget $grid row]
+        set column [cz::dget $grid column]
+        if {![llength $rows]} {
+            lassign [lindex $legs [expr {$idx - 1}]] d a dt
+            emit "No itineraries: leg $idx ($d → $a $dt) has no options, so the $modestr journey cannot be priced."
+            return
+        }
+        set pick [cz::pick_cheapest $rows]
+        if {$pick eq ""} {
+            emit "unexpected fare payload: leg $idx returned rows but none carries a bookable brand (id + saleTotal); the site's payload format may have changed"
+            return
+        }
+        lassign $pick row ck brand
+        lappend sos "[cz::dget $curIta session]_[cz::dget $curIta solutionSet]_[cz::dget $brand id]"
+        lappend selections [list $row $ck [cz::dget $column $ck $ck] $brand]
+
+        set segparts {}
+        foreach seg [cz::dget [cz::dget $row slice] segment] {
+            lappend segparts "[cz::dget $seg origin]|[cz::dget $seg destination]|[lindex [cz::dget $seg departure] 0]|[cz::dget $seg marketCarrier][cz::dget $seg marketFlight]"
+        }
+        dwell 2
+        set raw [eval [cz::next_js $idx $execution $dates $sos $ck \
+            [cz::dget $brand brandCode] [join $segparts ","] $tripType]]
+        if {[catch {json::json2dict $raw} wrap] || ![dict exists $wrap status]} {
+            emit "unexpected fare payload: the leg-[expr {$idx + 1}] request returned an unreadable envelope"
+            return
+        }
+        set status [dict get $wrap status]
+        set body [dict get $wrap body]
+        if {$status != 200} {
+            emit "next-leg request refused: /api/shop/next/$idx answered HTTP $status where the leg-[expr {$idx + 1}] fare grid was expected"
+            return
+        }
+        if {[catch {json::json2dict $body} data2]} {
+            emit "unexpected fare payload: /api/shop/next/$idx returned [string length $body] bytes that do not parse as the known ita shape"
+            return
+        }
+        set refusal [cz::refusal $data2]
+        if {$refusal ne ""} {
+            emit $refusal
+            return
+        }
+        if {[catch {dict get $data2 ita} curIta]} {
+            emit "unexpected fare payload: /api/shop/next/$idx returned [string length $body] bytes that do not parse as the known ita shape"
+            return
+        }
+    }
+
+    if {$asJson} {
+        emit [cz::render_journey_json $curIta $modestr $legs $selections $adults $children $infants]
+    } else {
+        emit [cz::render_journey_text $curIta $modestr $legs $selections $adults $children $infants]
     }
 }

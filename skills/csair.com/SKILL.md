@@ -35,17 +35,37 @@ Parameters:
   picks its default for the route.
 - `--json` — structured output instead of the text table.
 
-## Return and multi-city reach only the first leg
+## Return and multi-city: whole-journey fares (not yet fired end to end)
 
-`--return YYYY-MM-DD` and a repeatable `--leg DEP-ARR-YYYY-MM-DD` compose the
-trip modes the booking app's own parser accepts, and the app answers them.
-What comes back is the first leg's options: the site prices a multi-leg
-journey by selecting one leg and then offering the next, and the response
-says so in its own requestId, which decodes to
-`sliceGrid:B2C_SEARCH_<DEP>-<ARR>_<date>_...`. Those rows carry totals, but
-they are not a whole-journey fare, so the skill reports the limit instead of
-printing them beside the queried legs where they would read as one. Reaching
-the later legs means selecting one and capturing what the app asks next.
+The leg-walking described below was written from the app's own code and has
+never completed a live run: the site's search quota refused every attempt on
+the night it was built. Treat its numbers as unconfirmed until someone
+watches one journey through, and check a total against the same legs queried
+separately before trusting it. The one-way path above is unaffected and is
+verified.
+
+
+`--return YYYY-MM-DD` adds the back leg; a repeatable `--leg DEP-ARR-YYYY-MM-DD`
+(2 to 5 of them, replacing the positional route) makes a multi-city journey:
+
+```bash
+browser-serialiser csair.com/search LHW CAN 2026-08-26 --return 2026-09-02
+browser-serialiser csair.com/search --leg BNE-CAN-2026-08-23 --leg CAN-LHW-2026-08-24 --json
+```
+
+The site prices a multi-leg journey the way its UI does, one leg at a time:
+each search covers one leg, and selecting an option unlocks the next leg's
+grid (`/api/shop/next`), whose amounts are cumulative running totals. The
+skill walks that flow in one run: every leg before the last is fixed to its
+cheapest bookable option, and the output is the final leg's options, each
+amount the whole-journey total for the party. The fixed selections are echoed
+(flights, cabin, brand) without amounts, since a non-final leg's numbers are
+not a whole-journey fare. `--json` puts them in `selectedLegs` and the
+whole-journey rows in `journeyOptions`.
+
+A multi-leg query costs one site search plus one next-leg request per later
+leg, so it draws the same quota as its legs queried separately; the quota
+notes under Failure modes apply unchanged.
 
 ## Output
 
@@ -71,8 +91,12 @@ A route/date combination the booking app serves but has no seats for, returns
 - `parameters rejected: ...` — the booking app dropped back to its empty
   search form instead of the fare page, its behaviour for a deep link it will
   not price; the landing URL is included.
-- `no fare payload: ...` — the fare page loaded but its search response did
-  not arrive within the capture window; usually transient, retry later.
+- `no fare payload: ...` — the fare page loaded but its search response (or,
+  for a multi-leg query, the decryptArgs response the next-leg requests need)
+  did not arrive within the capture window; usually transient, retry later.
+- `next-leg request refused: ...` — a later leg's `/api/shop/next` call
+  answered with an HTTP status instead of a fare grid; the refusal envelopes
+  below can also arrive on these calls and are reported the same way.
 - `rate-limited by csair.com (CZWEB000010 / CZWEB000003): ...` — the site
   answered the search with its IP-quota refusal instead of fares (HTTP 200
   with a tiny JSON envelope). `CZWEB000010` means the site is demanding a
