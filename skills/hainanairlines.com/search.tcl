@@ -603,9 +603,9 @@ proc serialiser_run {skillArgs} {
         return
     }
 
-    # Arm the Network domain on entry (capture, not nav): the doEnc submit
-    # chain needs the domain live, and the real-browser navigation is what
-    # passes Imperva.
+    # capture rather than nav, for the one property that separates them: only
+    # capture arms the Network domain, which the doEnc submit chain needs live.
+    # The match glob is written to catch nothing, the arming being the point.
     capture $hu::HOME --seconds 12 --match "__none__"
     set st [state]
     if {[dict get $st terminal] ne ""} {

@@ -77,11 +77,17 @@ def api_request(method, path, headers, payload=None):
             % (url, len(raw)))
 
 
+def parse_dt(dt_iso):
+    try:
+        return datetime.strptime(dt_iso, "%Y-%m-%dT%H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
 def timestr(dt_iso, qdate):
     # "2026-08-25T18:55:00" -> "18:55", or "18:55 (+1)" past the queried date.
-    try:
-        d = datetime.strptime(dt_iso, "%Y-%m-%dT%H:%M:%S")
-    except (TypeError, ValueError):
+    d = parse_dt(dt_iso)
+    if d is None:
         return dt_iso or "?"
     off = (d.date() - qdate).days
     t = d.strftime("%H:%M")
@@ -118,7 +124,42 @@ def seg_flight(seg):
 
 
 def stops_of(segs):
+    # Technical (same-flight) stops summed across every segment, plus one per
+    # connection between segments: one number covering both kinds.
     return sum(s.get("numberOfStops") or 0 for s in segs) + max(len(segs) - 1, 0)
+
+
+def duration_minutes(segs):
+    """Total elapsed minutes: flying time plus the layovers between segments.
+
+    The payload's dateTime values are local and carry no offset, so a plain
+    first-to-last subtraction is wrong whenever an itinerary crosses zones.
+    Each layover is a difference at one airport, hence real time, and each
+    segment carries its own flying time, so the sum is right.
+    """
+    total = 0
+    for seg in segs:
+        d = seg.get("duration") or ""
+        if ":" not in d:
+            return None
+        try:
+            h, m = d.split(":", 1)
+            total += int(h) * 60 + int(m)
+        except ValueError:
+            return None
+    for prev, nxt in zip(segs, segs[1:]):
+        arr = parse_dt((prev.get("arrival") or {}).get("dateTime"))
+        dep = parse_dt((nxt.get("departure") or {}).get("dateTime"))
+        if arr is None or dep is None:
+            return None
+        total += int((dep - arr).total_seconds() // 60)
+    return total
+
+
+def fmt_minutes(mins):
+    if mins is None:
+        return ""
+    return "%dh%02dm" % (mins // 60, mins % 60)
 
 
 def fare_label(price):
@@ -177,7 +218,7 @@ def render_text(doc, args, qdate):
         arr = segs[-1].get("arrival") or {}
         stops = stops_of(segs)
         stopstr = "nonstop" if stops == 0 else ("1 stop" if stops == 1 else "%d stops" % stops)
-        dur = fmt_duration(segs[0].get("duration")) if len(segs) == 1 else ""
+        dur = fmt_minutes(duration_minutes(segs))
         header = "%d) %s %s → %s %s" % (n, dep.get("iataCode", ""), timestr(dep.get("dateTime"), qdate),
                                         arr.get("iataCode", ""), timestr(arr.get("dateTime"), qdate))
         header += "   %s%s" % (dur + ", " if dur else "", stopstr)
@@ -282,6 +323,7 @@ def render_json(doc, args):
         itins.append({
             "departure": (segs[0].get("departure") or {}).get("dateTime"),
             "arrival": (segs[-1].get("arrival") or {}).get("dateTime"),
+            "durationMinutes": duration_minutes(segs),
             "stops": stops_of(segs),
             "priced": bool(opt.get("prices")),
             "segments": seg_out,
