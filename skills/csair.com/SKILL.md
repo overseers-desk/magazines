@@ -61,6 +61,15 @@ A route/date combination the booking app serves but has no seats for, returns
   not price; the landing URL is included.
 - `no fare payload: ...` — the fare page loaded but its search response did
   not arrive within the capture window; usually transient, retry later.
+- `rate-limited by csair.com (CZWEB000010 / CZWEB000003): ...` — the site
+  answered the search with its IP-quota refusal instead of fares (HTTP 200
+  with a tiny JSON envelope). `CZWEB000010` means the site is demanding a
+  captcha for this IP; `CZWEB000003` is its escalation when queries continue,
+  and then covers the fare-calendar endpoint too. Repeating the search
+  prolongs the block: leave the site alone and retry much later. Roughly
+  twenty searches inside one evening triggered it.
+- `search refused by csair.com (CZWEBnnnnnn): ...` — a refusal envelope with
+  a code this skill does not know; the desc is echoed ASCII-sanitised.
 - `unexpected fare payload: ...` — a search response arrived but did not
   parse into the known `ita` shape; the site's payload format may have
   changed.
