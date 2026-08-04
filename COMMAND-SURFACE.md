@@ -86,6 +86,14 @@ with `dwell` instead.
 so the surface reads as: `nav`, `dump`, `eval`, `api`, `capture`(+`harvest`),
 `veto`, `type`, `click`, `key`, `state`, `emit`, `dwell`(+`log`).
 
+`capture` is the only verb that turns the CDP Network domain on, and `harvest`
+reads the buffer that `capture` filled. A skill that reaches a page with `nav`,
+drives it with `click`/`type`/`eval`, and then calls `harvest` collects nothing,
+however long it dwells: nothing was listening while the page fetched. To observe
+traffic a page issues in response to in-page action, enter the page through
+`capture` (`--match "__none__"` when the arming, not the bodies, is the point),
+act, then `harvest` the matches.
+
 ## Wall handling
 
 The harness, not the skill, classifies walls:
