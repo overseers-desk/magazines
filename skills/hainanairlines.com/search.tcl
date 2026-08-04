@@ -1,10 +1,10 @@
 #!/usr/bin/env tclsh
-# Hainan Airlines (HU) one-way fare search on www.hainanairlines.com.
+# Hainan Airlines (HU) one-way and return fare search on www.hainanairlines.com.
 #
 # Access pattern (verified live, see the sibling SKILL.md for the caller view):
 # the Home page's REVENUE search form is filled by writing its hidden inputs
-# (B_LOCATION_1 / E_LOCATION_1 / B_DATE_1, TRIP_TYPE=O, NB_ADT / NB_CHD) and
-# then calling the native HTMLFormElement submit. The site's own click-handler
+# (B_LOCATION_1 / E_LOCATION_1 / B_DATE_1 / B_DATE_2, TRIP_TYPE, NB_ADT /
+# NB_CHD) and then calling the native HTMLFormElement submit. The site's own click-handler
 # chain (flightSearchForm.js) validates, may show popups, and ends in a plain
 # formRef.submit() with no field mutation, so a native submit with the fields
 # pre-set posts byte-identically to a human search — including the dynamic
@@ -13,6 +13,13 @@
 # typing into the visible location widget fails because its container computes
 # display:none with a zero bounding rect. So: field injection + native submit,
 # nothing else.
+#
+# The form's whole trip-type vocabulary, read from the live Home page: the
+# TRIP_TYPE radios are exactly R ("Round Trip", the default) and O ("One-way"),
+# and the field set carries one location pair and two dates (B_DATE_1 /
+# B_DATE_2) and nothing else — no second location pair, no third date, no
+# multi-city wording anywhere on the page. Multi-city does not exist in this
+# form, so this skill does not offer it.
 #
 # The result is taken from `dump`, not `harvest`: the availability document's
 # body is evicted from the CDP network buffer across the doEnc redirect chain
@@ -29,8 +36,30 @@
 #    in mapDataUI.FF_BENEFITS; the +/-3-day price calendar in
 #    mapDataUI.LIST_BOUND[0].CALENDAR.
 #  - Domestic markets: "Schedule driven Availability". Flights with per-cabin
-#    seat status live in clientSideData.AVAI.LIST_BOUND[0].LIST_FLIGHT; the
-#    page defers prices to flight selection, so none are in the dump.
+#    seat status live in clientSideData.AVAI.LIST_BOUND[bi].LIST_FLIGHT (one
+#    bound per journey direction); the page defers prices to flight selection,
+#    so none are in the dump.
+#
+# A return search (TRIP_TYPE=R, B_DATE_2 set) on an international market comes
+# back as the same Flex Pricer page with BOTH bounds in one payload
+# (mapDataUI.LIST_BOUND has two entries) and a combinational price model:
+# mapDataOut.LIST_PANEL[0].LIST_TAB[0].LIST_RECOMMENDATION is the whole-journey
+# price list, one entry per (outbound flight+fare family, return flight+fare
+# family) combination, each with LIST_TRIP_PRICE[0].TOTAL_AMOUNT covering the
+# whole journey. Established from the payload itself, not from plausibility:
+# each recommendation appears once under each bound's flight
+# (RECOMMENDATIONS_BY_FF...RECOMMENDATIONS, keyed <otherBoundFF>-<otherBound
+# FLIGHT_ID>, sharing one RECOMMENDATION_ID), and the two per-bound
+# PRICE_TO_DISPLAY values summed to LIST_TRIP_PRICE[0].TOTAL_AMOUNT for all
+# 114 of 114 recommendations on the first capture (CKG-MAD 2026-09-02 /
+# 2026-09-09). So the per-bound prices are components of the journey total,
+# not fares — the renderer prints only the recommendation totals and treats
+# the bound prices as internal. LIST_PANEL[1] carries alternate-city upsell
+# recommendations (other origins/destinations than the queried journey) and
+# is deliberately ignored. The totals cover the whole party, not one adult:
+# the same return queried with NB_ADT=2 priced every combination at exactly
+# twice its 1-adult TOTAL_AMOUNT (the one-way page, by contrast, displays
+# per-adult fares).
 # The fare currency sits at clientSideData.MapDataIn.FARE_CURRENCY, and that
 # capital M is the site's own spelling beside its lowercase siblings, so a
 # lookup written to match them silently finds nothing.
@@ -55,7 +84,7 @@ set hu::HOME "https://www.hainanairlines.com/AU/GB/Home"
 set hu::CABIN_ORDER {ECONOMY PREMIUM_ECONOMY PREMIUMECONOMY BUSINESS FIRST}
 
 proc hu::usage {} {
-    return "Usage: hainanairlines.com/search <origin> <dest> <date YYYY-MM-DD> \[--adults N] \[--children N] \[--json]"
+    return "Usage: hainanairlines.com/search <origin> <dest> <date YYYY-MM-DD> \[--return YYYY-MM-DD] \[--adults N] \[--children N] \[--json]"
 }
 
 proc hu::dget {d key {default ""}} {
@@ -221,10 +250,11 @@ proc hu::ff_names {csd} {
     return $map
 }
 
-# FLIGHT_ID -> segment list, from the proposed-bound side of the model.
-proc hu::intl_segments {csd} {
+# FLIGHT_ID -> segment list for bound $bi, from the proposed-bound side of
+# the model (bound 0 the outbound, bound 1 the return of a return search).
+proc hu::intl_segments {csd {bi 0}} {
     set map {}
-    foreach f [hu::dgetp $csd {mapDataOut LIST_PANEL 0 LIST_TAB 0 LIST_PROPOSED_BOUND 0 LIST_FLIGHT}] {
+    foreach f [hu::dgetp $csd [list mapDataOut LIST_PANEL 0 LIST_TAB 0 LIST_PROPOSED_BOUND $bi LIST_FLIGHT]] {
         dict set map [hu::dget $f FLIGHT_ID] [hu::dget $f LIST_SEGMENT]
     }
     return $map
@@ -414,6 +444,7 @@ proc hu::render_intl_json {csd origin dest date adults children currency} {
     }
     return [json::write object \
         type [json::write string "farePriced"] \
+        trip [json::write string "one-way"] \
         origin [json::write string $origin] \
         destination [json::write string $dest] \
         date [json::write string $date] \
@@ -424,10 +455,275 @@ proc hu::render_intl_json {csd origin dest date adults children currency} {
 }
 
 # ---------------------------------------------------------------------------
+# Return (two-bound FlexPricer) shape. Prices come only from the whole-journey
+# recommendation list; the per-bound PRICE_TO_DISPLAY values are components of
+# those totals (they sum to TOTAL_AMOUNT, verified 114/114 on first capture)
+# and are never rendered.
+
+# FLIGHT_IDs of bound $bi in the page's display order (FLIGHT_INDEX).
+proc hu::bound_flight_ids {csd bi} {
+    set keyed {}
+    foreach f [hu::dgetp $csd [list mapDataUI LIST_BOUND $bi LIST_FLIGHT]] {
+        lappend keyed [list [hu::dget $f FLIGHT_INDEX 0] [hu::dget $f FLIGHT_ID]]
+    }
+    set out {}
+    foreach kf [lsort -integer -index 0 $keyed] { lappend out [lindex $kf 1] }
+    return $out
+}
+
+# Whole-journey recommendations of the queried journey (LIST_PANEL[0] only:
+# LIST_PANEL[1] holds alternate-city upsells): list of dicts.
+proc hu::ret_combos {csd} {
+    set out {}
+    foreach r [hu::dgetp $csd {mapDataOut LIST_PANEL 0 LIST_TAB 0 LIST_RECOMMENDATION}] {
+        set total [hu::dgetp $r {LIST_TRIP_PRICE 0 TOTAL_AMOUNT}]
+        if {![string is double -strict $total]} { continue }
+        set seats [hu::dgetp $r {LIST_BOUND 0 LIST_FLIGHT 0 NUMBER_OF_LAST_SEATS} 9]
+        set s1 [hu::dgetp $r {LIST_BOUND 1 LIST_FLIGHT 0 NUMBER_OF_LAST_SEATS} 9]
+        if {[string is integer -strict $s1] \
+                && (![string is integer -strict $seats] || $s1 < $seats)} {
+            set seats $s1
+        }
+        lappend out [dict create \
+            rid [hu::dget $r RECOMMENDATION_ID] \
+            outId [hu::dgetp $r {LIST_BOUND 0 LIST_FLIGHT 0 FLIGHT_ID}] \
+            outFF [hu::dgetp $r {LIST_BOUND 0 FARE_FAMILY SHORT_NAME}] \
+            inId [hu::dgetp $r {LIST_BOUND 1 LIST_FLIGHT 0 FLIGHT_ID}] \
+            inFF [hu::dgetp $r {LIST_BOUND 1 FARE_FAMILY SHORT_NAME}] \
+            total $total \
+            base [hu::dgetp $r {LIST_TRIP_PRICE 0 AMOUNT_WITHOUT_TAX} 0] \
+            tax [hu::dgetp $r {LIST_TRIP_PRICE 0 TAX} 0] \
+            currency [hu::dgetp $r {LIST_TRIP_PRICE 0 CURRENCY CODE}] \
+            seats $seats]
+    }
+    return $out
+}
+
+# The cabin key of one combination; the two bounds' fare families have only
+# been seen in the same cabin, but a mixed pair would render as "ECONOMY/
+# BUSINESS" rather than mislabel either half.
+proc hu::combo_cabin {c ffCabin} {
+    set a [hu::dget $ffCabin [dict get $c outFF] [dict get $c outFF]]
+    set b [hu::dget $ffCabin [dict get $c inFF] [dict get $c inFF]]
+    if {$a eq $b} { return $a }
+    return "$a/$b"
+}
+
+proc hu::combo_ff_label {c ffName} {
+    set outFF [dict get $c outFF]
+    set inFF [dict get $c inFF]
+    set a [hu::dget $ffName $outFF $outFF]
+    if {$outFF eq $inFF} { return $a }
+    return "$a + [hu::dget $ffName $inFF $inFF]"
+}
+
+# "O1) CKG 02:25 → MAD 08:55   13h30m, nonstop" plus one line per segment.
+proc hu::flight_block {label segs qdate} {
+    set first [lindex $segs 0]
+    set last [lindex $segs end]
+    set dep [hu::timestr [hu::dget $first B_DATE 0] $qdate]
+    set arr [hu::timestr [hu::dget $last E_DATE 0] $qdate]
+    set dur [hu::duration [hu::itin_duration_ms $segs]]
+    set stops [hu::stopstr [expr {[llength $segs] - 1}]]
+    set out "$label) [hu::dgetp $first {B_LOCATION LOCATION_CODE}] $dep → [hu::dgetp $last {E_LOCATION LOCATION_CODE}] $arr   $dur, $stops"
+    foreach seg $segs {
+        append out "\n   [hu::seg_line $seg $qdate]"
+    }
+    return $out
+}
+
+# Combos grouped per (outbound, return) flight pair, pairs ordered by their
+# cheapest total: list of {pairKey comboList}.
+proc hu::ret_pairs {combos} {
+    set pairs {}
+    foreach c $combos {
+        dict lappend pairs "[dict get $c outId],[dict get $c inId]" $c
+    }
+    set keyed {}
+    foreach {pk lst} $pairs {
+        set lo ""
+        foreach c $lst {
+            set t [dict get $c total]
+            if {$lo eq "" || $t < $lo} { set lo $t }
+        }
+        lappend keyed [list $lo $pk $lst]
+    }
+    set out {}
+    foreach k [lsort -real -index 0 $keyed] {
+        lappend out [list [lindex $k 1] [lindex $k 2]]
+    }
+    return $out
+}
+
+# Cabin keys present in one pair's combos, CABIN_ORDER first.
+proc hu::pair_cabins {lst ffCabin} {
+    variable CABIN_ORDER
+    set present {}
+    foreach c $lst {
+        set cab [hu::combo_cabin $c $ffCabin]
+        if {$cab ni $present} { lappend present $cab }
+    }
+    set keys {}
+    foreach cab $CABIN_ORDER {
+        if {$cab in $present} { lappend keys $cab }
+    }
+    foreach cab $present {
+        if {$cab ni $keys} { lappend keys $cab }
+    }
+    return $keys
+}
+
+proc hu::render_ret_text {csd origin dest date retDate adults children currency} {
+    set head "Hainan Airlines $origin → $dest $date + $dest → $origin $retDate, return, adults $adults children $children (each fare is the whole journey's total for the whole party)"
+    set combos [hu::ret_combos $csd]
+    set outIds [hu::bound_flight_ids $csd 0]
+    set inIds [hu::bound_flight_ids $csd 1]
+    if {![llength $combos] || ![llength $outIds] || ![llength $inIds]} {
+        return "$head\n\nNo itineraries for $origin → $dest $date + $dest → $origin $retDate."
+    }
+    set segOut [hu::intl_segments $csd 0]
+    set segIn [hu::intl_segments $csd 1]
+    set ffCabin [hu::ff_cabins $csd]
+    set ffName [hu::ff_names $csd]
+
+    set out $head
+    set num {}
+    append out "\n\nOutbound flights:"
+    set n 0
+    foreach id $outIds {
+        incr n
+        dict set num "O,$id" "O$n"
+        append out "\n[hu::flight_block O$n [hu::dget $segOut $id] $date]"
+    }
+    append out "\n\nReturn flights:"
+    set n 0
+    foreach id $inIds {
+        incr n
+        dict set num "R,$id" "R$n"
+        append out "\n[hu::flight_block R$n [hu::dget $segIn $id] $retDate]"
+    }
+
+    append out "\n\nWhole-journey fares per flight pair, cheapest pair first:"
+    foreach pair [hu::ret_pairs $combos] {
+        lassign $pair pk lst
+        lassign [split $pk ,] oid iid
+        append out "\n\n[hu::dget $num O,$oid ?] + [hu::dget $num R,$iid ?]"
+        foreach cab [hu::pair_cabins $lst $ffCabin] {
+            set keyed {}
+            foreach c $lst {
+                if {[hu::combo_cabin $c $ffCabin] ne $cab} { continue }
+                lappend keyed [list [dict get $c total] $c]
+            }
+            set fares [lsort -real -index 0 $keyed]
+            if {![llength $fares]} { continue }
+            set line [format "   %-14s %s %s" [hu::cabin_label $cab] $currency [hu::amt [lindex $fares 0 0]]]
+            set parts {}
+            foreach tc $fares {
+                set c [lindex $tc 1]
+                set part "[hu::combo_ff_label $c $ffName] [hu::amt [dict get $c total]]"
+                set seats [dict get $c seats]
+                if {[string is integer -strict $seats] && $seats < 9} {
+                    append part " (last $seats)"
+                }
+                lappend parts $part
+            }
+            append line "   \[[join $parts {, }]\]"
+            append out "\n$line"
+        }
+    }
+    return $out
+}
+
+# One bound flight as a JSON itinerary object (no fares: return fares are
+# whole-journey, so they live in the combinations array).
+proc hu::json_flight {segs} {
+    set first [lindex $segs 0]
+    set last [lindex $segs end]
+    return [json::write object \
+        origin [json::write string [hu::dgetp $first {B_LOCATION LOCATION_CODE}]] \
+        destination [json::write string [hu::dgetp $last {E_LOCATION LOCATION_CODE}]] \
+        departure [json::write string "[hu::ms_date [hu::dget $first B_DATE 0]] [hu::ms_time [hu::dget $first B_DATE 0]]"] \
+        arrival [json::write string "[hu::ms_date [hu::dget $last E_DATE 0]] [hu::ms_time [hu::dget $last E_DATE 0]]"] \
+        durationMinutes [expr {[hu::itin_duration_ms $segs] / 60000}] \
+        stops [expr {[llength $segs] - 1}] \
+        segments [json::write array {*}[hu::json_segments $segs]]]
+}
+
+proc hu::render_ret_json {csd origin dest date retDate adults children currency} {
+    set segOut [hu::intl_segments $csd 0]
+    set segIn [hu::intl_segments $csd 1]
+    set ffCabin [hu::ff_cabins $csd]
+    set ffName [hu::ff_names $csd]
+
+    set outIds [hu::bound_flight_ids $csd 0]
+    set inIds [hu::bound_flight_ids $csd 1]
+    set outjson {}
+    set idxOut {}
+    set n 0
+    foreach id $outIds {
+        incr n
+        dict set idxOut $id $n
+        lappend outjson [hu::json_flight [hu::dget $segOut $id]]
+    }
+    set injson {}
+    set idxIn {}
+    set n 0
+    foreach id $inIds {
+        incr n
+        dict set idxIn $id $n
+        lappend injson [hu::json_flight [hu::dget $segIn $id]]
+    }
+
+    set combjson {}
+    foreach pair [hu::ret_pairs [hu::ret_combos $csd]] {
+        lassign $pair pk lst
+        set keyed {}
+        foreach c $lst { lappend keyed [list [dict get $c total] $c] }
+        foreach tc [lsort -real -index 0 $keyed] {
+            set c [lindex $tc 1]
+            set cur [dict get $c currency]
+            if {$cur eq ""} { set cur $currency }
+            lappend combjson [json::write object \
+                outboundFlight [hu::dget $idxOut [dict get $c outId] 0] \
+                returnFlight [hu::dget $idxIn [dict get $c inId] 0] \
+                cabin [json::write string [hu::cabin_label [hu::combo_cabin $c $ffCabin]]] \
+                fareFamilies [json::write object \
+                    outbound [json::write object \
+                        code [json::write string [dict get $c outFF]] \
+                        label [json::write string [hu::dget $ffName [dict get $c outFF] [dict get $c outFF]]]] \
+                    return [json::write object \
+                        code [json::write string [dict get $c inFF]] \
+                        label [json::write string [hu::dget $ffName [dict get $c inFF] [dict get $c inFF]]]]] \
+                total [dict get $c total] \
+                base [dict get $c base] \
+                tax [dict get $c tax] \
+                currency [json::write string $cur] \
+                lastSeats [dict get $c seats]]
+        }
+    }
+    return [json::write object \
+        type [json::write string "farePriced"] \
+        trip [json::write string "return"] \
+        origin [json::write string $origin] \
+        destination [json::write string $dest] \
+        date [json::write string $date] \
+        returnDate [json::write string $retDate] \
+        passengers [json::write object adults $adults children $children] \
+        currency [json::write string $currency] \
+        outboundFlights [json::write array {*}$outjson] \
+        returnFlights [json::write array {*}$injson] \
+        combinations [json::write array {*}$combjson]]
+}
+
+# ---------------------------------------------------------------------------
 # Domestic (schedule-driven) shape
 
-proc hu::dom_flights {csd} {
-    return [hu::dgetp $csd {AVAI LIST_BOUND 0 LIST_FLIGHT}]
+proc hu::dom_bounds {csd} {
+    return [hu::dgetp $csd {AVAI LIST_BOUND}]
+}
+
+proc hu::dom_flights {csd {bi 0}} {
+    return [hu::dgetp $csd [list AVAI LIST_BOUND $bi LIST_FLIGHT]]
 }
 
 # Per-segment cabin availability: list of {label status}. Status "9" is the
@@ -440,42 +736,67 @@ proc hu::seg_cabins {seg} {
     return $out
 }
 
-proc hu::render_dom_text {csd origin dest date adults children} {
-    set flights [hu::dom_flights $csd]
-    set head "Hainan Airlines $origin → $dest $date, one-way, adults $adults children $children"
-    if {![llength $flights]} {
-        return "$head\n\nNo flights for $origin → $dest on $date."
+# One domestic flight as its text block, numbered $n against query date $qdate.
+proc hu::dom_flight_block {n f qdate} {
+    set segs [hu::dget $f LIST_SEGMENT]
+    set first [lindex $segs 0]
+    set last [lindex $segs end]
+    set dep [hu::timestr [hu::dget $first B_DATE 0] $qdate]
+    set arr [hu::timestr [hu::dget $last E_DATE 0] $qdate]
+    # Domestic flights share one time zone, so first-to-last is real time.
+    set dur [hu::duration [expr {[hu::dget $last E_DATE 0] - [hu::dget $first B_DATE 0]}]]
+    set stops [expr {[llength $segs] - 1}]
+    set out "\n\n$n) [hu::dgetp $first {B_LOCATION LOCATION_CODE}] $dep → [hu::dgetp $last {E_LOCATION LOCATION_CODE}] $arr   $dur, [hu::stopstr $stops]"
+    foreach seg $segs {
+        set cabs {}
+        foreach cs [hu::seg_cabins $seg] {
+            lassign $cs label status
+            lappend cabs "$label $status"
+        }
+        set line "   [hu::seg_line $seg $qdate]   [hu::dgetp $seg {EQUIPMENT NAME}]"
+        if {[llength $cabs]} { append line "   seats: [join $cabs {, }]" }
+        append out "\n$line"
     }
-    set out "$head\nSchedule-driven availability: this page lists flights and per-cabin seat counts; the site defers prices to flight selection, so no prices are in this result (seat count 9 means nine or more)."
-    set n 0
-    foreach f $flights {
-        incr n
-        set segs [hu::dget $f LIST_SEGMENT]
-        set first [lindex $segs 0]
-        set last [lindex $segs end]
-        set dep [hu::timestr [hu::dget $first B_DATE 0] $date]
-        set arr [hu::timestr [hu::dget $last E_DATE 0] $date]
-        # Domestic flights share one time zone, so first-to-last is real time.
-        set dur [hu::duration [expr {[hu::dget $last E_DATE 0] - [hu::dget $first B_DATE 0]}]]
-        set stops [expr {[llength $segs] - 1}]
-        append out "\n\n$n) [hu::dgetp $first {B_LOCATION LOCATION_CODE}] $dep → [hu::dgetp $last {E_LOCATION LOCATION_CODE}] $arr   $dur, [hu::stopstr $stops]"
-        foreach seg $segs {
-            set cabs {}
-            foreach cs [hu::seg_cabins $seg] {
-                lassign $cs label status
-                lappend cabs "$label $status"
-            }
-            set line "   [hu::seg_line $seg $date]   [hu::dgetp $seg {EQUIPMENT NAME}]"
-            if {[llength $cabs]} { append line "   seats: [join $cabs {, }]" }
-            append out "\n$line"
+    return $out
+}
+
+proc hu::render_dom_text {csd origin dest date retDate adults children} {
+    set note "Schedule-driven availability: this page lists flights and per-cabin seat counts; the site defers prices to flight selection, so no prices are in this result (seat count 9 means nine or more)."
+    if {$retDate eq ""} {
+        set flights [hu::dom_flights $csd]
+        set head "Hainan Airlines $origin → $dest $date, one-way, adults $adults children $children"
+        if {![llength $flights]} {
+            return "$head\n\nNo flights for $origin → $dest on $date."
+        }
+        set out "$head\n$note"
+        set n 0
+        foreach f $flights {
+            incr n
+            append out [hu::dom_flight_block $n $f $date]
+        }
+        return $out
+    }
+    set head "Hainan Airlines $origin → $dest $date + $dest → $origin $retDate, return, adults $adults children $children"
+    set out "$head\n$note"
+    foreach {bi qdate label} [list 0 $date "Outbound $origin → $dest $date" 1 $retDate "Return $dest → $origin $retDate"] {
+        set flights [hu::dom_flights $csd $bi]
+        append out "\n\n$label:"
+        if {![llength $flights]} {
+            append out "\nNo flights."
+            continue
+        }
+        set n 0
+        foreach f $flights {
+            incr n
+            append out [hu::dom_flight_block $n $f $qdate]
         }
     }
     return $out
 }
 
-proc hu::render_dom_json {csd origin dest date adults children} {
+proc hu::dom_json_itins {flights} {
     set itins {}
-    foreach f [hu::dom_flights $csd] {
+    foreach f $flights {
         set segs [hu::dget $f LIST_SEGMENT]
         set first [lindex $segs 0]
         set last [lindex $segs end]
@@ -507,20 +828,39 @@ proc hu::render_dom_json {csd origin dest date adults children} {
             stops [expr {[llength $segs] - 1}] \
             segments [json::write array {*}$segjson]]
     }
+    return $itins
+}
+
+proc hu::render_dom_json {csd origin dest date retDate adults children} {
+    set note "domestic schedule-driven display: prices appear only after flight selection and are not in this result"
+    if {$retDate eq ""} {
+        return [json::write object \
+            type [json::write string "scheduleOnly"] \
+            trip [json::write string "one-way"] \
+            note [json::write string $note] \
+            origin [json::write string $origin] \
+            destination [json::write string $dest] \
+            date [json::write string $date] \
+            passengers [json::write object adults $adults children $children] \
+            itineraries [json::write array {*}[hu::dom_json_itins [hu::dom_flights $csd]]]]
+    }
     return [json::write object \
         type [json::write string "scheduleOnly"] \
-        note [json::write string "domestic schedule-driven display: prices appear only after flight selection and are not in this result"] \
+        trip [json::write string "return"] \
+        note [json::write string $note] \
         origin [json::write string $origin] \
         destination [json::write string $dest] \
         date [json::write string $date] \
+        returnDate [json::write string $retDate] \
         passengers [json::write object adults $adults children $children] \
-        itineraries [json::write array {*}$itins]]
+        outboundItineraries [json::write array {*}[hu::dom_json_itins [hu::dom_flights $csd 0]]] \
+        returnItineraries [json::write array {*}[hu::dom_json_itins [hu::dom_flights $csd 1]]]]
 }
 
 # ---------------------------------------------------------------------------
 # Result-page rendering shared by both shapes
 
-proc hu::render_result {html origin dest date adults children asJson title url} {
+proc hu::render_result {html origin dest date retDate adults children asJson title url} {
     set obj [hu::extract_csd $html]
     set csd ""
     if {$obj ne "" && [catch {json::json2dict $obj} csd]} { set csd "" }
@@ -528,16 +868,31 @@ proc hu::render_result {html origin dest date adults children asJson title url} 
     set currency [hu::dgetp $csd {MapDataIn FARE_CURRENCY} "CNY"]
 
     if {[hu::dgetp $csd {mapDataUI LIST_BOUND}] ne ""} {
-        if {$asJson} {
-            return [hu::render_intl_json $csd $origin $dest $date $adults $children $currency]
+        set nb [llength [hu::dgetp $csd {mapDataUI LIST_BOUND}]]
+        if {$retDate eq ""} {
+            if {$asJson} {
+                return [hu::render_intl_json $csd $origin $dest $date $adults $children $currency]
+            }
+            return [hu::render_intl_text $csd $origin $dest $date $adults $children $currency]
         }
-        return [hu::render_intl_text $csd $origin $dest $date $adults $children $currency]
+        # A return render is only honest when the payload carries both legs;
+        # anything else would print one leg under a whole-journey heading.
+        if {$nb != 2} {
+            return "return search answered with $nb bound(s) instead of 2: the payload does not cover the whole journey, so it is not rendered as one (title '$title' at $url)"
+        }
+        if {$asJson} {
+            return [hu::render_ret_json $csd $origin $dest $date $retDate $adults $children $currency]
+        }
+        return [hu::render_ret_text $csd $origin $dest $date $retDate $adults $children $currency]
     }
     if {[hu::dget $csd AVAI] ne ""} {
-        if {$asJson} {
-            return [hu::render_dom_json $csd $origin $dest $date $adults $children]
+        if {$retDate ne "" && [llength [hu::dom_bounds $csd]] != 2} {
+            return "return search answered with [llength [hu::dom_bounds $csd]] bound(s) instead of 2: the payload does not cover the whole journey, so it is not rendered as one (title '$title' at $url)"
         }
-        return [hu::render_dom_text $csd $origin $dest $date $adults $children]
+        if {$asJson} {
+            return [hu::render_dom_json $csd $origin $dest $date $retDate $adults $children]
+        }
+        return [hu::render_dom_text $csd $origin $dest $date $retDate $adults $children]
     }
     # Neither data model is present: report what the site said, if anything.
     set msgs {}
@@ -559,12 +914,14 @@ proc serialiser_run {skillArgs} {
     set origin [string toupper [lindex $skillArgs 0]]
     set dest [string toupper [lindex $skillArgs 1]]
     set date [lindex $skillArgs 2]
+    set retDate ""
     set adults 1
     set children 0
     set asJson 0
     for {set i 3} {$i < [llength $skillArgs]} {incr i} {
         set a [lindex $skillArgs $i]
         switch -- $a {
+            --return   { incr i; set retDate [lindex $skillArgs $i] }
             --adults   { incr i; set adults [lindex $skillArgs $i] }
             --children { incr i; set children [lindex $skillArgs $i] }
             --json     { set asJson 1 }
@@ -602,6 +959,17 @@ proc serialiser_run {skillArgs} {
         emit "bad date: $date is in the past (today is $today)"
         return
     }
+    if {$retDate ne ""} {
+        if {![regexp {^\d{4}-\d{2}-\d{2}$} $retDate] \
+                || [catch {clock scan $retDate -format %Y-%m-%d -gmt 1}]} {
+            emit "bad date: expected YYYY-MM-DD for --return, got $retDate"
+            return
+        }
+        if {[string compare $retDate $date] < 0} {
+            emit "bad date: return $retDate is before departure $date"
+            return
+        }
+    }
 
     # capture rather than nav, for the one property that separates them: only
     # capture arms the Network domain, which the doEnc submit chain needs live.
@@ -615,7 +983,16 @@ proc serialiser_run {skillArgs} {
     dwell 3
 
     # YYYYMMDD0000: the form's wire format for a date with no time preference.
+    # TRIP_TYPE is the form's own vocabulary: O one-way, R return (its whole
+    # radio set; there is no multi-city in this form).
     set wireDate "[string map {- {}} $date]0000"
+    if {$retDate eq ""} {
+        set tripType "O"
+        set wireDate2 ""
+    } else {
+        set tripType "R"
+        set wireDate2 "[string map {- {}} $retDate]0000"
+    }
 
     set js [format {
         (function(){
@@ -626,15 +1003,15 @@ proc serialiser_run {skillArgs} {
             form.find("input[name=B_LOCATION_1]").val("%s");
             form.find("input[name=E_LOCATION_1]").val("%s");
             form.find("input[name=B_DATE_1]").val("%s");
-            form.find("input[name=B_DATE_2]").val("");
-            form.find("input[name=TRIP_TYPE][value=O]").prop("checked", true).trigger("change");
+            form.find("input[name=B_DATE_2]").val("%s");
+            form.find("input[name=TRIP_TYPE][value=%s]").prop("checked", true).trigger("change");
             form.find("input[name=NB_ADT], select[name=NB_ADT]").val("%s");
             form.find("input[name=NB_CHD], select[name=NB_CHD]").val("%s");
             jq("#filght-search-from-REVENUE").val("%s");
             jq("#filght-search-to-REVENUE").val("%s");
             return "ok";
         })()
-    } $origin $dest $wireDate $adults $children $origin $dest]
+    } $origin $dest $wireDate $wireDate2 $tripType $adults $children $origin $dest]
     set filled ""
     catch { set filled [eval $js] }
     if {$filled ne "ok"} {
@@ -671,5 +1048,5 @@ proc serialiser_run {skillArgs} {
         return
     }
 
-    emit [hu::render_result $html $origin $dest $date $adults $children $asJson $title $url]
+    emit [hu::render_result $html $origin $dest $date $retDate $adults $children $asJson $title $url]
 }
