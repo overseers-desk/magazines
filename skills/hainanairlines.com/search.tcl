@@ -542,11 +542,7 @@ proc hu::render_result {html origin dest date adults children asJson title url} 
     # Neither data model is present: report what the site said, if anything.
     set msgs {}
     foreach m [hu::dget $csd LIST_MSG] {
-        if {[string is list $m] && [llength $m] % 2 == 0} {
-            foreach {k v} $m { lappend msgs $v }
-        } else {
-            lappend msgs $m
-        }
+        lappend msgs $m
     }
     set detail ""
     if {[llength $msgs]} { set detail "; site message: [join $msgs {; }]" }

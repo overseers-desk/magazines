@@ -66,8 +66,6 @@ flights", a normal answer.
 - `bad route: ...` / `bad passenger count: ...` / `bad date: ...` /
   `unknown option ...` — the arguments themselves don't satisfy Parameters
   above; no page is loaded.
-- `wall: terminal state ...` — the harness classified the landing as a wall
-  before the search was submitted.
 - `wait page never resolved: ...` — the site's "Please wait" interstitial
   never reloaded into a result page within the allowed rounds; usually
   transient, retry later.
