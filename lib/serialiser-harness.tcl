@@ -88,14 +88,20 @@ proc serialiser::setLogDir {dir} {
 # runs interleave by whole line, not mid-line. Wrapped in catch and gated on LogDir,
 # so a logging fault never fails the task. Local time with offset, so the reader need
 # not convert a UTC stamp to know when a burst ran.
+#
+# $data is escaped before the write: tab/newline/CR become their \t \n \r forms and
+# NUL is dropped. A skill arg carrying one of those bytes (argv is joined raw) would
+# otherwise split the record across lines, or plant a NUL that makes the file read as
+# binary to grep -I.
 proc serialiser::Log {tag data} {
     variable LogDir
     if {$LogDir eq ""} return
     catch {
         set ts [clock format [clock seconds] -format {%Y-%m-%dT%H:%M:%S%z}]
+        set safe [string map [list "\\" "\\\\" "\n" "\\n" "\r" "\\r" "\t" "\\t" "\x00" ""] $data]
         set ch [open [file join $LogDir skill.log] a]
         fconfigure $ch -encoding utf-8
-        puts -nonewline $ch "$ts\t[pid]\t$tag\t$data\n"
+        puts -nonewline $ch "$ts\t[pid]\t$tag\t$safe\n"
         close $ch
     }
 }
