@@ -126,7 +126,7 @@ ini() { python3 -c 'import configparser,os,pathlib,sys;p=pathlib.Path(os.environ
 ini otter.ai auto_push
 ```
 
-`true` means push in the business repo; anything else, including the empty string the reader returns for an unset key, keeps the capture a local commit. A push failure leaves the commit standing, so report it and carry on. The reader is the one in [`COMMAND-SURFACE.md`](../COMMAND-SURFACE.md); `git config -f` cannot read this file, because git rejects `_` in a key name and fails the whole file on the first one.
+`true` means push in the business repo; anything else, including the empty string the reader returns for an unset key, keeps the capture a local commit. A push failure leaves the commit standing, so report it and carry on. The reader is the one in [`COMMAND-SURFACE.md`](../COMMAND-SURFACE.md).
 
 ### 3.9 Mark the recording done
 
