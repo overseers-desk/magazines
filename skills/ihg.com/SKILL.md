@@ -23,13 +23,18 @@ availability API). For the member's own account (stays, bookings, points), see
 
 `login.tcl` signs in to IHG One Rewards and reads the member's own data, driven through `browser-serialiser` (the serialised-browsing skill). IHG ends the session when the browser closes, so each run logs in fresh; there is no token to cache, and crude (pure-Python login) is not viable here.
 
-Credentials live in `~/.config/magazines/config.ini` under `[ihg.com]` (`username`, `password`; the username may be a member number, an email, or a username). The safe interpreter cannot read that file, so the caller reads it and passes the values as arguments. Read it with ConfigParser interpolation disabled (`configparser.ConfigParser(interpolation=None)`): the password can contain a literal `%`, which otherwise raises `InterpolationSyntaxError` and silently yields an empty password.
+Credentials live in `~/.config/magazines/config.ini` under `[ihg.com]` (`username`, `password`; the username may be a member number, an email, or a username). The safe interpreter cannot read that file, so the credentials arrive as arguments. Substitute them in the shell with the reader from [`COMMAND-SURFACE.md`](../../COMMAND-SURFACE.md), which moves the password from the file to the argument list without it passing through the conversation:
 
 ```bash
-browser-serialiser ihg.com/login "$user" "$pass"            # account summary (name, tier, member #, points)
-browser-serialiser ihg.com/login "$user" "$pass" --stays    # + stays and points-activity JSON
-browser-serialiser ihg.com/login --check                    # probe the sign-in form, do not submit
+ini() { python3 -c 'import configparser,os,pathlib,sys;p=pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home()/".config")/"magazines/config.ini";c=configparser.ConfigParser(interpolation=None);c.read(p);print(c.get(sys.argv[1],sys.argv[2],fallback=""))' "$1" "$2"; }
+CRED=("$(ini ihg.com username)" "$(ini ihg.com password)")
+
+browser-serialiser ihg.com/login "${CRED[@]}"            # account summary (name, tier, member #, points)
+browser-serialiser ihg.com/login "${CRED[@]}" --stays    # + stays and points-activity JSON
+browser-serialiser ihg.com/login --check                 # probe the sign-in form, do not submit
 ```
+
+The reader disables ConfigParser interpolation, without which a literal `%` in the password raises `InterpolationSyntaxError` and silently yields an empty one. An empty value back from `ini` means the key is unset; report the missing prerequisite rather than submitting a blank form.
 
 The account summary emits the IHG One Rewards member number on its own `Member #:` line (parsed from the account-mgmt home page's "Member #" label), then the raw page-text dump that carries name, tier and points balance.
 

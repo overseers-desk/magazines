@@ -42,6 +42,31 @@ two directories. This preserves single-source-of-truth for shared components
 (e.g. the other Instagram scripts source `fetch-recent-posts.tcl` as their
 library).
 
+## Credentials: config.ini reaches a skill as arguments
+
+`$HOME/.config/magazines/config.ini` sits outside the safe interp's access
+path, so a skill takes every credential as a `skillArgs` element and the
+caller supplies it. This shell function is the reader:
+
+    ini() { python3 -c 'import configparser,os,pathlib,sys;p=pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home()/".config")/"magazines/config.ini";c=configparser.ConfigParser(interpolation=None);c.read(p);print(c.get(sys.argv[1],sys.argv[2],fallback=""))' "$1" "$2"; }
+
+Substitute its output straight into the command:
+
+    browser-serialiser qantas.com/login "$(ini qantas.com member_id)" "$(ini qantas.com last_name)" "$(ini qantas.com pin)"
+
+The substitution runs in the shell, so a secret travels from the file to the
+process argument list without an agent reading it. An agent that opens
+`config.ini` instead, or prints a value and retypes it, copies the credential
+into the conversation and out to the model provider, where the file's own
+permissions no longer protect it. Absent key or absent section yields the
+empty string, which a skill reports as a missing prerequisite.
+
+Two properties of the reader carry weight. `interpolation=None` keeps a literal
+`%` in a password from raising `InterpolationSyntaxError` and silently yielding
+an empty value. Python's `configparser` accepts the key syntax this file uses;
+`git config -f` does not, since git rejects `_` in a key name and fails the
+whole file on the first one it meets.
+
 ## The two enforcement planes
 
 - **Plane 1, capability.** `::safe::interpCreate` (Tcl Safe Base) hides

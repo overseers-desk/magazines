@@ -54,13 +54,18 @@ Date handling: the Flight Reward Finder only holds live and future availability 
 
 Returns first name, tier, member ID, points, and status credits. Login + read happen in one session because cookies do not persist across invocations while the snap chromium browser is open (it locks the user-data-dir).
 
-The skill runs under the policed surface: `serialiser_run` navigates the sign-in page, detects the form, types the credentials, clicks submit, then reads and parses the account page. The safe interpreter cannot read `config.ini`, so read the credentials from `$HOME/.config/magazines/config.ini` (`[qantas.com]` member_id, last_name, pin — see Prerequisites) and pass them as arguments:
+The skill runs under the policed surface: `serialiser_run` navigates the sign-in page, detects the form, types the credentials, clicks submit, then reads and parses the account page. The safe interpreter cannot read `config.ini`, so the credentials arrive as arguments. Substitute them in the shell with the reader from [`COMMAND-SURFACE.md`](../../COMMAND-SURFACE.md), which moves the PIN from the file to the argument list without it passing through the conversation:
 
 ```bash
-browser-serialiser qantas.com/login <member_id> <last_name> <pin>            # human-readable
-browser-serialiser qantas.com/login <member_id> <last_name> <pin> --json     # JSON
-browser-serialiser qantas.com/login --check                                  # open the form, do not submit
+ini() { python3 -c 'import configparser,os,pathlib,sys;p=pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home()/".config")/"magazines/config.ini";c=configparser.ConfigParser(interpolation=None);c.read(p);print(c.get(sys.argv[1],sys.argv[2],fallback=""))' "$1" "$2"; }
+CRED=("$(ini qantas.com member_id)" "$(ini qantas.com last_name)" "$(ini qantas.com pin)")
+
+browser-serialiser qantas.com/login "${CRED[@]}"            # human-readable
+browser-serialiser qantas.com/login "${CRED[@]}" --json     # JSON
+browser-serialiser qantas.com/login --check                 # open the form, do not submit
 ```
+
+An empty value back from `ini` means the key is unset; report the missing prerequisite rather than submitting a blank form.
 
 `--check` opens the sign-in form and reports it ready without submitting; it needs no credentials. The submit is supervised — this skill types and clicks once, and a live run sends the real credentials.
 

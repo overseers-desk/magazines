@@ -122,10 +122,11 @@ An entity confirmed in §3.4 goes into the owning repo's `capture-correction-ind
 `git add` the transcript, the staging document and the glossary if it changed, then commit as `Add <name>`. A failed commit stops this recording before the rename. Push only where the operator has opted in:
 
 ```bash
-git config -f "${XDG_CONFIG_HOME:-$HOME/.config}"/magazines/config.ini otter.ai.auto_push
+ini() { python3 -c 'import configparser,os,pathlib,sys;p=pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home()/".config")/"magazines/config.ini";c=configparser.ConfigParser(interpolation=None);c.read(p);print(c.get(sys.argv[1],sys.argv[2],fallback=""))' "$1" "$2"; }
+ini otter.ai auto_push
 ```
 
-`true` means push in the business repo; absent, the capture stays a local commit. A push failure leaves the commit standing — report it and carry on.
+`true` means push in the business repo; anything else, including the empty string the reader returns for an unset key, keeps the capture a local commit. A push failure leaves the commit standing, so report it and carry on. The reader is the one in [`COMMAND-SURFACE.md`](../COMMAND-SURFACE.md); `git config -f` cannot read this file, because git rejects `_` in a key name and fails the whole file on the first one.
 
 ### 3.9 Mark the recording done
 

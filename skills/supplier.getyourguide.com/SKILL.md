@@ -10,7 +10,13 @@ allowed-tools: Bash, Read, Write
 
 This skill requires a GetYourGuide supplier account and fresh authentication tokens (expire after ~1 hour).
 
-- **Supplier ID:** read from `~/.config/magazines/config.ini` under `[supplier.getyourguide.com] supplier_id`
+- **Supplier ID:** `[supplier.getyourguide.com] supplier_id` in `~/.config/magazines/config.ini`. Set the `$SUPPLIER_ID` the calls below use with the reader from [`COMMAND-SURFACE.md`](../../COMMAND-SURFACE.md), so the value reaches the shell without passing through the conversation:
+
+  ```bash
+  ini() { python3 -c 'import configparser,os,pathlib,sys;p=pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home()/".config")/"magazines/config.ini";c=configparser.ConfigParser(interpolation=None);c.read(p);print(c.get(sys.argv[1],sys.argv[2],fallback=""))' "$1" "$2"; }
+  SUPPLIER_ID="$(ini supplier.getyourguide.com supplier_id)"
+  ```
+
 - **Tokens:** Firebase Bearer token + Cloudflare cookies extracted from a live browser session (see "Authentication" section below)
 
 If you do not have a GetYourGuide supplier account, this skill does not apply. If the supplier ID is absent from `~/.config/magazines/config.ini`, pause and let the user know: "Add your supplier ID to `~/.config/magazines/config.ini` under `[supplier.getyourguide.com] supplier_id`. This file is not part of the shared aesop repository - create it locally."

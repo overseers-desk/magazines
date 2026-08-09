@@ -36,7 +36,13 @@ API key is read from one of:
 - Environment variable `SERPAPI_KEY`
 - `$HOME/.config/magazines/config.ini` under `[serpapi] api_key`
 
-Free plan allows 250 searches/month. Check usage at: `curl -s "https://serpapi.com/account.json?api_key=$(python3 -c "import configparser,pathlib; cp=configparser.ConfigParser(); cp.read(pathlib.Path.home()/'.config/magazines/config.ini'); print(cp['serpapi']['api_key'])")" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Used: {d[\"this_month_usage\"]}/250, Left: {d[\"total_searches_left\"]}')"`
+Free plan allows 250 searches/month. Check usage with the reader from [`COMMAND-SURFACE.md`](../COMMAND-SURFACE.md), which keeps the key in the shell rather than routing it through the conversation:
+
+```bash
+ini() { python3 -c 'import configparser,os,pathlib,sys;p=pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home()/".config")/"magazines/config.ini";c=configparser.ConfigParser(interpolation=None);c.read(p);print(c.get(sys.argv[1],sys.argv[2],fallback=""))' "$1" "$2"; }
+curl -s "https://serpapi.com/account.json?api_key=${SERPAPI_KEY:-$(ini serpapi api_key)}" |
+  python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Used: {d[\"this_month_usage\"]}/250, Left: {d[\"total_searches_left\"]}')"
+```
 
 ## Quick start
 
@@ -147,7 +153,7 @@ The subcommand wraps these two steps; run them manually only when you need the r
 2. **Pull reviews via the reviews engine**, paginating for older reviews:
 
    ```bash
-   SERPAPI_KEY=$(python3 -c "import configparser,pathlib; cp=configparser.ConfigParser(); cp.read(pathlib.Path.home()/'.config/magazines/config.ini'); print(cp['serpapi']['api_key'])")
+   SERPAPI_KEY="${SERPAPI_KEY:-$(ini serpapi api_key)}"   # ini() as defined under Setup
    curl -s "https://serpapi.com/search.json?engine=google_maps_reviews&data_id=<data_id>&sort_by=newestFirst&api_key=$SERPAPI_KEY"
    # reviews[] each with iso_date + rating + snippet + user.name
    # serpapi_pagination.next_page_token  ->  pass as next_page_token= for the next (older) page
@@ -162,7 +168,7 @@ For hotel searches (e.g. IHG availability), use the SerpApi Google Hotels engine
 ### Search for hotels
 
 ```bash
-SERPAPI_KEY=$(python3 -c "import configparser,pathlib; cp=configparser.ConfigParser(); cp.read(pathlib.Path.home()/'.config/magazines/config.ini'); print(cp['serpapi']['api_key'])")
+SERPAPI_KEY="${SERPAPI_KEY:-$(ini serpapi api_key)}"   # ini() as defined under Setup
 curl -s "https://serpapi.com/search.json?engine=google_hotels&q=${DESTINATION}+hotels&check_in_date=${CHECKIN}&check_out_date=${CHECKOUT}&adults=${ADULTS}&brands=17&sort_by=3&api_key=$SERPAPI_KEY"
 ```
 
@@ -199,7 +205,7 @@ The `properties` array contains hotels. Each property has:
 Use `property_token` from the search results to get detailed pricing for a specific hotel:
 
 ```bash
-SERPAPI_KEY=$(python3 -c "import configparser,pathlib; cp=configparser.ConfigParser(); cp.read(pathlib.Path.home()/'.config/magazines/config.ini'); print(cp['serpapi']['api_key'])")
+SERPAPI_KEY="${SERPAPI_KEY:-$(ini serpapi api_key)}"   # ini() as defined under Setup
 curl -s "https://serpapi.com/search.json?engine=google_hotels&property_token=${TOKEN}&check_in_date=${CHECKIN}&check_out_date=${CHECKOUT}&adults=${ADULTS}&api_key=$SERPAPI_KEY"
 ```
 
