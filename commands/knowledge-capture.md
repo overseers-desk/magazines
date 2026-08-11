@@ -115,7 +115,9 @@ Name the file `YYYY-MM-DD-topic-key-people`: lowercase, hyphenated, the recordin
 
 ### 3.7 Return what was resolved to the glossary
 
-An entity confirmed in §3.4 goes into the owning repo's `capture-correction-index.md`, in the section its type belongs to, carrying the mishearings this transcript produced and a short note of what confirmed it. The next capture then gets it from rung zero. Add only confirmed entities; a term still uncertain stays in the run report.
+The glossary is loaded whole into every later capture, so it is a working reference and not a register of everyone the business has met. An entity earns a line by being likely to recur: a colleague, a supplier or counterparty the business deals with repeatedly, someone influential, a term the speakers use often. A customer named once, an entity the transcript can barely identify, and a mishearing that arose from one speaker stumbling over a word all stay out, however confidently resolved — they cost every future capture context and buy nothing back.
+
+An entity that clears the bar goes into the owning repo's `capture-correction-index.md`, in the section its type belongs to, carrying the mishearings this transcript produced and a short note of what confirmed it. The next capture then gets it from rung zero. Add only confirmed entities; a term still uncertain stays in the run report.
 
 ### 3.8 Commit
 
