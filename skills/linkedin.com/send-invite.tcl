@@ -525,7 +525,12 @@ proc serialiser_run {skillArgs} {
 
     set page_url "https://www.linkedin.com/preload/custom-invite/?vanityName=$vanity_name"
     log "Navigating to: $page_url"
-    nav $page_url --wait 4
+    # Enter through `capture`, not `nav`: capture is the only verb that turns the
+    # CDP Network domain on, and the traffic worth seeing here is what the page
+    # issues after the send click. Nothing on the landing itself is wanted, so
+    # the match is a glob that cannot hit; the arming is the point, and the
+    # post-click `harvest` below reads what the domain collected.
+    capture $page_url --seconds 4 --match "__none__"
     if {[dict get [state] terminal] ne ""} {
         sv_emit_result [dict create status error reason "session is not active ([dict get [state] terminal])"]
         return
@@ -634,14 +639,38 @@ proc serialiser_run {skillArgs} {
     if {$toast eq "null"} { set toast "" }
     set modal_gone [expr {![sv_js_bool {!!document.querySelector("#send-invite-modal")}]}]
 
-    # The post-send Voyager confirmation network call is not harvestable on this
-    # surface (the send is a click, not a capture), so success is read from the
-    # DOM signals the legacy path also accepts: a toast or the modal closing.
+    # What the server said about the send. The Network domain has been on since
+    # the `capture` that opened the page, so the invitation call the click
+    # triggered is in the buffer; `harvest` filters it out by URL. Same evidence
+    # the CDP path reads, so both paths decide "sent" on the same footing, and
+    # an operator downstream can tell a server-confirmed send from an inferred
+    # one.
+    # One harvest only: it empties the buffer. So take every Voyager call and
+    # narrow here, on the same terms as the CDP path — the invite creation call
+    # names its action (verifyQuotaAndCreate) and the surrounding traffic names
+    # invitations or relationships, and LinkedIn has moved that path before.
     set inv_events {}
+    foreach h [harvest --match "*/voyager/api/*"] {
+        lassign $h u st body
+        if {[string first "verifyQuotaAndCreate" $u] < 0 && \
+            [string first "nvitation" $u] < 0 && \
+            [string first "elationship" $u] < 0} continue
+        lappend inv_events [dict create response [dict create url $u status $st] body $body]
+    }
     set server_message_echo ""
+    foreach e $inv_events {
+        if {[regexp {"(?:message|customMessage|note)"\s*:\s*"([^"]+)"} \
+                [dict get $e body] -> mm]} {
+            set server_message_echo $mm
+            break
+        }
+    }
 
     set api_ok 0
-    set api_failed 0
+    foreach e $inv_events {
+        if {[dict get $e response status] in {200 201 204}} { set api_ok 1 }
+    }
+    set api_failed [expr {[llength $inv_events] > 0 && !$api_ok}]
     set success [expr {$api_ok || ($toast ne "" && !$api_failed) || ($modal_gone && !$api_failed)}]
 
     # When the send did not confirm, classify the still-open modal into a
