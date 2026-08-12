@@ -1,5 +1,5 @@
 ---
-description: "Web search via the Brave Search API: title, URL, snippet per result. Covers people, businesses and topics that need a real search engine rather than a site-specific skill. Works headless; no browser involved."
+description: "Web search via the Brave: title, URL, snippet per result. Works headless, can serve as backup or when searching Google-gated info. Do not use this if built-in web search tool works for your purpose."
 argument-hint: <query terms, optionally followed by a result count>
 allowed-tools: Bash
 ---
