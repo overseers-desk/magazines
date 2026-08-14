@@ -1,210 +1,289 @@
 #!/usr/bin/env tclsh
-# Parse LinkedIn people search results HTML to extract profile URLs and headlines.
+# People search: a keyword, LinkedIn's filters, and several people's networks in
+# one call.
+# Home: skills/linkedin.com/parse-search.tcl
 #
-# Serialiser path (see SKILL.md): browser-serialiser linkedin.com/parse-search "<search terms>"
-#   navigates to the people-search URL, dumps the rendered DOM, and runs the
-#   identical parser over the in-memory HTML.
-# Direct path (legacy, file-fed): tclsh parse-search.tcl <html-file>
+# Serialiser path (see SKILL.md):
+#   browser-serialiser linkedin.com/parse-search "<search terms>"
+#   browser-serialiser linkedin.com/parse-search '{"keywords":"loan","connectionOf":["ACoAA..."]}'
 #
-# LinkedIn's DOM uses randomised class names, so we cannot select by class.
-# Instead we:
-#   1. Find all /in/ profile slugs in the HTML
-#   2. For each slug, extract nearby visible text to identify the person's name/headline
-#   3. Output: URL, inferred name, inferred headline
+# Direct path (offline parser test against a saved page):
+#   tclsh9.0 parse-search.tcl <search-results.html>
+#
+# Filter keys are LinkedIn's own, taken from the people-search filter-bar request
+# the site embeds in the page (example-cul-quota-wall.html carries one). A key
+# outside that vocabulary is refused by name rather than folded into the URL: a
+# key LinkedIn does not recognise is dropped in silence and the search returns a
+# plausible result set for a filter that never applied. That is not
+# hypothetical - titleFreeText was recommended here for months and returned
+# identical results for six different job titles (BUGS.md). The working key is
+# `title`.
+#
+# Cost: LinkedIn meters people search per account per calendar month, does not
+# report what remains, and degrades rather than errors when the meter runs out.
+# So a run reports what it spent, and reads one page unless asked for more.
 
-# Code-point length matching Python's len(): Tcl 8.6 stores a non-BMP char as a
-# surrogate pair (2 units), so subtract the high-surrogate count.
-proc cp_length {s} {
-    set n [string length $s]
-    set hi [regexp -all {[\uD800-\uDBFF]} $s]
-    return [expr {$n - $hi}]
+source [file join [file dirname [info script]] li-canonical.tcl]
+
+# LinkedIn's people-search vocabulary. Keys not in `LI_SEARCH_TEXT` take the
+# filter encoding, a percent-encoded JSON array, whether the caller passes one
+# value or several.
+set ::LI_SEARCH_TEXT {keywords origin firstName lastName title company schoolFreetext}
+set ::LI_SEARCH_FILTERS {
+    network geoUrn schoolFilter connectionOf followerOf currentCompany pastCompany
+    industry serviceCategory profileLanguage eventAttending activelyHiringForJobTitles
+    companyHQBingGeo companySizeV2 seniorityV2 openToVolunteer functionV2
+}
+set ::LI_SEARCH_BASE "https://www.linkedin.com/search/results/people/"
+
+# LinkedIn stops a free account at 100 pages, and answers page 101 with page one
+# rather than an error, so a caller reading past the ceiling re-reads the start.
+set ::LI_SEARCH_PAGE_CEILING 100
+
+# value(s) -> the query fragment for one key.
+proc search_param {key values} {
+    if {[lsearch -exact $::LI_SEARCH_TEXT $key] >= 0} {
+        return "$key=[url_qcomp $values]"
+    }
+    set parts {}
+    foreach v $values { lappend parts [url_qcomp $v] }
+    return "$key=%5B%22[join $parts {%22%2C%22}]%22%5D"
 }
 
-# Insert thousands separators into a non-negative integer string (Python {:,}).
-proc commafy {n} {
-    set s $n
-    set out ""
-    while {[string length $s] > 3} {
-        set out ",[string range $s end-2 end]$out"
-        set s [string range $s 0 end-3]
+# A filter dict -> one people-search URL. `origin` follows the query's shape the
+# way the site's own links do: the faceted origin when a filter is set, the
+# header origin for a bare keyword.
+proc search_url {filters page} {
+    set pairs {}
+    set faceted 0
+    dict for {k v} $filters {
+        if {$k eq "origin"} { continue }
+        if {[lsearch -exact $::LI_SEARCH_FILTERS $k] >= 0} { set faceted 1 }
+        lappend pairs [search_param $k $v]
     }
-    return "$s$out"
+    if {[dict exists $filters origin]} {
+        lappend pairs "origin=[url_qcomp [dict get $filters origin]]"
+    } else {
+        lappend pairs [expr {$faceted ? "origin=FACETED_SEARCH" : "origin=GLOBAL_SEARCH_HEADER"}]
+    }
+    if {$page > 1} { lappend pairs "page=$page" }
+    return "$::LI_SEARCH_BASE?[join $pairs &]"
 }
 
-# Remove the logged-in viewer's own profile data from the page.
-# Tcl notes: the ARE word boundary is \y (\b is a backspace here); and Tcl's
-# leftmost-longest matching makes .*?</nav> span past the first </nav>, so the
-# content is matched tempered-greedy ((?!</nav>).)* to stop at the first close,
-# reproducing Python's non-greedy .*? exactly.
-proc strip_viewer_content {html} {
-    regsub -all {(?i)<nav\y[^>]*>(?:(?!</nav>)(?:.|\n))*</nav>} $html {} html
-    regsub -all {(?i)<aside\y[^>]*>(?:(?!</aside>)(?:.|\n))*</aside>} $html {} html
-    return $html
-}
-
-# Render the search-results report from an HTML string, returning the report
-# text (the same lines the legacy path printed). A login/expired page returns the
-# single sentinel "@@LOGIN@@" so each caller can map it to its own exit/terminal
-# handling. The body is byte-identical to the predecessor's stdout.
-proc render_search_results {html} {
-    set html [strip_viewer_content $html]
-
-    # Check if this is a login page.
-    set title ""
-    if {[regexp {(?s)<title[^>]*>(.*?)</title>} $html -> t]} {
-        set title [string trim $t]
+# Read the caller's argument: a JSON object, or a bare string meaning a keyword
+# search. Returns {filters <dict> page <n> maxPages <n> connectionQuery <mode>}.
+proc search_args {raw} {
+    set raw [string trim $raw]
+    if {$raw eq ""} { error "no search given: pass search terms, or a JSON object of filters" }
+    if {[string index $raw 0] ne "\{"} {
+        return [dict create filters [dict create keywords $raw] \
+            page 1 maxPages 1 connectionQuery perTarget]
     }
-    set tl [string tolower $title]
-    foreach marker {"sign in" "log in" "iniciar"} {
-        if {[string first $marker $tl] >= 0} {
-            return "@@LOGIN@@"
-        }
-    }
+    if {[catch {::json::json2dict $raw} a]} { error "arguments are not JSON: $a" }
 
-    set out {}
-    lappend out "Page title: $title"
-    lappend out "HTML size: [commafy [cp_length $html]] bytes"
-    lappend out ""
-
-    # Extract profile slugs (catches all /in/ references).
-    set slugs [regexp -all -inline {linkedin\.com/in/([a-zA-Z0-9_-]+)} $html]
-    set seen {}
-    set unique {}
-    # regexp -all -inline returns flat {fullmatch submatch fullmatch submatch ...}
-    foreach {full s} $slugs {
-        if {![dict exists $seen $s]} {
-            dict set seen $s 1
-            lappend unique $s
-        }
-    }
-
-    if {![llength $unique]} {
-        lappend out "No profiles found in search results."
-        lappend out "Possible causes: login required, empty results, or DOM structure changed."
-        return [join $out "\n"]
-    }
-
-    lappend out "Found [llength $unique] unique profiles:"
-    lappend out ""
-
-    foreach slug $unique {
-        # Find the slug in HTML and extract nearby visible text.
-        set idx [string first "/in/$slug" $html]
-        if {$idx < 0} { continue }
-
-        set wstart [expr {$idx - 2000}]
-        if {$wstart < 0} { set wstart 0 }
-        set wend [expr {$idx + 3000}]
-        set window [string range $html $wstart $wend]
-
-        # Visible text between tags. The Python regex >([^<]{3,300})< keeps runs
-        # of 3-300 non-< chars; a run over 300 chars yields no fragment at all.
-        # Tcl's ARE caps a bounded repetition at 255, so match any >run< and
-        # filter by code-point length 3-300 instead (identical effect).
-        set fragments [regexp -all -inline {>([^<]+)<} $window]
-
-        set clean_parts {}
-        set fseen {}
-        foreach {full frag} $fragments {
-            set flen [cp_length $frag]
-            if {$flen < 3 || $flen > 300} { continue }
-            set frag [string trim $frag]
-            # Decode HTML entities.
-            set frag [string map {&amp; & &lt; < &gt; >} $frag]
-            if {$frag eq "" || [dict exists $fseen $frag]} { continue }
-            if {[regexp {_[0-9a-f]{8}|componentkey|tabindex|aria-|data-display|function\s|var |\.video|padding|margin:|display:|font-|overflow|opacity|cursor:|visibility|pointer-events} $frag]} {
-                continue
+    set filters [dict create]
+    set page 1
+    set maxPages 1
+    set mode perTarget
+    dict for {k v} $a {
+        switch -- $k {
+            page     { set page $v }
+            maxPages { set maxPages $v }
+            connectionQuery {
+                if {$v ne "perTarget" && $v ne "combined"} {
+                    error "connectionQuery is perTarget or combined, not '$v'"
+                }
+                set mode $v
             }
-            if {[cp_length $frag] < 5} { continue }
-            # Skip connection degree indicators (e.g. "• 3er+", "• 2nd").
-            if {[regexp {^[•·]\s*\d} $frag]} { continue }
-            dict set fseen $frag 1
-            lappend clean_parts $frag
+            default {
+                if {[lsearch -exact $::LI_SEARCH_TEXT $k] < 0
+                 && [lsearch -exact $::LI_SEARCH_FILTERS $k] < 0} {
+                    set hint ""
+                    if {$k eq "titleFreeText"} { set hint "; the role filter is `title`" }
+                    error "'$k' is not a LinkedIn people-search key (SKILL.md lists them)$hint"
+                }
+                if {$v ne ""} { dict set filters $k $v }
+            }
         }
+    }
+    if {![dict size $filters]} { error "no search given: the filter set is empty" }
+    foreach {name n} [list page $page maxPages $maxPages] {
+        if {![string is integer -strict $n] || $n < 1} { error "$name must be a positive integer" }
+    }
+    if {$page + $maxPages - 1 > $::LI_SEARCH_PAGE_CEILING} {
+        error "page $page plus maxPages $maxPages passes LinkedIn's ceiling of\
+            $::LI_SEARCH_PAGE_CEILING pages, past which it serves page one again"
+    }
+    return [dict create filters $filters page $page maxPages $maxPages connectionQuery $mode]
+}
 
-        if {[llength $clean_parts]} {
-            set headline [join [lrange $clean_parts 0 4] " | "]
+# Reduce a profile id or full URN to the bare ACoAA... id the connectionOf
+# filter keys on.
+proc profile_id_of {raw} {
+    set id [string trim $raw]
+    regexp {([A-Za-z0-9_-]+)$} $id -> id
+    return $id
+}
+
+# Read one query, following pages up to `maxPages`. Returns
+# {state <s> total <n> pages <n> rows <list of card dicts>}. Stops early on a
+# page that yields nothing new, which is how the ceiling and the end of the
+# result set both present.
+proc read_query {filters firstPage maxPages} {
+    set rows {}
+    set seen [dict create]
+    set state ok
+    set total ""
+    set pages 0
+    for {set i 0} {$i < $maxPages} {incr i} {
+        set page [expr {$firstPage + $i}]
+        nav [search_url $filters $page] --wait 5
+        incr pages
+        if {[dict get [state] terminal] ne ""} {
+            error "login_wall: LinkedIn walled the session ([dict get [state] terminal])"
+        }
+        set parsed [parse_people_search [dump]]
+        if {[dict get $parsed state] eq "login"} {
+            error "login_wall: LinkedIn served a sign-in page"
+        }
+        if {[dict get $parsed state] ne "ok"} { set state [dict get $parsed state] }
+        if {$total eq ""} { set total [dict get $parsed total] }
+        set fresh 0
+        foreach r [dict get $parsed results] {
+            set slug [dict get $r slug]
+            if {[dict exists $seen $slug]} { continue }
+            dict set seen $slug 1
+            lappend rows $r
+            incr fresh
+        }
+        if {!$fresh} { break }
+    }
+    return [dict create state $state total $total pages $pages rows $rows]
+}
+
+# The search proper. Several people in the connectionOf filter are read one
+# query each by default, and merged here: whether LinkedIn's server reads
+# several ids in that filter as a union is unsettled, and the per-query walk is
+# correct whatever the answer. `connectionQuery: combined` puts every id in one
+# query, which costs one search instead of several once the union is confirmed.
+proc run_search {a} {
+    set filters [dict get $a filters]
+    set mode [dict get $a connectionQuery]
+
+    set targets {}
+    if {[dict exists $filters connectionOf]} {
+        foreach t [dict get $filters connectionOf] { lappend targets [profile_id_of $t] }
+        dict set filters connectionOf $targets
+    }
+
+    set queries {}
+    if {[llength $targets] > 1 && $mode eq "perTarget"} {
+        foreach t $targets {
+            lappend queries [list $t [dict replace $filters connectionOf [list $t]]]
+        }
+    } else {
+        lappend queries [list $targets $filters]
+    }
+
+    set merged [dict create]
+    set order {}
+    set state ok
+    set total ""
+    set pages 0
+    foreach q $queries {
+        lassign $q via qfilters
+        set got [read_query $qfilters [dict get $a page] [dict get $a maxPages]]
+        incr pages [dict get $got pages]
+        if {[dict get $got state] ne "ok"} { set state [dict get $got state] }
+        if {$total eq "" || [llength $queries] > 1} { set total [dict get $got total] }
+        foreach r [dict get $got rows] {
+            set slug [dict get $r slug]
+            if {![dict exists $merged $slug]} {
+                dict set merged $slug [dict set r via {}]
+                lappend order $slug
+            }
+            set rec [dict get $merged $slug]
+            dict set rec via [lsort -unique [concat [dict get $rec via] $via]]
+            dict set merged $slug $rec
+        }
+    }
+    # A merge across several queries has no single stated total to report.
+    if {[llength $queries] > 1} { set total "" }
+
+    set rows {}
+    foreach slug $order {
+        set r [dict get $merged $slug]
+        set shared {}
+        foreach m [dict get $r mutuals] {
+            lappend shared [json::write object \
+                slug [j_str [lindex $m 0]] name [j_str [lindex $m 1]] \
+                profile_url [j_str "https://www.linkedin.com/in/[lindex $m 0]/"]]
+        }
+        set via {}
+        foreach v [dict get $r via] { lappend via [j_str $v] }
+        lappend rows [json::write object \
+            slug               [j_str $slug] \
+            profile_url        [j_str "https://www.linkedin.com/in/$slug/"] \
+            name               [j_strornull [dict get $r name]] \
+            headline           [j_strornull [dict get $r headline]] \
+            location           [j_strornull [dict get $r location]] \
+            degree             [j_intornull [dict get $r degree]] \
+            shared_connections [json::write array {*}$shared] \
+            via                [json::write array {*}$via]]
+    }
+
+    set echo {}
+    dict for {k v} [dict get $a filters] {
+        if {[lsearch -exact $::LI_SEARCH_TEXT $k] >= 0} {
+            lappend echo $k [j_str $v]
         } else {
-            set headline "(no text extracted)"
+            set vs {}; foreach x $v { lappend vs [j_str $x] }
+            lappend echo $k [json::write array {*}$vs]
         }
-
-        # Truncate.
-        if {[cp_length $headline] > 300} {
-            set headline "[string range $headline 0 299]..."
-        }
-
-        lappend out "  https://www.linkedin.com/in/$slug/"
-        lappend out "    $headline"
-        lappend out ""
     }
-    return [join $out "\n"]
+
+    set result [json::write object \
+        query   [json::write object {*}$echo] \
+        state   [j_str $state] \
+        total   [j_intornull $total] \
+        cost    [json::write object queries [llength $queries] pages $pages] \
+        count   [llength $rows] \
+        results [json::write array {*}$rows]]
+
+    # More to read when a stated total outruns what came back, or when every
+    # requested page came back full and the caller may ask for the next.
+    set hasMore 0
+    if {$total ne "" && [llength $rows] < $total} { set hasMore 1 }
+    return [dict create result $result cursor "" hasMore $hasMore]
 }
 
-# Direct path: read the file and print the report, exiting 1 on a login page.
-proc parse_search_results {html_path} {
-    set f [open $html_path r]
-    fconfigure $f -encoding utf-8
-    set html [read $f]
-    close $f
-
-    set report [render_search_results $html]
-    if {$report eq "@@LOGIN@@"} {
-        puts "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
-        exit 1
-    }
-    puts $report
-}
-
-# ---------------------------------------------------------------------------
-# Serialiser entry: navigate to the people-search results, dump the rendered DOM,
-# and run the identical render over the in-memory HTML (no file read; Plane 1
-# removes file access). Emits the same report text.
-#
-#     browser-serialiser linkedin.com/parse-search "<search terms>"
-# ---------------------------------------------------------------------------
 proc serialiser_run {skillArgs} {
-    set terms [lindex $skillArgs 0]
-    if {$terms eq ""} {
-        emit "Usage: linkedin.com/parse-search \"<search terms>\""
+    if {[catch {run_search [search_args [lindex $skillArgs 0]]} r]} {
+        emit [envelope_fault $r]
         return
     }
-    set enc [serialiser_urlencode $terms]
-    nav "https://www.linkedin.com/search/results/people/?keywords=$enc&origin=GLOBAL_SEARCH_HEADER" --wait 5
-    if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
-        return
-    }
-    set html [dump]
-    set report [render_search_results $html]
-    if {$report eq "@@LOGIN@@"} {
-        emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
-        return
-    }
-    emit $report
+    emit [envelope_ok $r]
 }
 
-# Percent-encode search terms (spaces and reserved chars) for the keywords param.
-proc serialiser_urlencode {s} {
-    set out ""
-    foreach ch [split $s ""] {
-        if {[regexp {[A-Za-z0-9._~-]} $ch]} {
-            append out $ch
-        } else {
-            foreach byte [split [encoding convertto utf-8 $ch] ""] {
-                scan $byte %c code
-                append out [format %%%02X [expr {$code & 0xff}]]
-            }
-        }
-    }
-    return $out
-}
-
-# Direct-tclsh entry: one HTML path. Skipped when sourced as a serialiser skill.
+# Direct-tclsh entry: parse a saved page, the offline half of the verb.
+# Skipped when sourced as a serialiser skill.
 if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
     if {[llength $argv] != 1} {
-        puts "Usage: parse-search.tcl <search-results.html>"
+        puts stderr "Usage: parse-search.tcl <search-results.html>"
         exit 1
     }
     fconfigure stdout -encoding utf-8
-    parse_search_results [lindex $argv 0]
+    set f [open [lindex $argv 0] r]; fconfigure $f -encoding utf-8
+    set html [read $f]; close $f
+    set p [parse_people_search $html]
+    puts "state: [dict get $p state]"
+    puts "total: [dict get $p total]"
+    puts "cards: [llength [dict get $p results]]"
+    foreach r [dict get $p results] {
+        puts ""
+        puts "  https://www.linkedin.com/in/[dict get $r slug]/"
+        puts "    [dict get $r name] - [dict get $r headline]"
+        puts "    [dict get $r location]"
+        foreach m [dict get $r mutuals] { puts "    shared: [lindex $m 1]" }
+    }
 }
