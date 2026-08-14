@@ -223,6 +223,129 @@ proc parse_li_thread {body conversationUrn complete} {
         messages        [json::write array {*}$mj]]
 }
 
+# --- people-search results (the rendered-DOM path) ---------------------------
+# LinkedIn renders each people-search result as a card, and separates cards with
+# <hr role="presentation">. That separator is the one structural landmark on the
+# page: class names are randomised per session, so nothing else is selectable.
+#
+# The card boundary is what makes the parse correct, not merely tidier. A card
+# holds more profile links than its own: the "shared connections" line names two
+# OTHER members and links them. Harvesting every /in/ link in the page therefore
+# reports those third parties as search hits, and pairing each link with nearby
+# text then gives them the card owner's headline. The saved page in this
+# directory carries three results and six profile links for that reason.
+#
+# Within a card: the first anchor carrying visible text is the person (the
+# shared-connections anchors wrap their text in <strong>, and in any case come
+# later), the first two <p> runs after it are headline and location, and the
+# degree token sits between them.
+
+# Decode the entity references LinkedIn's rendered text carries, then flatten
+# tags and runs of whitespace. Numeric references are decoded last so a literal
+# "&#38;#39;" cannot round-trip into an apostrophe.
+proc html_text {frag} {
+    regsub -all {<[^>]*>} $frag " " frag
+    set frag [string map {&nbsp; " " &amp; & &lt; < &gt; > &quot; \" &apos; ' &#39; ' &#x27; '} $frag]
+    regsub -all {&#(\d+);} $frag {\1} frag
+    regsub -all {\s+} $frag " " frag
+    return [string trim $frag]
+}
+
+# The card segments of a search page, in page order. A segment with no
+# text-bearing profile anchor (the header block before the first card) is the
+# caller's to drop.
+proc search_cards {html} {
+    regsub -all {(?i)<hr\y[^>]*role="presentation"[^>]*>} $html "\x00" html
+    return [split $html "\x00"]
+}
+
+# One card -> {slug name headline location degree mutuals}, or "" when the
+# segment holds no result. `mutuals` is a list of {slug name} pairs for the
+# members named on the shared-connections line.
+proc parse_search_card {card} {
+    if {![regexp -indices {(?i)<a\y[^>]*href="https?://[a-z.]*linkedin\.com/in/([A-Za-z0-9_-]+)/?"[^>]*>([^<]+)<} \
+            $card whole slugIdx nameIdx]} {
+        return ""
+    }
+    set slug [string range $card {*}$slugIdx]
+    set name [html_text [string range $card {*}$nameIdx]]
+    if {$name eq ""} { return "" }
+    set rest [string range $card [expr {[lindex $whole 1] + 1}] end]
+
+    # The upsell block that follows the last card carries prose of its own; cut
+    # it so its heading cannot be read as a result's text.
+    set cut [string first "upsellSlotId" $rest]
+    if {$cut > 0} { set rest [string range $rest 0 $cut] }
+
+    set paras {}
+    foreach {full p} [regexp -all -inline {(?i)<p\y[^>]*>([^<]+)</p>} $rest] {
+        set t [html_text $p]
+        if {$t ne ""} { lappend paras $t }
+    }
+    set degree ""
+    regexp {[•·]\s*(\d+)} [string range $rest 0 400] -> degree
+
+    set mutuals {}
+    foreach {full ms mn} [regexp -all -inline \
+            {(?i)<a\y[^>]*href="[^"]*/in/([A-Za-z0-9_-]+)/?"[^>]*><strong\y[^>]*>([^<]+)} $rest] {
+        lappend mutuals [list $ms [html_text $mn]]
+    }
+
+    return [dict create slug $slug name $name \
+        headline [lindex $paras 0] location [lindex $paras 1] \
+        degree $degree mutuals $mutuals]
+}
+
+# Whether the page is usable, and why not when it is not.
+#   login   - the session is dead; the page is a sign-in wall
+#   metered - the account passed its monthly people-search allowance
+#   ok      - results as rendered
+#
+# The metered page is the dangerous one: it keeps an ordinary title, returns a
+# handful of real results, and reads as a thin result set rather than a wall. It
+# is matched on LinkedIn's own upsell slot id, which is a tracking constant
+# rather than prose, so the check holds whatever language the account renders in.
+proc search_page_state {html} {
+    set title ""
+    regexp {(?s)<title[^>]*>(.*?)</title>} $html -> title
+    set tl [string tolower [string trim $title]]
+    foreach marker {"sign in" "log in" "iniciar" "registrarse"} {
+        if {[string first $marker $tl] >= 0} { return login }
+    }
+    foreach marker {SEARCH_RESULT_PAYWALL_PEOPLE_DROP premium_people_search_usage_upsell_drop} {
+        if {[string first $marker $html] >= 0} { return metered }
+    }
+    return ok
+}
+
+# LinkedIn's own stated total for the query ("" when the page does not carry
+# one, which a metered page does not). Reported separately from the number of
+# cards parsed, so a caller never reads one page's rows as the result count.
+proc search_total_of {html} {
+    foreach {full n} [regexp -all -inline {(?i)>\s*(?:About\s+)?([\d.,]+)\s+results?\s*<} $html] {
+        regsub -all {[.,]} $n "" n
+        if {[string is integer -strict $n]} { return $n }
+    }
+    return ""
+}
+
+# A rendered search page -> {state title total results}, results being the
+# parsed cards in page order.
+proc parse_people_search {html} {
+    set title ""
+    regexp {(?s)<title[^>]*>(.*?)</title>} $html -> title
+    set state [search_page_state $html]
+    set results {}
+    if {$state ne "login"} {
+        foreach card [search_cards $html] {
+            set r [parse_search_card $card]
+            if {$r ne ""} { lappend results $r }
+        }
+    }
+    return [dict create state $state title [string trim $title] \
+        total [search_total_of $html] results $results]
+}
+
 # --- envelope ---------------------------------------------------------------
 proc envelope_ok {r} {
     set cursor [dict_get_or $r cursor ""]
@@ -372,6 +495,7 @@ if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
     if {[llength $argv] < 2} {
         puts stderr "Usage: li-canonical.tcl inbox <conv.json> <ownProfileUrn>"
         puts stderr "       li-canonical.tcl thread <msgs.json> <conversationUrn>"
+        puts stderr "       li-canonical.tcl search <results.html>"
         exit 1
     }
     lassign $argv mode file arg
@@ -379,6 +503,21 @@ if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
     switch -- $mode {
         inbox  { puts [parse_li_inbox $body $arg] }
         thread { puts [parse_li_thread $body $arg 1] }
+        search {
+            set p [parse_people_search $body]
+            puts "state: [dict get $p state]"
+            puts "title: [dict get $p title]"
+            puts "total: [dict get $p total]"
+            puts "cards: [llength [dict get $p results]]"
+            foreach r [dict get $p results] {
+                puts ""
+                puts "  /in/[dict get $r slug]/  ([dict get $r name])"
+                puts "    headline: [dict get $r headline]"
+                puts "    location: [dict get $r location]"
+                puts "    degree:   [dict get $r degree]"
+                foreach m [dict get $r mutuals] { puts "    shared:   [lindex $m 1] (/in/[lindex $m 0]/)" }
+            }
+        }
         default { puts stderr "unknown mode $mode"; exit 1 }
     }
 }
