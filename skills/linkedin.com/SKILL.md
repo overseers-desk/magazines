@@ -42,9 +42,12 @@ Use **people search**, not "all" search. One reference builds the search URL, re
 ```bash
 browser-serialiser linkedin.com/parse-search "SEARCH TERMS"
 browser-serialiser linkedin.com/parse-search '{"keywords":"loan","connectionOf":["ACoAA..."],"network":["F"]}'
+browser-serialiser linkedin.com/parse-search '{"keywords":"loan","connectionOf":["ACoAA...","ACoAB...","ACoAC..."]}'
 ```
 
-A bare string is a keyword search. A JSON object combines a keyword with LinkedIn's filters, which is how one call reaches a keyword *inside* named people's networks.
+A bare string is a keyword search. A JSON object combines a keyword with LinkedIn's filters.
+
+The third form is the one to reach for when the question is who, among the people these members know, matches a keyword. Name as many members as you like in `connectionOf`. One call covers all their networks, deduplicates the people who appear in more than one, and tags each result with the members it was found through. It costs one search per member named; see "What a call costs" below.
 
 Emits the canonical envelope. `result` is:
 
@@ -70,7 +73,7 @@ Filters (sent as a list, one value or several): `network`, `geoUrn`, `schoolFilt
 
 Exercised against a live account: `keywords`, `connectionOf`, `network` (2026-08-14), and `geoUrn`. The rest are names LinkedIn's own filter bar sends and have not been run from here — treat a result filtered on one of them as unconfirmed until it is. Narrow by role with `title`; `titleFreeText` is not a LinkedIn key and was silently discarded whenever it was used.
 
-`connectionOf` takes the `ACoAA...` id from `parse-profile`'s `urn` field (a full URN works; the prefix is stripped). `network` is `["F"]` for first-degree, `["F","S"]` to include second. What LinkedIn returns for a third party's network is gated: first-degree means the connections you share with them, always available; second-degree is populated only when that person is your own first-degree and has not hidden their list.
+`connectionOf` takes `ACoAA...` ids, one or several, from `parse-profile`'s `urn` field or from a previous result's `profile_id` (a full URN works; the prefix is stripped). A vanity slug is refused, because LinkedIn answers one with an empty result set rather than an error. `network` is `["F"]` for first-degree, `["F","S"]` to include second. What LinkedIn returns for a third party's network is gated: first-degree means the connections you share with them, always available; second-degree is populated only when that person is your own first-degree and has not hidden their list.
 
 ### What a call costs
 
