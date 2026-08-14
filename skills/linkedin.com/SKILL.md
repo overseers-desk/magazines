@@ -1,6 +1,6 @@
 ---
 name: linkedin
-description: "search people, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Read a member's shared contact info (email, phone, websites). Send connection invites or direct messages to connections. Edit your own profile headline and About. Enumerate the messaging inbox and a thread's messages. Report which account the session is signed in as."
+description: "search people, and search inside named members' connections, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Read a member's shared contact info (email, phone, websites). Send connection invites or direct messages to connections. Edit your own profile headline and About. Enumerate the messaging inbox and a thread's messages. Report which account the session is signed in as."
 argument-hint: <name, URL, or search terms>
 ---
 
@@ -35,15 +35,48 @@ The JSON `status` is one of:
 
 Run this when a fetch returns a sign-in title, before assuming the plumbing is broken. The same `[browser]` user-data-dir and UA caveats as the send scripts apply (close the GUI browser so the headless instance can write the session cookie).
 
-## 1. Search and parse people
+## 1. Search people
 
-Use **people search**, not "all" search. One reference navigates to the people-search URL, dumps the rendered DOM, and parses it in a single step:
+Use **people search**, not "all" search. One reference builds the search URL, reads the rendered results, and parses them:
 
 ```bash
 browser-serialiser linkedin.com/parse-search "SEARCH TERMS"
+browser-serialiser linkedin.com/parse-search '{"keywords":"loan","connectionOf":["ACoAA..."],"network":["F"]}'
 ```
 
-Search terms are passed as one quoted argument; the skill URL-encodes them. The output lists each profile URL with nearby visible text (name, headline).
+A bare string is a keyword search. A JSON object combines a keyword with LinkedIn's filters, which is how one call reaches a keyword *inside* named people's networks.
+
+Emits the canonical envelope. `result` is:
+
+```json
+{"query": {...as passed...}, "state": "ok"|"metered", "total": 218|null,
+ "cost": {"queries": 1, "pages": 1}, "count": 3,
+ "results": [{"slug", "profile_url", "name", "headline", "location", "degree",
+              "shared_connections": [{"slug","name","profile_url"}],
+              "via": ["ACoAA..."]}]}
+```
+
+`via` names which of the people in `connectionOf` this person was found through, so a merged result set stays attributable. `shared_connections` are the members LinkedIn names on that person's card as connections you have in common; they are not search results, and are reported inside the card they belong to rather than as rows of their own.
+
+### Filter keys
+
+Keys are LinkedIn's own, from the people-search filter bar. A key outside this list is refused rather than sent, because LinkedIn discards a key it does not know and then answers for a filter that never applied.
+
+Free text (sent as given): `keywords`, `firstName`, `lastName`, `title`, `company`, `schoolFreetext`, `origin`.
+
+Filters (sent as a list, one value or several): `network`, `geoUrn`, `schoolFilter`, `connectionOf`, `followerOf`, `currentCompany`, `pastCompany`, `industry`, `serviceCategory`, `profileLanguage`, `eventAttending`, `activelyHiringForJobTitles`, `companyHQBingGeo`, `companySizeV2`, `seniorityV2`, `openToVolunteer`, `functionV2`.
+
+Exercised against a live account: `keywords`, `connectionOf`, `network`, `geoUrn`. The rest are names LinkedIn's own filter bar sends and have not been run from here — treat a result filtered on one of them as unconfirmed until it is. Narrow by role with `title`; `titleFreeText` is not a LinkedIn key and was silently discarded whenever it was used.
+
+`connectionOf` takes the `ACoAA...` id from `parse-profile`'s `urn` field (a full URN works; the prefix is stripped). `network` is `["F"]` for first-degree, `["F","S"]` to include second. What LinkedIn returns for a third party's network is gated: first-degree means the connections you share with them, always available; second-degree is populated only when that person is your own first-degree and has not hidden their list.
+
+### What a call costs
+
+LinkedIn meters people search per account per calendar month, does not report how much remains, and does not error when the meter runs out — it returns a handful of results with an ordinary page title. `state: "metered"` is that condition, detected from LinkedIn's own paywall marker rather than banner text, so it holds in any interface language. Treat a metered result set as a fragment, never as "few matches".
+
+`cost` reports what the call spent. Naming several people in `connectionOf` costs one search each, because LinkedIn's handling of several ids in that filter is unsettled and each is read separately. Batching them into one call is still cheaper than separate calls (the keyword, the merge and the paging are shared), and it is not free. Pass `"connectionQuery":"combined"` to put every id in one query instead.
+
+Pagination is `"page"` and `"maxPages"`, default one page. LinkedIn stops at 100 pages and serves page one again beyond that, so a request crossing the ceiling is refused.
 
 ### Search variants for hard-to-find people (vary the quoted terms)
 
@@ -121,23 +154,6 @@ browser-serialiser linkedin.com/keyword-search USERNAME keyword1 keyword2 ...
 ```
 
 Navigates to `/in/USERNAME/`, dumps the DOM, and reports whether the profile mentions specific terms with surrounding context.
-
-## 3a. List a person's connections visible to you
-
-See who you could reach through a given person — mutual connections, and (when they allow it) their wider network:
-
-```bash
-browser-serialiser linkedin.com/connections-of <profile-id-or-urn> [network]
-```
-
-`profile-id` is the `ACoAA...` token from parse-profile's `urn` field (the full URN works too; the prefix is stripped). This drives the faceted people-search `connectionOf` facet and parses the result with the same extractor as parse-search.
-
-What LinkedIn exposes is gated, not arbitrary:
-
-- `network` `F` (default) — people in **your** 1st-degree who are connected to the target, i.e. your **mutual** connections with them. Available for any target whose profile you can open.
-- `network` `FS` — also requests the target's 2nd-degree connections visible to you. Populated only when the target is your 1st-degree **and** has not hidden their connection list; otherwise it degrades to the mutuals-only set.
-
-Workflow: run parse-profile first to get the `urn`, then pass its id here. The facet name (`connectionOf`) and `origin=FACETED_SEARCH` follow the URL shape in BUGS.md; verify the result against a known person on first live run, as LinkedIn's facet params shift.
 
 ## 4. Verify connect eligibility
 
@@ -282,7 +298,7 @@ browser-serialiser linkedin.com/li-thread "conversationUrn <urn:li:msg_conversat
 
 ## 8. Enumerate your own connections
 
-A B-job playbook that enumerates the **logged-in member's own** connection list — the people the My Network "Connections" page lists, not `connections-of`'s faceted view of a *third party's* network (that one is mutuals-gated). LinkedIn migrated this page off the voyager GraphQL query to a Server-Driven UI (SDUI) surface: the rows now arrive as React Server Components "flight" payloads on the rsc-action `connectionsList` pager, not a re-issuable JSON API. So the playbook navigates the page, lets it fire its own pagination requests, harvests those flight bodies (base64-wrapped by CDP), and parses each card by pattern — the profile `/in/<slug>/` link, the bold display-name node, the "Connected on <date>" line, and the fsd_profile urn inside the card's message-compose link.
+A B-job playbook that enumerates the **logged-in member's own** connection list — the people the My Network "Connections" page lists, not the faceted view a search filtered on `connectionOf` gives of a *third party's* network (that one is mutuals-gated). LinkedIn migrated this page off the voyager GraphQL query to a Server-Driven UI (SDUI) surface: the rows now arrive as React Server Components "flight" payloads on the rsc-action `connectionsList` pager, not a re-issuable JSON API. So the playbook navigates the page, lets it fire its own pagination requests, harvests those flight bodies (base64-wrapped by CDP), and parses each card by pattern — the profile `/in/<slug>/` link, the bold display-name node, the "Connected on <date>" line, and the fsd_profile urn inside the card's message-compose link.
 
 ```bash
 browser-serialiser linkedin.com/li-connections

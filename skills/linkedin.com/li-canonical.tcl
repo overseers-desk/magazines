@@ -1,6 +1,12 @@
-# li-canonical.tcl - the canonical LinkedIn messaging parsers and envelope builders
-# the B-job playbooks (li-inbox, li-thread) share.
+# li-canonical.tcl - the LinkedIn parsers and envelope builders the skill's verbs
+# share: the messaging pair (li-inbox, li-thread), the people-search page
+# (parse-search), and the canonical envelope every verb that persists emits.
 # Home: skills/linkedin.com/li-canonical.tcl
+#
+# Two source shapes are parsed here, and they have nothing in common but the
+# envelope they end in. Messaging arrives as LinkedIn's normalized GraphQL
+# {data, included}; the search page arrives as rendered DOM, where the class
+# names are randomised per session and the structure carries the meaning.
 #
 # A playbook runs inside the serialiser harness's safe interp: it `nav`s to the
 # messaging page a human views, fetches the voyager messaging GraphQL body with an

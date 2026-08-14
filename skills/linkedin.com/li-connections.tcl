@@ -2,7 +2,7 @@
 # harness. Home: skillbooks/skills/linkedin.com/li-connections.tcl
 #
 # Enumerates the LOGGED-IN member's OWN connection list - the people the My Network
-# "Connections" page lists, NOT connections-of.tcl's faceted-search surface (that one
+# "Connections" page lists, NOT the connectionOf-filtered people search (that one
 # is a mutuals-gated view of a THIRD party's network). It emits the CANONICAL
 # connections envelope the BI server's persist consumes.
 #
