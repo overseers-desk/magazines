@@ -40,6 +40,10 @@ set ::LI_SEARCH_BASE "https://www.linkedin.com/search/results/people/"
 # rather than an error, so a caller reading past the ceiling re-reads the start.
 set ::LI_SEARCH_PAGE_CEILING 100
 
+# A full page of people search. A page returning fewer is the last one, which is
+# the only end-of-results signal available: the page states no total.
+set ::LI_SEARCH_PAGE_SIZE 10
+
 # value(s) -> the query fragment for one key.
 proc search_param {key values} {
     if {[lsearch -exact $::LI_SEARCH_TEXT $key] >= 0} {
@@ -110,10 +114,18 @@ proc search_args {raw} {
 }
 
 # Reduce a profile id or full URN to the bare ACoAA... id the connectionOf
-# filter keys on.
+# filter keys on. A vanity slug is refused rather than passed through: LinkedIn
+# takes the id alone, and answers a slug with an empty result set rather than an
+# error, so the caller would read "nobody matched" for a filter that never
+# named anyone.
 proc profile_id_of {raw} {
-    set id [string trim $raw]
+    set id [string trim $raw " \t\n/"]
     regexp {([A-Za-z0-9_-]+)$} $id -> id
+    if {![string match {ACoAA*} $id]} {
+        error "connectionOf takes a profile id, not '$id': pass the ACoAA... id\
+            (parse-profile emits it as `urn`, and a search result carries it as\
+            `profile_id`)"
+    }
     return $id
 }
 
@@ -151,6 +163,13 @@ proc read_query {filters firstPage maxPages} {
             dict set seen $slug 1
             lappend rows $r
             incr fresh
+        }
+        # A short page ends the result set; a page repeating what came before
+        # is the 100-page ceiling serving page one again. Either way there is
+        # nothing further to ask for.
+        if {[llength [dict get $parsed results]] < $::LI_SEARCH_PAGE_SIZE} {
+            set exhausted 1
+            break
         }
         if {!$fresh} { set exhausted 1; break }
     }
