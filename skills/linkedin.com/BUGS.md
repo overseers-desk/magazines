@@ -1,4 +1,6 @@
-# LinkedIn skill — open bugs
+# LinkedIn skill — bugs and platform findings
+
+Each entry carries its own status. A closed entry stays for the measurement in it, and because the behaviour it describes is LinkedIn's and tends to return.
 
 ## 2026-06-25 Edit-form Save buttons ignore the policed `click` verb — use eval `el.click()`
 
@@ -71,15 +73,15 @@ Saved HTML examples may still exist at `/tmp/linkedin-1a-*.html` for a short win
 - `Andrew Antonopoulos | Executive Director at SWELL Sculpture Festival`  ← the SWELL headline actually belongs to Dee Steinfort (genuine SWELL Executive Director, adjacent card). Andrew Antonopoulos (`/in/andrew-antonopoulos/`) is an R&D-tax platform founder at Synnch in Melbourne, no SWELL connection. A direct profile fetch confirmed the mis-pairing. The bled pairing was propagated as a cross-lead from corporate-team-experience to event-producer and produced a roster row with no valid outreach channels — flagged later by `spar-progress.tcl`. Downstream cleanup: negative-cache Andrew Antonopoulos row in `event-producer/roster.tsv`.
 - `Lincoln Williams | Creative Director at Ravel + Chairperson at Swell Sculpture`  ← surfaced in the same sweep and rostered without direct-profile verification. Could be a genuine SWELL board member or another bled pairing; not confirmed either way.
 
-**Likely cause:** `parse-search.tcl` walks visible text linearly (`>content<` regex) and pairs each name with whatever headline text appears next. LinkedIn's lazy-loaded result cards don't always place the name and headline in stable order once the DOM has been rendered, so cross-card pairing happens.
+**Cause (confirmed 2026-08-14):** two faults, one of them larger than the symptom above suggested. The parser harvested every `/in/` link on the page and then took a ±2000/3000-character window of visible text around each. A result card contains more profile links than its own: the "shared connections" line names two other members and links them. So those third parties entered the result set as if they were search hits, and the text window then handed them the card owner's headline. The window also spans the card boundary, which is the adjacent-card bleed originally filed.
 
-**Proposed fix direction:** parse per result card boundary rather than linearly across the document. Card boundaries can be detected by the recurring profile-URL anchor (`/in/<slug>/`); everything between two such anchors belongs to one person.
+Measured on `example-cul-quota-wall.html`: the old parser reported **6 profiles** for a page holding **3 results**. Of the three extra, two were shared-connection mentions inside one card and one was the signed-in viewer's own profile, picked up from the page chrome. `Caitlin Barnes-Whitaker` was reported carrying `Madalena Lopes Lottering`'s name and headline.
 
-**Defensive pattern for callers until the parser is fixed:** never roster a parse-search-derived candidate without a confirming direct profile fetch whose `<title>` name AND current-org line match the parsed headline. If the URL turns out to belong to a different person, negative-cache the row (star=0, date_excluded) — do NOT keep it as an active row with `verified=no`, because `spar-progress.tcl` cannot tell the difference between "pending verification" and "verification already failed, do not outreach".
+**Fixed 2026-08-14** (commits `60167a7`, `9fce887`). Cards are separated by `<hr role="presentation">`, the one structural landmark on a page whose class names are randomised per session. The parser cuts there, takes the first text-bearing anchor as the person, and reads the following paragraph runs as headline and location; shared-connection names are reported inside the card they belong to, in a `shared_connections` field, and are no longer rows. Paragraph text is matched to the first closing tag and flattened, because the live page wraps it a span deep while the capture kept here does not.
 
-**Impact:** downstream filters on role fail to catch wrong people; roster rows carry nonsense role strings that require human cleanup.
+**Consequence for counts recorded elsewhere in this file:** every result count taken from the old parser is inflated by the same fault. See the commercial-use-limit entry, whose "~6 results when degraded, ~18-25 typical" figures were measured with it. A real page carries **10 results**.
 
-**Status:** open.
+**Status:** closed.
 
 ---
 
@@ -109,7 +111,15 @@ Saved HTML examples may still exist at `/tmp/linkedin-1a-*.html` for a short win
 - Triggers per-account, not per-IP — the second account on the same machine is unaffected.
 - Trigger threshold is approximately 12-15 people searches in a session (roughly — needs more measurement). The cap is part of LinkedIn's Commercial Use Limit policy and the official threshold is documented as fuzzy.
 
-**Status:** documented; no fix possible at the LinkedIn level (it's a deliberate platform constraint). Skill callers should plan for it.
+**Correction (2026-08-14) — the size of the limit.** LinkedIn's help page states the rule: searching profiles counts, as does browsing them through "People Also Viewed" and viewing members on a Page's People tab; name searches from the top-of-page box, viewing direct connections from the Connections page, and job searches do not. It resets midnight PST on the 1st, the size is undisclosed, and LinkedIn will neither report what remains nor lift it. Third-party trackers put a free account between 250 and 350 searches a month. Note the exemption covers the **Connections page**, not a people search filtered to first-degree; secondary sources round that off to "first-degree searches are free", which is their inference and not LinkedIn's text.
+
+The "~12-13 searches in a session" figure above is not a contradiction of a monthly meter of that size, and was never an audited count: that session's thirteenth search may have been the month's three-hundredth.
+
+**Correction (2026-08-14) — the result counts.** The counts in this entry were measured with the pre-fix `parse-search`, which reported every profile link on the page as a result, including the shared-connection names inside other people's cards and the viewer's own profile. Re-parsed with the card-boundary parser, the cached walled page holds **3 results**, not 6 — which matches the independent description of the degraded state as three results per query. A normal page holds **10** results, not 18-25; a live two-page read returned exactly 20 distinct people.
+
+**Detection (2026-08-14):** implemented. A walled page carries LinkedIn's own paywall marker in its upsell link, `upsellSlotId=SEARCH_RESULT_PAYWALL_PEOPLE_DROP` (and `premium_people_search_usage_upsell_drop`). These are tracking constants rather than prose, so matching them works whatever language the account renders in, which the banner-text check proposed above would not. `parse-search` reports it as `state: "metered"` beside the results.
+
+**Status:** the limit is a platform constraint and stays. Detection is done; callers read `state`, and `cost` for what each call spent.
 
 ---
 
@@ -159,6 +169,62 @@ Saved HTML examples may still exist at `/tmp/linkedin-1a-*.html` for a short win
 
 **Impact on skill:** if the skill doc (SKILL.md / skill.md) recommends `titleFreeText` as a way to narrow by role, that recommendation is stale. Calling agents building query matrices around `titleFreeText` will produce duplicate result sets and waste fetches.
 
-**Proposed fix direction:** either find the current working parameter name (if any) via in-app network capture and update the skill doc, or document that role filtering must be done post-parse by the caller.
+**Cause (confirmed 2026-08-14):** the key does not exist. LinkedIn's own people-search filter bar sends `title`; the request payload embedded in `example-cul-quota-wall.html` enumerates the whole vocabulary and `titleFreeText` is not in it. An unrecognised key is discarded in silence, which is why six job titles gave one result set.
+
+**Fixed 2026-08-14** (commit `2dea136`). `parse-search` takes LinkedIn's own key list and refuses anything outside it by name, so a mistyped or invented filter fails loudly instead of returning a plausible result set for a filter that never applied. The accepted keys are listed in SKILL.md, `title` among them.
+
+**Status:** closed.
+
+---
+
+## 2026-08-14 `connectionOf` reads only the first id — several people cost several searches
+
+**Symptom:** naming several members in the people-search `connectionOf` filter returns the first one's connections alone, with no error and no sign that the others were dropped.
+
+**Repro:** two first-degree members of the signed-in account, A and B, whose mutual-connection sets are disjoint. `connectionOf=["A"]` returned 4 people; `connectionOf=["B"]` returned 5, sharing none of A's. `connectionOf=["A","B"]` returned exactly A's 4.
+
+That rules out both alternatives: a union would have returned 9, an intersection 0.
+
+**Consequence:** covering several people's networks in one call costs one search per person against the monthly allowance, and the merge is done by the caller. `parse-search` does this walk and tags each result with the people it was found through (`via`). The option to put several ids in one query was removed rather than kept as a cheaper mode, because it answers for one person while reading as though it answered for all.
+
+**Not tested:** whether the same first-id-only rule governs the other list-valued filters (`geoUrn`, `currentCompany`, `industry` and the rest). Do not assume several values in any of them widen the search.
+
+**Status:** documented; the behaviour is LinkedIn's.
+
+---
+
+## 2026-08-14 People-search pagination is `page=N`, ceiling 100 pages
+
+**Finding:** `&page=N` on `/search/results/people/` works and returns 10 results a page. A live two-page read returned 20 distinct people with no overlap. A free account stops at 100 pages or 1000 results; past the ceiling LinkedIn serves page one again rather than erroring, so a caller reading on would silently re-read the start.
+
+The page states **no result total** at all, so there is no count to page against. `parse-search` reports `total: null`, and signals more results by whether paging stopped on the caller's limit or on a page that brought nothing new.
+
+**Untested:** whether reading page 2 spends a second unit of the monthly search allowance. LinkedIn does not report what remains, so this is not cheaply measurable; `parse-search` counts queries and page reads separately so the answer can be read off accumulated use.
+
+**Status:** documented.
+
+---
+
+## 2026-08-14 li-connections returns profile urns with every other field null
+
+**Symptom:** `li-connections` reports success and enumerates the full connection list, but each record carries only `profile_urn`. `first_name`, `last_name`, `profile_url` and `connected_at` are all null.
+
+**Repro:** `browser-serialiser linkedin.com/li-connections '{"maxScrolls":2}'` returned 516 connections, 0 of them with a name.
+
+**Impact:** a caller reading the documented shape gets an identity-only list. It is enough to feed `connectionOf`, which is how it was used here, and not enough for anything that needs to show or match a person. The failure is silent: the envelope reports no fault.
+
+**Likely cause, unverified:** the card patterns the playbook matches (the bold display-name node, the "Connected on" line, the `/in/<slug>/` link) against the React server-component payloads. The urn comes from a different pattern, the compose link, which still holds. Not investigated; found while picking test targets for the search work.
 
 **Status:** open.
+
+---
+
+## 2026-08-14 `browser-serialiser --dump` writes double-encoded UTF-8
+
+**Symptom:** a page dumped with the ad-hoc `--dump` fetch has its non-ASCII characters doubly encoded. A right single quote (U+2019, bytes `e2 80 99`) arrives as `c3 a2` `80` `99`, rendering as `â` followed by two stray bytes. The file passes as valid UTF-8, so the corruption is not visible to `file`.
+
+**Repro:** dump any LinkedIn search page and look at a headline containing a typographic apostrophe. Python and Tcl read the file identically, so the fault is in the bytes written, not in the reader.
+
+**Scope:** the `--dump` path only. A skill running inside the harness reads the DOM through the `dump` verb, which returns a decoded string; the same text came back correct through `parse-search` on the same page. So this affects ad-hoc fetches and any parser tested against a dumped file, not the skills in production.
+
+**Status:** open; in the harness, not this skill.
