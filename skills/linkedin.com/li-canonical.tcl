@@ -247,14 +247,32 @@ proc parse_li_thread {body conversationUrn complete} {
 # degree token sits between them.
 
 # Decode the entity references LinkedIn's rendered text carries, then flatten
-# tags and runs of whitespace. Numeric references are decoded last so a literal
-# "&#38;#39;" cannot round-trip into an apostrophe.
+# tags and runs of whitespace. Numeric references are decoded to the character
+# they name, decimal and hex alike: a headline is full of typographic
+# punctuation, and a member's name can be any script, so dropping them would
+# corrupt the two fields a caller reads a result for.
 proc html_text {frag} {
     regsub -all {<[^>]*>} $frag " " frag
-    set frag [string map {&nbsp; " " &amp; & &lt; < &gt; > &quot; \" &apos; ' &#39; ' &#x27; '} $frag]
-    regsub -all {&#(\d+);} $frag {\1} frag
-    regsub -all {\s+} $frag " " frag
-    return [string trim $frag]
+    set out ""
+    while {[regexp -indices {&#([xX]?)([0-9a-fA-F]+);} $frag whole hexIdx numIdx]} {
+        append out [string range $frag 0 [expr {[lindex $whole 0] - 1}]]
+        set hex [string range $frag {*}$hexIdx]
+        set num [string range $frag {*}$numIdx]
+        set code -1
+        if {$hex ne ""} {
+            scan $num %x code
+        } elseif {[string is integer -strict $num]} {
+            set code $num
+        }
+        # A code outside Unicode, or a decimal reference carrying stray hex
+        # digits, is not a character; drop the reference rather than emit one.
+        if {$code > 0 && $code <= 0x10FFFF} { append out [format %c $code] }
+        set frag [string range $frag [expr {[lindex $whole 1] + 1}] end]
+    }
+    append out $frag
+    set out [string map {&nbsp; " " &amp; & &lt; < &gt; > &quot; \" &apos; '} $out]
+    regsub -all {\s+} $out " " out
+    return [string trim $out]
 }
 
 # The card segments of a search page, in page order. A segment with no

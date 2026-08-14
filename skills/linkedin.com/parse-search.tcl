@@ -214,7 +214,7 @@ proc run_search {a} {
         incr pages [dict get $got pages]
         if {![dict get $got exhausted]} { set more 1 }
         if {[dict get $got state] ne "ok"} { set state [dict get $got state] }
-        if {$total eq "" || [llength $queries] > 1} { set total [dict get $got total] }
+        if {$total eq ""} { set total [dict get $got total] }
         foreach r [dict get $got rows] {
             set slug [dict get $r slug]
             if {![dict exists $merged $slug]} {
