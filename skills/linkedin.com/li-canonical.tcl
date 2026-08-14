@@ -283,13 +283,23 @@ proc parse_search_card {card} {
     set cut [string first "upsellSlotId" $rest]
     if {$cut > 0} { set rest [string range $rest 0 $cut] }
 
+    # Paragraph runs hold the headline and the location. The text is sometimes a
+    # direct child and sometimes wrapped a span deep, so the content is matched
+    # tempered-greedy to the first </p> (Tcl's leftmost-longest rule makes a
+    # plain .* span past it) and flattened after.
     set paras {}
-    foreach {full p} [regexp -all -inline {(?i)<p\y[^>]*>([^<]+)</p>} $rest] {
+    foreach {full p} [regexp -all -inline {(?i)<p\y[^>]*>((?:(?!</p>)(?:.|\n))*)</p>} $rest] {
         set t [html_text $p]
         if {$t ne ""} { lappend paras $t }
     }
     set degree ""
     regexp {[•·]\s*(\d+)} [string range $rest 0 400] -> degree
+
+    # Each card anchors a node keyed by the member's own profile id, which is
+    # the id the connectionOf filter takes. Reading it here saves the caller a
+    # profile fetch to learn it.
+    set pid ""
+    regexp {id="SearchResults(ACoAA[A-Za-z0-9_-]+)"} $card -> pid
 
     set mutuals {}
     foreach {full ms mn} [regexp -all -inline \
@@ -297,7 +307,7 @@ proc parse_search_card {card} {
         lappend mutuals [list $ms [html_text $mn]]
     }
 
-    return [dict create slug $slug name $name \
+    return [dict create slug $slug profile_id $pid name $name \
         headline [lindex $paras 0] location [lindex $paras 1] \
         degree $degree mutuals $mutuals]
 }
@@ -324,9 +334,10 @@ proc search_page_state {html} {
     return ok
 }
 
-# LinkedIn's own stated total for the query ("" when the page does not carry
-# one, which a metered page does not). Reported separately from the number of
-# cards parsed, so a caller never reads one page's rows as the result count.
+# LinkedIn's own stated total for the query. As of 2026-08 the people-search
+# page renders no result count at all, so this is "" on a current page and the
+# caller reports a null total rather than passing off one page's rows as the
+# size of the result set. Kept because the count has come and gone before.
 proc search_total_of {html} {
     foreach {full n} [regexp -all -inline {(?i)>\s*(?:About\s+)?([\d.,]+)\s+results?\s*<} $html] {
         regsub -all {[.,]} $n "" n

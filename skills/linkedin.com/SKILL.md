@@ -49,14 +49,16 @@ A bare string is a keyword search. A JSON object combines a keyword with LinkedI
 Emits the canonical envelope. `result` is:
 
 ```json
-{"query": {...as passed...}, "state": "ok"|"metered", "total": 218|null,
+{"query": {...as passed...}, "state": "ok"|"metered", "total": null,
  "cost": {"queries": 1, "pages": 1}, "count": 3,
- "results": [{"slug", "profile_url", "name", "headline", "location", "degree",
-              "shared_connections": [{"slug","name","profile_url"}],
+ "results": [{"slug", "profile_id", "profile_url", "name", "headline", "location",
+              "degree", "shared_connections": [{"slug","name","profile_url"}],
               "via": ["ACoAA..."]}]}
 ```
 
-`via` names which of the people in `connectionOf` this person was found through, so a merged result set stays attributable. `shared_connections` are the members LinkedIn names on that person's card as connections you have in common; they are not search results, and are reported inside the card they belong to rather than as rows of their own.
+`via` names which of the people in `connectionOf` this person was found through, so a merged result set stays attributable. `profile_id` is the `ACoAA...` id LinkedIn keys the card on, which is what `connectionOf` takes — so a result can be fed straight back in as the next search's target without a profile fetch. `shared_connections` are the members LinkedIn names on that card as connections you have in common; they are not search results, and stay inside the card they belong to rather than becoming rows of their own.
+
+`total` is LinkedIn's own stated result count, and is null on a current page because the people-search UI states none. `hasMore` is true when paging stopped on `maxPages` rather than on a page that brought nothing new, and `cursor` is then the page to resume at.
 
 ### Filter keys
 
@@ -66,7 +68,7 @@ Free text (sent as given): `keywords`, `firstName`, `lastName`, `title`, `compan
 
 Filters (sent as a list, one value or several): `network`, `geoUrn`, `schoolFilter`, `connectionOf`, `followerOf`, `currentCompany`, `pastCompany`, `industry`, `serviceCategory`, `profileLanguage`, `eventAttending`, `activelyHiringForJobTitles`, `companyHQBingGeo`, `companySizeV2`, `seniorityV2`, `openToVolunteer`, `functionV2`.
 
-Exercised against a live account: `keywords`, `connectionOf`, `network`, `geoUrn`. The rest are names LinkedIn's own filter bar sends and have not been run from here — treat a result filtered on one of them as unconfirmed until it is. Narrow by role with `title`; `titleFreeText` is not a LinkedIn key and was silently discarded whenever it was used.
+Exercised against a live account: `keywords`, `connectionOf`, `network` (2026-08-14), and `geoUrn`. The rest are names LinkedIn's own filter bar sends and have not been run from here — treat a result filtered on one of them as unconfirmed until it is. Narrow by role with `title`; `titleFreeText` is not a LinkedIn key and was silently discarded whenever it was used.
 
 `connectionOf` takes the `ACoAA...` id from `parse-profile`'s `urn` field (a full URN works; the prefix is stripped). `network` is `["F"]` for first-degree, `["F","S"]` to include second. What LinkedIn returns for a third party's network is gated: first-degree means the connections you share with them, always available; second-degree is populated only when that person is your own first-degree and has not hidden their list.
 
@@ -74,9 +76,11 @@ Exercised against a live account: `keywords`, `connectionOf`, `network`, `geoUrn
 
 LinkedIn meters people search per account per calendar month, does not report how much remains, and does not error when the meter runs out — it returns a handful of results with an ordinary page title. `state: "metered"` is that condition, detected from LinkedIn's own paywall marker rather than banner text, so it holds in any interface language. Treat a metered result set as a fragment, never as "few matches".
 
-`cost` reports what the call spent. Naming several people in `connectionOf` costs one search each, because LinkedIn's handling of several ids in that filter is unsettled and each is read separately. Batching them into one call is still cheaper than separate calls (the keyword, the merge and the paging are shared), and it is not free. Pass `"connectionQuery":"combined"` to put every id in one query instead.
+`cost` reports what the call spent, queries and page reads counted apart.
 
-Pagination is `"page"` and `"maxPages"`, default one page. LinkedIn stops at 100 pages and serves page one again beyond that, so a request crossing the ceiling is refused.
+Naming several people in `connectionOf` costs one search each. LinkedIn reads only the **first** id in that filter and discards the rest, so several ids in one query answer for one person while looking like they answered for all: measured 2026-08-14, two first-degree members with disjoint mutual sets of 4 and 5 returned, named together, exactly the first one's 4. Reading them one query each and merging is therefore the only way to cover several networks. Batching people into one call still beats separate calls, since the keyword, the merge and the attribution are shared, and it is not free.
+
+Pagination is `"page"` and `"maxPages"`, default one page, ten results a page. LinkedIn stops at 100 pages and serves page one again beyond that, so a request crossing the ceiling is refused rather than sent.
 
 ### Search variants for hard-to-find people (vary the quoted terms)
 
