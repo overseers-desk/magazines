@@ -44,11 +44,20 @@ marketplace that lists this plugin sits in a separate repo,
 
 ## Testing
 
-Load the plugin from disk and exercise the trigger end to end:
+Load the plugin from disk and exercise the trigger end to end, with the working
+tree's `bin/` ahead of the installed one:
 
 ```bash
-claude --plugin-dir . -p --dangerously-skip-permissions "<natural language request>"
+PATH="$PWD/bin:$PATH" claude --plugin-dir . -p --dangerously-skip-permissions "<natural language request>"
 ```
+
+The PATH half is what makes this a test of the working tree. `--plugin-dir`
+loads the skill definitions from disk, but a browser skill's SKILL.md tells the
+model to run `browser-serialiser`, which resolves through PATH to the installed
+plugin cache, whose tree is pinned at the commit that was installed. Without it
+the model reads the new SKILL.md while the harness runs the old script, and the
+run comes back in the previous output shape as though the change had not been
+made.
 
 Or inspect what the plugin exposes without running it:
 `claude --plugin-dir . plugin details magazines`. Calling a script directly
