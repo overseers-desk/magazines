@@ -449,6 +449,40 @@ proc cmd_fetch {cdp argsd} {
     return [eval_js $cdp $js]
 }
 
+# Audio pointer for one recording: replays the speech fetch and returns the
+# response's audio fields. audio_url is a presigned S3 URL (mp3, ~2-day expiry)
+# that needs no cookies, so the caller pulls the bytes with curl outside the
+# browser; the bytes themselves never cross the CDP channel. audio_url is null
+# on a recording with no audio (audio_enabled false or retention-blocked).
+proc cmd_audio {cdp argsd} {
+    set otid [dict get $argsd otid]
+    set js {
+    (async () => {
+        try {
+            const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+            const resp = await fetch('/forward/api/v1/speech?otid=@OTID@', {
+                credentials: 'include',
+                headers: {'x-csrftoken': csrf}
+            });
+            if (!resp.ok) return JSON.stringify({error: 'speech fetch HTTP ' + resp.status});
+            const data = await resp.json();
+            const sp = (data && data.speech) || data;
+            return JSON.stringify({
+                otid: sp.otid,
+                title: sp.title,
+                created_at: sp.created_at,
+                duration: sp.duration,
+                audio_format: sp.audio_format || null,
+                audio_url: sp.audio_url || null,
+                download_url: sp.download_url || null
+            });
+        } catch (e) { return JSON.stringify({error: String(e)}); }
+    })()
+    }
+    set js [string map [list @OTID@ $otid] $js]
+    return [eval_js $cdp $js]
+}
+
 proc usage {} {
     puts stderr "Otter.ai CDP helper"
     puts stderr "Usage:"
@@ -456,6 +490,7 @@ proc usage {} {
     puts stderr "  ... -- tclsh otter-cdp.tcl rename <otid> <new_title>"
     puts stderr "  ... -- tclsh otter-cdp.tcl trash <otid>"
     puts stderr "  ... -- tclsh otter-cdp.tcl fetch <otid>"
+    puts stderr "  ... -- tclsh otter-cdp.tcl audio <otid>"
 }
 
 # Parse argv into {command argsd}. argsd is a dict of the resolved options.
@@ -492,6 +527,10 @@ proc parse_args {argv} {
             if {[llength $rest] < 1} { puts stderr "fetch requires <otid>"; exit 2 }
             return [list fetch [dict create otid [lindex $rest 0]]]
         }
+        audio {
+            if {[llength $rest] < 1} { puts stderr "audio requires <otid>"; exit 2 }
+            return [list audio [dict create otid [lindex $rest 0]]]
+        }
         default {
             usage
             exit 1
@@ -522,6 +561,7 @@ proc main {argv} {
             rename            { set res [cmd_rename $cdp $argsd] }
             trash             { set res [cmd_trash $cdp $argsd] }
             fetch             { set res [cmd_fetch $cdp $argsd] }
+            audio             { set res [cmd_audio $cdp $argsd] }
         }
         lassign $res kind doc
         puts [json_pretty $doc]
@@ -545,7 +585,7 @@ proc main {argv} {
 # Returns "" on a parse error after emitting. argsd dict shapes mirror parse_args.
 proc sv_parse_args {skillArgs} {
     if {![llength $skillArgs]} {
-        emit [json_pretty "\{[json_str error]:[json_str {Usage: otter.ai/otter-cdp <list|rename|trash|fetch> ...}]\}"]
+        emit [json_pretty "\{[json_str error]:[json_str {Usage: otter.ai/otter-cdp <list|rename|trash|fetch|audio> ...}]\}"]
         return ""
     }
     set command [lindex $skillArgs 0]
@@ -575,6 +615,10 @@ proc sv_parse_args {skillArgs} {
             if {[llength $rest] < 1} { emit [json_pretty "\{[json_str error]:[json_str {fetch requires <otid>}]\}"]; return "" }
             return [list fetch [dict create otid [lindex $rest 0]]]
         }
+        audio {
+            if {[llength $rest] < 1} { emit [json_pretty "\{[json_str error]:[json_str {audio requires <otid>}]\}"]; return "" }
+            return [list audio [dict create otid [lindex $rest 0]]]
+        }
         default {
             emit [json_pretty "\{[json_str error]:[json_str "unknown command: $command"]\}"]
             return ""
@@ -600,6 +644,7 @@ proc serialiser_run {skillArgs} {
         rename            { set res [cmd_rename serialiser $argsd] }
         trash             { set res [cmd_trash serialiser $argsd] }
         fetch             { set res [cmd_fetch serialiser $argsd] }
+        audio             { set res [cmd_audio serialiser $argsd] }
     }
     lassign $res kind doc
     emit [json_pretty $doc]

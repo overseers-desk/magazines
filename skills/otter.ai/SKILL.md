@@ -1,6 +1,6 @@
 ---
 name: otter.ai
-description: "Otter.ai recordings: list, rename, trash, and fetch speaker-labelled transcripts from a logged-in Otter account."
+description: "Otter.ai recordings: list, rename, trash, fetch speaker-labelled transcripts, and download mp3 audio from a logged-in Otter account."
 argument-hint: <list | rename | trash | fetch>
 allowed-tools: Bash, Read
 ---
@@ -75,6 +75,26 @@ same call the recording page makes to render) and is reconstructed into
 speaker-labelled turns: each segment's text grouped by speaker, named from the
 recording's speaker list, falling back to a diarisation label
 (`Speaker N`) when a segment has no assigned speaker.
+
+### 5. Fetch a recording's audio pointer
+
+```bash
+browser-serialiser otter.ai/otter-cdp audio <otid>
+```
+
+Returns `{"otid", "title", "created_at", "duration", "audio_format", "audio_url",
+"download_url"}`. `audio_url` is a presigned S3 URL for the recording's mp3,
+valid for about two days and needing no cookies, so the bytes are pulled with
+plain curl rather than through the browser:
+
+```bash
+curl -o meeting.mp3 "<audio_url>"
+```
+
+`audio_url` is null on a recording with no audio (`audio_enabled` false or
+retention-blocked); `download_url` (api.aisense.com) needs the Otter session and
+is returned only as a fallback pointer. Same `/forward/api/v1/speech` endpoint
+as `fetch`, so no new API surface.
 
 ## How it works
 
