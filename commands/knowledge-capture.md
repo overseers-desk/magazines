@@ -49,7 +49,7 @@ Step 2's title filter catches only recordings this pipeline renamed. One transcr
 
 ### 3.3 Correct against the glossary
 
-Correct against the owning repo's `knowledge-capture/capture-correction-index.md`. Read the whole index and the whole transcript and correct holistically; a grep for a wrong spelling cannot find mistranscriptions, which vary without limit. Fix names, places and domain terms. Remove stutter, fillers and immediate self-corrections, writing what the speaker settled on. Strip any transcription-service suffix the recording carried.
+Correct against the owning repo's `knowledge-capture/capture-correction-index.md`. Read the whole index and the whole transcript and correct holistically; a grep for a wrong spelling cannot find mistranscriptions, which vary without limit. Fix names, places and domain terms. Remove what spends attention without carrying meaning, the stutter, the filler, the wording a speaker abandoned mid-sentence, and write what the speaker settled on. The transcript's readers, human and AI, work on a bounded attention budget; nobody comes to it as an archivist or a court. Strip any transcription-service suffix the recording carried.
 
 ### 3.4 Resolve what the glossary does not know
 
