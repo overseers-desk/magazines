@@ -23,9 +23,6 @@ steps.
   user logs in via the browser UI). If a subcommand returns
   `{"error": "Not logged in..."}`, the harness saw a login/checkpoint redirect and
   stopped; the user needs to log in to otter.ai in their browser first.
-- `[otter.ai] auto_push` in `config.ini` — optional, default off. Read by the
-  `knowledge-capture` command to decide whether a capture is pushed to the
-  business repo's remote as well as committed.
 
 ## Capabilities
 

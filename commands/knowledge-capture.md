@@ -121,14 +121,7 @@ An entity that clears the bar goes into the owning repo's `capture-correction-in
 
 ### 3.8 Commit
 
-`git add` the transcript, the staging document and the glossary if it changed, then commit as `Add <name>`. A failed commit stops this recording before the rename. Push only where the operator has opted in:
-
-```bash
-ini() { python3 -c 'import configparser,os,pathlib,sys;p=pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home()/".config")/"magazines/config.ini";c=configparser.ConfigParser(interpolation=None);c.read(p);print(c.get(sys.argv[1],sys.argv[2],fallback=""))' "$1" "$2"; }
-ini otter.ai auto_push
-```
-
-`true` means push in the business repo; anything else, including the empty string the reader returns for an unset key, keeps the capture a local commit. A push failure leaves the commit standing, so report it and carry on. The reader is the one in [`COMMAND-SURFACE.md`](../COMMAND-SURFACE.md).
+`git add` the transcript, the staging document and the glossary if it changed, then commit as `Add <name>`. A failed commit stops this recording before the rename.
 
 ### 3.9 Mark the recording done
 
