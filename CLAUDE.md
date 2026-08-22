@@ -21,6 +21,9 @@ marketplace that lists this plugin sits in a separate repo,
   in a separate project); it is a compatibility target, not a runtime dependency,
   and standalone `browser-serialiser` needs no overseer installed (see
   COMMAND-SURFACE.md, "Why the sandbox holds with no overseer present").
+- A skill that prices flights (an airline site, an OTA, a metasearch) takes its query and
+  reports its answer per [`FLIGHT-SEARCH.md`](FLIGHT-SEARCH.md), so sites swap
+  without the request changing and two answers sit side by side.
 - Every entry under `skills/` is a website skill, named for the site's domain and
   reaching that one site. Work that orchestrates several of them, or that does no
   browsing at all, is a command under `commands/` (`find-person`,
