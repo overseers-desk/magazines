@@ -1,6 +1,6 @@
 # Flight search: the query and result contract
 
-A skill that prices flights (an airline's own site, an OTA, a metasearch) takes its query and reports its answer in this one shape, so a caller can swap sites without changing the request, and put two sites' answers side by side. The airline skills (`csair.com`, `hainanairlines.com`, `xiamenair.com`) and the OTA skills (`kiwi.com` and the Aviasales-backed one) are written against it. A site's own oddities (a China-domestic schedule without prices, a fare-family ladder, a quota refusal) are reported inside this shape, not by a different shape.
+A skill that prices flights (an airline's own site, an OTA, a metasearch) takes its query and reports its answer in this one shape, so a caller can swap sites without changing the request, and put two sites' answers side by side. `xiamenair.com`, `kiwi.com` and `beatthatflight.com.au` are written against it in full. `csair.com` and `hainanairlines.com` share its query shape and answer conventions but keep their own failure vocabulary and lack `--limit`; bringing them onto the exit codes and prefixes below is open work. A site's own oddities (a China-domestic schedule without prices, a fare-family ladder, a quota refusal) are reported inside this shape, not by a different shape.
 
 ## Query
 
