@@ -20,7 +20,7 @@ Optional config, `[facebook.com] user_id`: the numeric account expected signed i
 
 When no one is logged in, Facebook embeds `"USER_ID":"0"` and `"ACCOUNT_ID":"0"` in the page config and serves a login wall (`id="login_form"`, `input name="email"`, `input name="pass"`, action `login/device-based/regular/login/`). The `"USER_ID":"0"` marker is the reliable one: it fires even on a public profile whose `<title>` still reads like a real page (e.g. `Mark Zuckerberg | Facebook`) behind the wall, where a title-only check would be fooled. When logged in, `USER_ID`/`ACCOUNT_ID` carry the real numeric account id.
 
-The harness classifies a login/checkpoint redirect into a terminal `logged-out`/`checkpoint` state; the scripts also check the no-session markers in the dumped DOM and emit `ERROR: Facebook: not logged in ...`. If a read returns this, surface it to the user verbatim — do not retry blindly or report empty results.
+The harness classifies a login/checkpoint redirect into a terminal `logged-out`/`checkpoint` state; the scripts also check the no-session markers in the dumped DOM, and a hit is a fault of shape `login_wall`, never a result. When a read comes back with `fault.shape` of `login_wall`, surface `fault.detail` to the user verbatim — do not retry blindly or report empty results.
 
 Facebook may otherwise serve different DOM structures depending on the target profile's privacy settings and the session locale.
 

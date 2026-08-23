@@ -8,6 +8,14 @@
 # Everything is swallowed. A run that cannot name its member reports nobody and
 # carries on; a failed identity read is not a reason to fail the work.
 proc site_identity {} {
+    # An action that loads li-canonical.tcl has already read /voyager/api/me for
+    # its own work, so take its answer rather than fetching a second time.
+    if {[llength [info commands own_profile_urn]]} {
+        if {![catch {own_profile_urn} urn] && $urn ne ""} {
+            if {[regexp {urn:li:fsd_profile:([A-Za-z0-9_-]+)} $urn -> id]} { return $id }
+            return $urn
+        }
+    }
     set js {
       (async () => {
         try {

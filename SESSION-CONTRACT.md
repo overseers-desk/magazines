@@ -87,9 +87,9 @@ A profile page's legacy `urn:li:member:NNN` often carries the viewer's own id, b
 
 ## 5. A null identity on an auth- run means the result is not trustworthy
 
-The wall the harness raises is the site's own evidence, and a site that wants to serve a signed-out page without saying so gives none. `skills/facebook.com/SKILL.md` records that case: a public profile served at 200, on an ordinary URL, whose `<title>` reads like a real page while the page config carries `"USER_ID":"0"`. The URL test never fires and the title test is fooled, so a caller waiting for a wall waits for something that is not coming.
+The wall the harness raises is the site's own evidence, and a site that wants to serve a signed-out page without saying so gives none. `skills/facebook.com/SKILL.md` records that case: a public profile served at 200, on an ordinary URL, whose `<title>` reads like a real page while the page config carries `"USER_ID":"0"`. The URL test never fires and the title test is fooled, so a caller waiting for a wall waits for something that is not coming. The page is not walled at all; it is served, and it is empty of the viewer.
 
-The rule that covers it is the caller's, not the harness's. A result from an `auth-` action carrying a null `identity` is not to be trusted, whether or not a wall was raised. The soft-wall page carries no account cookie either, so identity is null exactly where the data is not to be trusted.
+The rule that covers it is the caller's, not the harness's. A result from an `auth-` action carrying a null `identity` is not to be trusted, whether or not a wall was raised. That page carries no account cookie either, so identity is null exactly where the data is not to be trusted.
 
 The rule is scoped to `auth-` actions. A `pub-` result never had an identity to lack, and a site with no login runs nothing else, so applying it wider would distrust every result from most of the tree.
 

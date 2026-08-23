@@ -305,25 +305,25 @@ proc serialiser_run {skillArgs} {
     log "Navigating to homepage..."
     nav "https://www.linkedin.com/" --wait 4
     if {[dict get [state] terminal] ne ""} {
-        emit [result_json [dict create status logged_out \
-            note "navigation hit a wall ([dict get [state] terminal])"]]
+        emit [envelope_ok [dict create result [result_json [dict create status logged_out \
+            note "navigation hit a wall ([dict get [state] terminal])"]]]]
         return
     }
     set st [sv_login_state]
 
     if {$st eq "logged_in"} {
-        emit [result_json [dict create status already_logged_in]]
+        emit [envelope_ok [dict create result [result_json [dict create status already_logged_in]]]]
         return
     }
     if {$check_only} {
-        emit [result_json [dict create status $st \
+        emit [envelope_ok [dict create result [result_json [dict create status $st \
             url [eval {document.location.href}] \
-            title [eval {document.title}]]]
+            title [eval {document.title}]]]]]
         return
     }
     if {$st ne "logged_out_remember_me"} {
-        emit [result_json [dict create status $st \
-            note "no remember-me fastrack available; a password login is required"]]
+        emit [envelope_ok [dict create result [result_json [dict create status $st \
+            note "no remember-me fastrack available; a password login is required"]]]]
         return
     }
 
@@ -342,9 +342,9 @@ proc serialiser_run {skillArgs} {
 
     if {$label eq ""} {
         set clickables [eval {Array.from(document.querySelectorAll("button, a, [role=button]")).map(function(el){return (el.getAttribute("aria-label")||"")+"|"+(el.textContent||"").trim().slice(0,40)}).filter(function(s){return s.length>1}).slice(0,40).join("; ")}]
-        emit [result_json [dict create status continue_button_not_found \
+        emit [envelope_ok [dict create result [result_json [dict create status continue_button_not_found \
             url [eval {document.location.href}] \
-            clickables $clickables]]
+            clickables $clickables]]]]
         return
     }
 
@@ -362,9 +362,9 @@ proc serialiser_run {skillArgs} {
     set final [sv_login_state]
     log "Final state: $final"
 
-    emit [result_json [dict create \
+    emit [envelope_ok [dict create result [result_json [dict create \
         status [expr {$final eq "logged_in" ? "logged_in" : "login_failed"}] \
-        final_state $final]]
+        final_state $final]]]]
 }
 
 # Direct-tclsh entry: skipped when sourced as a serialiser skill (no argv0 match).
