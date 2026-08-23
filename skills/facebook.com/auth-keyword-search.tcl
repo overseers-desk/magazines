@@ -146,7 +146,7 @@ proc fb_profile_url {ref} {
 
 # ---------------------------------------------------------------------------
 # Serialiser entry: nav to the profile, dump the rendered DOM, run the identical
-# keyword search under fb::capture, emit the report. The first argument is the
+# keyword search under fb::report, emit the report. The first argument is the
 # profile reference; the rest are the keywords.
 #
 # Invoked by reference through the serialiser (see SKILL.md §8):
@@ -154,18 +154,18 @@ proc fb_profile_url {ref} {
 # ---------------------------------------------------------------------------
 proc serialiser_run {skillArgs} {
     if {[llength $skillArgs] < 2} {
-        emit "Usage: facebook.com/auth-keyword-search <handle|profile-url> keyword1 \[keyword2 ...\]"
+        emit [envelope_fault "Usage: facebook.com/auth-keyword-search <handle|profile-url> keyword1 \[keyword2 ...\]"]
         return
     }
     set target [lindex $skillArgs 0]
     set keywords [lrange $skillArgs 1 end]
     nav [fb_profile_url $target] --wait 5
     if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
+        emit [envelope_fault "login_wall: Facebook session expired. Log in via a Chrome-compatible browser first."]
         return
     }
     set html [dump]
-    emit [fb::capture out { keyword_search_html $html $keywords }]
+    emit [fb::report out { keyword_search_html $html $keywords }]
 }
 
 # Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.

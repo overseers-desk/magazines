@@ -163,7 +163,7 @@ proc lappend_all {varname more} {
 
 # ---------------------------------------------------------------------------
 # Serialiser entry: nav to the people-search results, dump the rendered DOM, run
-# the identical parse under fb::capture, emit the report.
+# the identical parse under fb::report, emit the report.
 #
 # Invoked by reference through the serialiser (see SKILL.md §1-2):
 #     browser-serialiser facebook.com/auth-parse-search <search terms>
@@ -171,17 +171,17 @@ proc lappend_all {varname more} {
 proc serialiser_run {skillArgs} {
     set terms [join $skillArgs " "]
     if {$terms eq ""} {
-        emit "Usage: facebook.com/auth-parse-search <search terms>"
+        emit [envelope_fault "Usage: facebook.com/auth-parse-search <search terms>"]
         return
     }
     set q [string map {" " %20} $terms]
     nav "https://www.facebook.com/search/people/?q=$q" --wait 5
     if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
+        emit [envelope_fault "login_wall: Facebook session expired. Log in via a Chrome-compatible browser first."]
         return
     }
     set html [dump]
-    emit [fb::capture out { parse_search_results_html $html }]
+    emit [fb::report out { parse_search_results_html $html }]
 }
 
 # Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.

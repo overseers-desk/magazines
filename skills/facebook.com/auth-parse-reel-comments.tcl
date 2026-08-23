@@ -23,15 +23,15 @@ proc serialiser_run {skillArgs} {
         }
     }
     if {$url eq ""} {
-        emit "Usage: facebook.com/auth-parse-reel-comments URL \[--max-rounds N\]"
+        emit [envelope_fault "Usage: facebook.com/auth-parse-reel-comments URL \[--max-rounds N\]"]
         return
     }
     lassign [fbcdp::sv_fetch $url $max_rounds] html bodies wall
     if {$wall ne ""} {
-        emit "ERROR: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry."
+        emit [envelope_fault "login_wall: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry."]
         return
     }
-    emit [to_markdown [parse_html $html $bodies] $url]
+    emit [envelope_ok [dict create result [json::write string [to_markdown [parse_html $html $bodies] $url]]]]
 }
 # --- Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a library/skill. ---
 if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {

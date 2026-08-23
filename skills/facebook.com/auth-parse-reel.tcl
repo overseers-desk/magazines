@@ -259,7 +259,7 @@ proc parse_reel {html_path} {
 
 # ---------------------------------------------------------------------------
 # Serialiser entry: nav to the post permalink, dump the rendered DOM, run the
-# identical parse under fb::capture, emit the report. Pass the page-post
+# identical parse under fb::report, emit the report. Pass the page-post
 # permalink (https://www.facebook.com/{PAGE_ID}/posts/{POST_ID}); a /reel/{id}
 # URL renders an empty shell (the parser warns, as in the file path).
 #
@@ -274,16 +274,16 @@ proc serialiser_run {skillArgs} {
         break
     }
     if {$url eq ""} {
-        emit "Usage: facebook.com/auth-parse-reel <post-permalink-url>"
+        emit [envelope_fault "Usage: facebook.com/auth-parse-reel <post-permalink-url>"]
         return
     }
     nav $url --wait 6
     if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
+        emit [envelope_fault "login_wall: Facebook session expired. Log in via a Chrome-compatible browser first."]
         return
     }
     set html [dump]
-    emit [fb::capture out { parse_reel_html $html }]
+    emit [fb::report out { parse_reel_html $html }]
 }
 
 # Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.

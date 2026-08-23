@@ -22,7 +22,7 @@ source [file join [file dirname [info script]] lib fb-common.tcl]
 set ::ACTIVITY_MONTHS {January February March April May June July August September October November December}
 
 # Parse from in-memory HTML (serialiser path) or a file (legacy path); one home
-# for the extraction, printed line-by-line so fb::capture collects it into the
+# for the extraction, printed line-by-line so fb::report collects it into the
 # single emitted string.
 proc parse_activity_html {html} {
     set title [fb::title $html "NOT FOUND"]
@@ -221,13 +221,13 @@ proc serialiser_run {skillArgs} {
         }
     }
     if {$target eq ""} {
-        emit "Usage: facebook.com/auth-parse-activity <profile-id|activity-url> \[--max-rounds N\]"
+        emit [envelope_fault "Usage: facebook.com/auth-parse-activity <profile-id|activity-url> \[--max-rounds N\]"]
         return
     }
 
     nav [activity_url $target] --wait 5
     if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: Facebook: [dict get [state] terminal]. Log in via a Chrome-compatible browser first."
+        emit [envelope_fault "login_wall: Facebook: [dict get [state] terminal]. Log in via a Chrome-compatible browser first."]
         return
     }
 
@@ -249,7 +249,7 @@ proc serialiser_run {skillArgs} {
     }
 
     set html [dump]
-    emit [fb::capture out { parse_activity_html $html }]
+    emit [fb::report out { parse_activity_html $html }]
 }
 
 # Resolve a target to an activity-log URL: a full URL passes through; a bare

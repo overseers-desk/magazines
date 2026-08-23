@@ -7,6 +7,7 @@
 # own extraction logic, mirroring the Python predecessors' shared functions.
 
 package require json
+package require json::write
 
 namespace eval fb {}
 
@@ -159,23 +160,21 @@ proc fb::is_noise {text} {
 
 # ---------------------------------------------------------------------------
 # Serialiser support, shared by every facebook.com script's serialiser_run.
-# The legacy parsers print their report line-by-line with `puts` to stdout and
-# `exit 1` on a login wall; under the serialiser there is one output channel
-# (`emit`) and stdout does not exist in the safe interp. fb::capture renames
-# `puts` to a buffer so the byte-identical printers run untouched, returning the
-# captured text; a parser `exit 1` (the login-wall path) surfaces as a catchable
-# error in the Safe Base, so the buffer printed before it is returned as-is.
-# Keeping this here is single-source-of-truth: every sibling reuses it rather
-# than each re-implementing the rename.
+# The parsers print their report line-by-line with `puts` to stdout and `exit 1`
+# on a login wall. Under the serialiser there is one output channel (`emit`),
+# stdout does not exist in the safe interp, and what a caller reads is the
+# canonical envelope. fb::report renames `puts` to a buffer so the printers run
+# untouched, then wraps what they printed as the envelope's `result`.
+#
+# A parser `exit 1` surfaces as a catchable error in the Safe Base, and it means
+# the page was a login wall. That returns a fault of shape `login_wall`, so a
+# caller reading the envelope sees the wall rather than a half-written report.
 # ---------------------------------------------------------------------------
 
 # Run $script, capturing everything its body `puts` to stdout (or explicit
 # stdout) into $bodyVar; `puts stderr ...` passes through to the shared stderr.
-# A parser `exit` inside the body ends the capture with whatever was buffered
-# (under the serialiser, `exit` is the parser's "printed an error, stop" signal,
-# not a process exit). Returns the captured text in $bodyVar; the proc's own
-# return value is the captured text too, for convenience.
-proc fb::capture {bodyVar script} {
+# Returns the canonical envelope, ready to hand to `emit`.
+proc fb::report {bodyVar script} {
     upvar 1 $bodyVar captured
     set ::fb::_cap_buf ""
     rename ::puts ::fb::_cap_real
@@ -214,10 +213,12 @@ proc fb::capture {bodyVar script} {
     # printed up to that point is already captured, so swallow it and return the
     # buffer. A different error is re-raised.
     if {$code && $result eq {wrong # args: should be "exit"}} {
-        return $captured
+        set msg [string trim $captured]
+        if {$msg eq ""} { set msg "Facebook served a login wall" }
+        return [envelope_fault "login_wall: $msg"]
     }
     if {$code} {
         return -code $code $result
     }
-    return $captured
+    return [envelope_ok [dict create result [json::write string $captured]]]
 }

@@ -315,7 +315,7 @@ proc parse_posts {html_path owner_id} {
 
 # ---------------------------------------------------------------------------
 # Serialiser entry: nav to the profile (the covering view), dump the rendered
-# DOM, and run the identical parse over the in-memory HTML under fb::capture so
+# DOM, and run the identical parse over the in-memory HTML under fb::report so
 # the byte-identical printers populate the single emitted string. A login wall
 # is caught by `state` after nav (the parser's own no-session exit is the
 # fallback, captured before it fires).
@@ -336,16 +336,16 @@ proc serialiser_run {skillArgs} {
         }
     }
     if {$target eq ""} {
-        emit "Usage: facebook.com/auth-parse-posts <handle|profile-url> \[--owner-id ID\]"
+        emit [envelope_fault "Usage: facebook.com/auth-parse-posts <handle|profile-url> \[--owner-id ID\]"]
         return
     }
     nav [fb_profile_url $target] --wait 5
     if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
+        emit [envelope_fault "login_wall: Facebook session expired. Log in via a Chrome-compatible browser first."]
         return
     }
     set html [dump]
-    emit [fb::capture out { parse_posts_html $html $owner_id }]
+    emit [fb::report out { parse_posts_html $html $owner_id }]
 }
 
 # Resolve a profile reference (a bare handle, a numeric id, or a full URL) to a

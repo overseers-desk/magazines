@@ -22,21 +22,21 @@ proc serialiser_run {skillArgs} {
         }
     }
     if {$url eq ""} {
-        emit "Usage: facebook.com/auth-reel-comments-cdp URL \[--max-rounds N\]"
+        emit [envelope_fault "Usage: facebook.com/auth-reel-comments-cdp URL \[--max-rounds N\]"]
         return
     }
     ::log "serialiser_run: calling sv_fetch url=$url max_rounds=$max_rounds"
     lassign [fbcdp::sv_fetch $url $max_rounds] html bodies wall
     ::log "serialiser_run: sv_fetch done wall=$wall bodies=[dict size $bodies] html_len=[string length $html]"
     if {$wall ne ""} {
-        emit "ERROR: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry."
+        emit [envelope_fault "login_wall: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry."]
         return
     }
     set data [parse_html $html $bodies]
     ::log "serialiser_run: parse_html done comments=[llength [dict get $data comments]]"
     set md [to_markdown $data $url]
     ::log "serialiser_run: to_markdown len=[string length $md]"
-    emit $md
+    emit [envelope_ok [dict create result [json::write string $md]]]
 }
 # Direct-tclsh entry (legacy CDP). Skipped when sourced as a serialiser skill.
 if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {

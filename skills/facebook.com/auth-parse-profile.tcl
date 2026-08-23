@@ -173,7 +173,7 @@ proc fb_profile_url {ref} {
 
 # ---------------------------------------------------------------------------
 # Serialiser entry: nav to the profile, dump the rendered DOM, run the identical
-# parse under fb::capture, emit the captured report. A login wall caught by
+# parse under fb::report, emit the captured report. A login wall caught by
 # `state`; the parser's own no-session exit is the captured fallback.
 #
 # Invoked by reference through the serialiser (see SKILL.md §3-4):
@@ -187,16 +187,16 @@ proc serialiser_run {skillArgs} {
         break
     }
     if {$target eq ""} {
-        emit "Usage: facebook.com/auth-parse-profile <handle|profile-url>"
+        emit [envelope_fault "Usage: facebook.com/auth-parse-profile <handle|profile-url>"]
         return
     }
     nav [fb_profile_url $target] --wait 5
     if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry."
+        emit [envelope_fault "login_wall: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry."]
         return
     }
     set html [dump]
-    emit [fb::capture out { parse_profile_html $html }]
+    emit [fb::report out { parse_profile_html $html }]
 }
 
 # Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.

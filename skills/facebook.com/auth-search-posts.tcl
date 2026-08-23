@@ -235,7 +235,7 @@ proc serialiser_run {skillArgs} {
     }
 
     if {$group eq "" && ![llength $terms]} {
-        emit "Usage: facebook.com/auth-search-posts \[--group <id|name|url>\] \[--feed\] \[--max-rounds N\] <terms...>"
+        emit [envelope_fault "Usage: facebook.com/auth-search-posts \[--group <id|name|url>\] \[--feed\] \[--max-rounds N\] <terms...>"]
         return
     }
 
@@ -253,7 +253,7 @@ proc serialiser_run {skillArgs} {
 
     capture $url --seconds 8 --match "*/api/graphql/*"
     if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: Facebook: [dict get [state] terminal]. Log in via a Chrome-compatible browser first."
+        emit [envelope_fault "login_wall: Facebook: [dict get [state] terminal]. Log in via a Chrome-compatible browser first."]
         return
     }
 
@@ -281,12 +281,12 @@ proc serialiser_run {skillArgs} {
         lappend bodies $body
     }
     if {![llength $bodies]} {
-        emit "$scope_label\nNo GraphQL response was harvested. The page served no post data."
+        emit [envelope_ok [dict create result [json::write string "$scope_label\nNo GraphQL response was harvested. The page served no post data."]]]
         return
     }
 
     set posts [extract_posts [join $bodies "\n"]]
-    emit [render_report $posts $terms $scope_label [group_slug $group]]
+    emit [envelope_ok [dict create result [json::write string [render_report $posts $terms $scope_label [group_slug $group]]]]]
 }
 
 # Direct-tclsh entry (file-fed): run the extraction over saved GraphQL bodies,
