@@ -608,9 +608,40 @@ proc serialiser::Verb_state {} {
 # returns it as the run result. Calling emit twice overwrites (last wins).
 proc serialiser::Verb_emit {result} {
     variable Run
-    dict set Run emitted $result
+    dict set Run emitted [serialiser::FoldSurrogates $result]
     dict set Run emittedSet 1
     return ""
+}
+
+# Join UTF-16 surrogate pairs into the character they stand for, and drop a half
+# that has no partner.
+#
+# tcllib's json decodes an escaped astral character, "\ud83d\udc0e" for a
+# horse, into the two halves rather than into the character. Tcl 9 refuses to
+# write a half to a utf-8 channel, so a caption carrying one emoji killed the
+# run at the write with the result already built. Folding here covers every
+# skill and every host, because it sits where a skill's text becomes the run's
+# result rather than in one site's parser.
+proc serialiser::FoldSurrogates {s} {
+    if {![regexp {[\uD800-\uDFFF]} $s]} { return $s }
+    set out {}
+    set chars [split $s ""]
+    set n [llength $chars]
+    for {set i 0} {$i < $n} {incr i} {
+        set ch [lindex $chars $i]
+        scan $ch %c v
+        if {$v >= 0xD800 && $v <= 0xDBFF && $i + 1 < $n} {
+            scan [lindex $chars [expr {$i + 1}]] %c w
+            if {$w >= 0xDC00 && $w <= 0xDFFF} {
+                append out [format %c [expr {0x10000 + (($v - 0xD800) << 10) + ($w - 0xDC00)}]]
+                incr i
+                continue
+            }
+        }
+        if {$v >= 0xD800 && $v <= 0xDFFF} { continue }
+        append out $ch
+    }
+    return $out
 }
 
 # dwell <seconds>  -- a deliberate human-ish pause the skill may request (e.g.
