@@ -20,7 +20,7 @@
 # owner urn cannot be read. One page per run (a profile is not paged): cursor "",
 # hasMore false, like contact-info.
 
-source [file join [file dirname [info script]] parse-profile.tcl]
+source [file join [file dirname [info script]] lib parse-profile.tcl]
 source [file join [file dirname [info script]] li-canonical.tcl]
 
 # A display-formed count token -> its best-effort integer, or "" if unparseable.
