@@ -54,7 +54,12 @@ The caller reads the code, not the prose. A batch runner stops on 77 instead of 
 
 The codes already in use here are 2, 3, 4, 5, 64, 65, 66, 75 and 78; `FLIGHT-SEARCH.md` documents the ones the flight skills share, and `bin/browser-serialiser` assigns 75 to a lock-wait timeout. 77 is this condition alone: `bin/browser-serialiser` exits it on a `logged-out` or `checkpoint` wall, and 66 keeps the walls that are not about a session.
 
-Where the harness has already classified the run terminal as `logged-out` or `checkpoint`, that classification is the session's absence and the action exits 77 on it.
+Where the harness has already classified the run terminal as `logged-out` or `checkpoint`, the action exits 77 on it. The two share the code and differ in the line, because what a person does about them differs: a `logged-out` wall is one account's, and a sign-in clears it, so the line names the account and the profile; a `checkpoint` is the site challenging this browser, no sign-in clears it, and every account on that site is stopped, so the line says that instead.
+
+    session missing: linkedin.com, expected ACoAAB1x, profile "Profile 2"
+    checkpoint: linkedin.com is challenging this browser, profile "Profile 2"
+
+A caller that has to act on the difference reads the line, or, where it runs the harness rather than the command, the terminal classification the harness raises.
 
 ## 4. An auth- action reports the identity it saw
 

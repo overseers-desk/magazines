@@ -646,9 +646,14 @@ proc serialiser_delegate {skillRef skillArgs} {
         set detail [expr {[dict exists $f detail] ? [dict get $f detail] : ""}]
         if {$shape eq "terminal"} {
             if {$detail in {logged-out checkpoint}} {
-                tray::notify "Browser skill stopped" \
-                    "Log in to [file dirname $skillRef] in Chromium, then retry."
                 set site [file dirname $skillRef]
+                if {$detail eq "checkpoint"} {
+                    tray::notify "Browser skill stopped" \
+                        "$site served a challenge. Open it in Chromium and clear it."
+                    die 77 "checkpoint: $site is challenging this browser"
+                }
+                tray::notify "Browser skill stopped" \
+                    "Log in to $site in Chromium, then retry."
                 set who [expected_account $site]
                 die 77 "session missing: $site[expr {$who ne "" ? ", expected $who" : ""}]"
             }
@@ -808,9 +813,19 @@ proc run_standalone {skillRef skillArgs} {
                 set site [file dirname $skillRef]
                 set who [expected_account $site]
                 set clause [expr {$who ne "" ? ", expected $who" : ""}]
-                puts stderr "session missing: $site$clause, profile \"$udd\""
-                tray::notify "Browser skill stopped" \
-                    "Log in to [file dirname $skillRef] in Chromium, then retry."
+                if {$wall eq "checkpoint"} {
+                    # The site is challenging this machine, not this account.
+                    # No sign-in clears it, and every account on the site is
+                    # stopped, so the line says so rather than sending a
+                    # person to a login form.
+                    puts stderr "checkpoint: $site is challenging this browser, profile \"$udd\""
+                    tray::notify "Browser skill stopped" \
+                        "[file dirname $skillRef] served a challenge. Open it in Chromium and clear it."
+                } else {
+                    puts stderr "session missing: $site$clause, profile \"$udd\""
+                    tray::notify "Browser skill stopped" \
+                        "Log in to [file dirname $skillRef] in Chromium, then retry."
+                }
                 set rc 77
             } else {
                 puts stderr "browser-serialiser: terminal $wall"
