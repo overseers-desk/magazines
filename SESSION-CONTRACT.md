@@ -85,7 +85,19 @@ What this costs differs by site, and the cheap shape is not available everywhere
 
 A profile page's legacy `urn:li:member:NNN` often carries the viewer's own id, but only often. It is not the source for this.
 
-## 5. Conformance is a test, and adoption is per site
+## 5. A null identity on an auth- run means the result is not trustworthy
+
+The wall the harness raises is the site's own evidence, and a site that wants to serve a signed-out page without saying so gives none. `skills/facebook.com/SKILL.md` records that case: a public profile served at 200, on an ordinary URL, whose `<title>` reads like a real page while the page config carries `"USER_ID":"0"`. The URL test never fires and the title test is fooled, so a caller waiting for a wall waits for something that is not coming.
+
+The rule that covers it is the caller's, not the harness's. A result from an `auth-` action carrying a null `identity` is not to be trusted, whether or not a wall was raised. The soft-wall page carries no account cookie either, so identity is null exactly where the data is not to be trusted.
+
+The rule is scoped to `auth-` actions. A `pub-` result never had an identity to lack, and a site with no login runs nothing else, so applying it wider would distrust every result from most of the tree.
+
+Within `auth-`, a null identity has three causes and all three want the same answer. The page was signed out, which is the case the rule is for. The action faulted before it navigated, so there is no result to trust anyway. Or the site declares it cannot name an account (§4), and an authenticated result that cannot be shown to be authenticated is one to hold while that declaration stands. The three need not be told apart while that declaration reads as a defect awaiting a fix. If it ever becomes a settled shape for some site, a caller will need to tell that site from a signed-out run, and this section is where that distinction goes.
+
+What a caller holds on is the account the job asked for, not one the page named. There is no name on the page; that is the fact the rule fires on.
+
+## 6. Conformance is a test, and adoption is per site
 
 `lib/session-contract-selftest.tcl` enforces the prefix rule on every site that has adopted the contract, and a site adopts it by carrying `whoami.tcl`. Presence of the probe is the opt-in, so no separate list of migrated sites exists to drift.
 
