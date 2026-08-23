@@ -15,8 +15,8 @@ exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 #     browser-serialiser <skill-ref> [skill args...]
 #
 # <skill-ref> is a path relative to the toolbox skills/ directory, WITHOUT the
-# .tcl suffix. "instagram.com/fetch-recent-posts" runs
-# skills/instagram.com/fetch-recent-posts.tcl. The ref must stay inside skills/.
+# .tcl suffix. "instagram.com/auth-fetch-recent-posts" runs
+# skills/instagram.com/auth-fetch-recent-posts.tcl. The ref stays inside skills/.
 #
 # Browser ownership - two paths, the overseer chosen whenever it is up:
 #   Delegated: when the overseer broker answers on 127.0.0.1:11402 it owns the shared
