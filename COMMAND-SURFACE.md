@@ -36,11 +36,12 @@ prints what was emitted. A skill file may also keep its legacy `main` for direct
 `tclsh` use (the IG keystone does, so its siblings can still source it as a
 library); the harness ignores everything but `serialiser_run`.
 
-A skill may `source` its sibling files in the same skill directory and anything
-in `lib`, and nothing else: the safe interp's access path is exactly those
-two directories. This preserves single-source-of-truth for shared components
-(e.g. the other Instagram scripts source `fetch-recent-posts.tcl` as their
-library).
+A skill may `source` its sibling files in the same skill directory, the files in
+its own `lib/`, and anything in the shared `lib` at the root, and nothing else:
+the safe interp's access path is exactly those directories. This preserves
+single-source-of-truth for shared components: helpers that several of a skill's
+actions draw on live in that skill's `lib/`, as the Instagram feed-and-parse
+helpers do.
 
 ## Credentials: config.ini reaches a skill as arguments
 

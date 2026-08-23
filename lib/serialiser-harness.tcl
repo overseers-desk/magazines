@@ -62,11 +62,11 @@ namespace eval serialiser {
 
 # Anchor the toolbox root. $root is the directory that contains bin/, lib/, and
 # skills/. This is the anchoring contract, stated once: skill refs resolve under
-# <Root>/skills/, and the safe interp's access whitelist is the skill's own dir
-# plus <Root>/lib. skills/lib is a committed symlink to ../lib, so a host that
-# knows only the lib dir it was handed (shaped <root>/skills/lib) derives this
-# same Root as two dirnames up, and both spellings of the lib dir are one
-# directory.
+# <Root>/skills/, and the safe interp's access whitelist is the skill's own dir,
+# that skill's own lib/ where it has one, plus <Root>/lib. skills/lib is a
+# committed symlink to ../lib, so a host that knows only the lib dir it was
+# handed (shaped <root>/skills/lib) derives this same Root as two dirnames up,
+# and both spellings of the lib dir are one directory.
 proc serialiser::setRoot {root} {
     variable Root
     set Root [file normalize $root]
@@ -239,8 +239,8 @@ proc serialiser::run {skillPath cdp skillArgs {site ""}} {
 
     set interp [::safe::interpCreate]
     try {
-        # Plane 1: the child needs only the Tcl core, json, its own skill dir, and
-        # lib (for `source` of shared siblings). Inheriting the master's
+        # Plane 1: the child needs only the Tcl core, json, its own skill dir,
+        # that skill's own lib/, and the shared lib (for `source` of helpers). Inheriting the master's
         # whole auto_path drags in /usr/share/tcltk (ttkthemes) and the Tk lib dir,
         # whose pkgIndex files call pwd / file normalize / file isdirectory — all
         # forbidden in a safe interp — so the `package require json` below scans
@@ -254,7 +254,15 @@ proc serialiser::run {skillPath cdp skillArgs {site ""}} {
         foreach d [lindex [::safe::interpConfigure $interp -accessPath] 1] {
             if {[string match [info library]* $d]} { lappend acc $d }
         }
-        lappend acc [file dirname $skillPath] [file join $Root lib]
+        set skillDir [file dirname $skillPath]
+        lappend acc $skillDir
+        # A skill's own lib/ holds the helpers its actions share. Added only when
+        # it exists: the Safe Base rejects an access path naming a missing dir,
+        # and most skills keep every file flat.
+        if {[file isdirectory [file join $skillDir lib]]} {
+            lappend acc [file join $skillDir lib]
+        }
+        lappend acc [file join $Root lib]
         foreach pkg {json json::write base64} {
             foreach tok [package ifneeded $pkg [package require $pkg]] {
                 if {[file exists $tok]} {
