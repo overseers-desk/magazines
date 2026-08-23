@@ -37,6 +37,11 @@ namespace eval serialiser {
     # path are both anchored here.
     variable Root ""
 
+    # This file's own directory, captured at load. envelope.tcl sits beside it,
+    # and is read from here rather than from Root so a caller that never set
+    # Root still gets the envelope procs.
+    variable HarnessDir [file dirname [file normalize [info script]]]
+
     # The CDP client object for the current run (a cdp::Client). The verbs drive
     # it; the safe interp never sees it.
     variable Cdp ""
@@ -287,6 +292,7 @@ proc serialiser::run {skillPath cdp skillArgs {site ""}} {
         interp share {} stderr $interp
 
         serialiser::InjectVerbs $interp
+        serialiser::InjectEnvelope $interp
 
         # tcllib json and base64 are pure-Tcl and safe; let the skill's parsers use them.
         catch {$interp eval {package require json}}
@@ -324,6 +330,18 @@ proc serialiser::run {skillPath cdp skillArgs {site ""}} {
 # Alias injection: bind every surface verb to a master-side handler. The safe
 # interp can call the verb by name; the body runs here with full capability.
 # ---------------------------------------------------------------------------
+
+# The canonical envelope every skill emits (COMMAND-SURFACE.md). These build a
+# string and touch nothing outside the child, so they are defined in it rather
+# than aliased back here. A skill calls envelope_ok with a dict carrying at
+# least `result`, and envelope_fault with a detail line.
+proc serialiser::InjectEnvelope {interp} {
+    variable HarnessDir
+    set f [open [file join $HarnessDir envelope.tcl] r]
+    set body [read $f]
+    close $f
+    $interp eval $body
+}
 
 proc serialiser::InjectVerbs {interp} {
     foreach verb {nav dump eval api capture harvest veto type click key state emit dwell log} {

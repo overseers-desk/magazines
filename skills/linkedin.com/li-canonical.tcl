@@ -34,14 +34,16 @@
 
 package require json
 package require json::write
+
+# The envelope procs (envelope_ok, envelope_fault, fault_shape_of, dict_get_or)
+# come from the harness, which defines them in every skill's sandbox. A run
+# under plain tclsh has no harness, so source the one text they live in.
+if {![llength [info commands envelope_ok]]} {
+    source [file join [file dirname [info script]] .. .. lib envelope.tcl]
+}
 ::json::write indented 0
 ::json::write aligned 0
 
-# --- small utilities --------------------------------------------------------
-proc dict_get_or {d key default} {
-    if {[dict exists $d $key]} { return [dict get $d $key] }
-    return $default
-}
 # value or "" ; a present JSON null (json2dict -> "null") is treated as absent.
 proc dstr {d key} {
     if {[dict exists $d $key]} { set v [dict get $d $key]; if {$v eq "null"} { return "" }; return $v }
@@ -380,24 +382,6 @@ proc parse_people_search {html} {
         total [search_total_of $html] results $results]
 }
 
-# --- envelope ---------------------------------------------------------------
-proc envelope_ok {r} {
-    set cursor [dict_get_or $r cursor ""]
-    set c [expr {$cursor eq "" ? "null" : [json::write string $cursor]}]
-    set h [expr {[dict_get_or $r hasMore 0] ? "true" : "false"}]
-    return [json::write object result [dict get $r result] cursor $c hasMore $h fault null]
-}
-proc fault_shape_of {detail} {
-    if {[regexp {^([a-z_]+):\s} $detail -> tag] && [lsearch -exact {removed login_wall} $tag] >= 0} { return $tag }
-    return unrecognised
-}
-proc envelope_fault {detail} {
-    set shape [fault_shape_of $detail]
-    if {$shape ne "unrecognised"} { regsub "^${shape}:\\s+" $detail "" detail }
-    set f [json::write object shape [json::write string $shape] \
-                                detail [json::write string [string range $detail 0 200]]]
-    return [json::write object result null cursor null hasMore false fault $f]
-}
 
 # --- runtime browser helpers (only called inside the serialiser safe interp) -
 # These reference the `capture`/`eval` verbs, so they run only from a playbook;

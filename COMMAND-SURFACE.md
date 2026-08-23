@@ -236,7 +236,11 @@ reason is that a caller has to tell a result from a fault without reading prose,
 which is the distinction the session contract exists to protect. `identity`
 names the account the page was rendered for, per `SESSION-CONTRACT.md` §4.
 
-`envelope_ok` and `envelope_fault` build it.
+`envelope_ok` and `envelope_fault` build it, and a host provides them the way it
+provides the verbs: `lib/envelope.tcl` holds the one text, and the host reads it
+into each skill's interpreter before sourcing the skill. A skill loads nothing
+to build its reply. A skill with a direct-tclsh path sources the same file
+itself, behind a guard that skips it when a host has already defined them.
 
 A type-B primitive (one the overseer runs and persists) carries a further
 contract the harness does not enforce: the envelope it emits is the one the BI

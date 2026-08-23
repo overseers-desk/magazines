@@ -24,6 +24,13 @@
 package require json
 package require json::write
 
+# The envelope procs (envelope_ok, envelope_fault, fault_shape_of, dict_get_or)
+# come from the harness, which defines them in every skill's sandbox. A run
+# under plain tclsh has no harness, so source the one text they live in.
+if {![llength [info commands envelope_ok]]} {
+    source [file join [file dirname [info script]] .. .. lib envelope.tcl]
+}
+
 ::json::write indented 0
 ::json::write aligned 0
 
@@ -32,10 +39,6 @@ package require json::write
 # Small utilities (ported from social/lib/ig.js + helpers)
 # ===========================================================================
 
-proc dict_get_or {d key default} {
-    if {[dict exists $d $key]} { return [dict get $d $key] }
-    return $default
-}
 # value or "" ; a present JSON null (json2dict -> "null") is treated as absent.
 proc dstr {d key} {
     if {[dict exists $d $key]} { set v [dict get $d $key]; if {$v eq "null"} { return "" }; return $v }
@@ -467,33 +470,3 @@ proc post_json {item} {
         like_and_view_counts_disabled [j_bool [dbool $item like_and_view_counts_disabled]]]
 }
 
-# ===========================================================================
-# Envelope
-# ===========================================================================
-proc envelope_ok {r} {
-    set cursor [dict get $r cursor]
-    set c [expr {$cursor eq "" ? "null" : [json::write string $cursor]}]
-    set h [expr {[dict get $r hasMore] ? "true" : "false"}]
-    return [json::write object result [dict get $r result] cursor $c hasMore $h fault null]
-}
-# The fault shape lets the BI server's persist discriminate a terminal "removed" page
-# (skip the handle / terminate a dead thread) from a transient unrecognised fault
-# (retry).
-# A playbook signals a non-default shape by leading its error with "<shape>: "
-# (e.g. "removed: ..."); we strip the recognised tag so the detail stays human and
-# default to "unrecognised" for everything else. Only known tags are honoured.
-proc fault_shape_of {detail} {
-    if {[regexp {^([a-z_]+):\s} $detail -> tag] && [lsearch -exact {removed login_wall wrong_session} $tag] >= 0} {
-        return $tag
-    }
-    return unrecognised
-}
-proc envelope_fault {detail} {
-    set shape [fault_shape_of $detail]
-    # Strip the recognised "<shape>: " tag from the detail so it stays human
-    # (the shape carries the discriminator; doubling it in the detail is just noise).
-    if {$shape ne "unrecognised"} { regsub "^${shape}:\\s+" $detail "" detail }
-    set f [json::write object shape [json::write string $shape] \
-                                detail [json::write string [string range $detail 0 200]]]
-    return [json::write object result null cursor null hasMore false fault $f]
-}

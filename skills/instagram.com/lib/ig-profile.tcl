@@ -12,18 +12,18 @@
 
 package require json
 package require json::write
+
+# The envelope procs (envelope_ok, envelope_fault, fault_shape_of, dict_get_or)
+# come from the harness, which defines them in every skill's sandbox. A run
+# under plain tclsh has no harness, so source the one text they live in.
+if {![llength [info commands envelope_ok]]} {
+    source [file join [file dirname [info script]] .. .. .. lib envelope.tcl]
+}
 ::json::write indented 0
 ::json::write aligned 0
 
 source [file join [file dirname [info script]] ig-html.tcl]
 
-# ===========================================================================
-# Generic helpers (self-contained: the skill end has no ig-canonical.tcl)
-# ===========================================================================
-proc dict_get_or {d key default} {
-    if {[dict exists $d $key]} { return [dict get $d $key] }
-    return $default
-}
 # A correct JSON string escaper (tcllib json::write string does not escape control
 # chars, and bios carry literal newlines): ", \, the C0 set, and non-BMP as a
 # UTF-16 surrogate pair so the output stays pure ASCII.
@@ -61,23 +61,6 @@ proc j_bool {b}      { return [expr {$b ? "true" : "false"}] }
 proc j_intornull {v} { return [expr {$v eq "" || $v eq "null" ? "null" : $v}] }
 proc j_boolornull {v} { return [expr {$v eq "" ? "null" : ($v ? "true" : "false")}] }
 
-proc fault_shape_of {detail} {
-    if {[regexp {^([a-z_]+):\s} $detail -> tag] && [lsearch -exact {removed login_wall} $tag] >= 0} {
-        return $tag
-    }
-    return unrecognised
-}
-proc envelope_ok {r} {
-    set cursor [dict get $r cursor]
-    set c [expr {$cursor eq "" ? "null" : [json::write string $cursor]}]
-    set h [expr {[dict get $r hasMore] ? "true" : "false"}]
-    return [json::write object result [dict get $r result] cursor $c hasMore $h fault null]
-}
-proc envelope_fault {detail} {
-    set f [json::write object shape [json::write string [fault_shape_of $detail]] \
-                                detail [json::write string [string range $detail 0 200]]]
-    return [json::write object result null cursor null hasMore false fault $f]
-}
 
 # URL-encode a path segment (the viewed handle), self-contained so the file does
 # not depend on the http package (unavailable in the harness's safe interp).
