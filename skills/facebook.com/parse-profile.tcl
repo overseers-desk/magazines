@@ -12,7 +12,7 @@
 #   3. Raw visible text — >content< patterns, framework noise filtered
 #   4. JSON-LD Person data if present
 
-source [file dirname [info script]]/fb-common.tcl
+source [file join [file dirname [info script]] lib fb-common.tcl]
 
 # Parse from in-memory HTML, the single home for the byte-identical extraction.
 # The legacy file path reads the file then calls this; the serialiser path dumps

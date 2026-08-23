@@ -16,7 +16,7 @@
 # Limits: Facebook lazy-loads comments; a headless single-render yields the
 # first ~5-10. The total_comment_count field is the true total.
 
-source [file dirname [info script]]/fb-common.tcl
+source [file join [file dirname [info script]] lib fb-common.tcl]
 
 # Parse from in-memory HTML, the single home for the byte-identical extraction.
 proc parse_reel_html {html} {

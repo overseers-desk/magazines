@@ -16,7 +16,7 @@
 # text. `capture` is also the harness's intended path for private data, since
 # view-before-fetch is intrinsic to it.
 
-source [file dirname [info script]]/fb-common.tcl
+source [file join [file dirname [info script]] lib fb-common.tcl]
 
 # ---------------------------------------------------------------------------
 # Scope URLs

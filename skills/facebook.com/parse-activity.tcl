@@ -17,7 +17,7 @@
 # id-to-name within one object rather than by DOM proximity — the plain-post rows
 # carry it; a link-share row has no name beside its id and is shown by group id.
 
-source [file dirname [info script]]/fb-common.tcl
+source [file join [file dirname [info script]] lib fb-common.tcl]
 
 set ::ACTIVITY_MONTHS {January February March April May June July August September October November December}
 

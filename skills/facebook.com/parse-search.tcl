@@ -11,7 +11,7 @@
 #   2. For each URL, extract nearby visible text to identify the person
 #   3. Output: URL, inferred name, and context (location, mutual friends, etc.)
 
-source [file dirname [info script]]/fb-common.tcl
+source [file join [file dirname [info script]] lib fb-common.tcl]
 
 # Paths that look like a vanity username but are Facebook chrome, not a person.
 set ::NON_PROFILE_PATHS {

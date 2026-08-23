@@ -9,7 +9,7 @@
 # stripped). Useful for checking whether a profile mentions specific companies,
 # roles, locations, or topics without reading the entire DOM.
 
-source [file dirname [info script]]/fb-common.tcl
+source [file join [file dirname [info script]] lib fb-common.tcl]
 
 # Quote a string for use as a literal inside a Tcl regexp.
 proc re_escape {s} {

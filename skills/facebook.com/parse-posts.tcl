@@ -14,7 +14,7 @@
 #   - /hashtag/TAGNAME links for hashtags
 #   - profile/page links with __cft__ tokens for tagged people
 
-source [file dirname [info script]]/fb-common.tcl
+source [file join [file dirname [info script]] lib fb-common.tcl]
 
 # Parse from in-memory HTML (the serialiser path) instead of a file, so the
 # byte-identical extraction below has one home. The legacy file path reads the
