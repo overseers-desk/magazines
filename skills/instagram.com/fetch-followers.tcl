@@ -22,7 +22,7 @@
 # The serialiser path (serialiser_run) drives the policed verbs; the friendships
 # endpoint is a declared private endpoint (api), covered by the profile nav.
 
-source [file dirname [info script]]/fetch-recent-posts.tcl
+source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
 
 set DEFAULT_AVATAR_HINTS {
     44884218_345707102882519_2446069589734326272_n

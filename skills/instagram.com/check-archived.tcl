@@ -41,7 +41,7 @@
 # parsing (ig::parse_media_items), and the typed-JSON emitters (ig::jenc /
 # ig::n_*). No detection logic is duplicated from the keystone.
 
-source [file dirname [info script]]/fetch-recent-posts.tcl
+source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
 
 # ---------------------------------------------------------------------------
 # Shortcode normalisation.

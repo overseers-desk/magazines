@@ -22,7 +22,7 @@
 # covering view) and reads the declared comments endpoint via the policed `api`
 # verb. Parsing/rendering reuse the identical helpers, so output is byte-faithful.
 
-source [file dirname [info script]]/fetch-recent-posts.tcl
+source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
 
 # ---------------------------------------------------------------------------
 # Shortcode <-> media_id (Instagram's base64 encoding; pure local conversion).

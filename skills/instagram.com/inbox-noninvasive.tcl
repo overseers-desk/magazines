@@ -26,7 +26,7 @@
 # browser), then reads the inbox-metadata endpoint via the policed `api` verb.
 # Parsing/rendering reuse the identical procs, so output is byte-faithful.
 
-source [file dirname [info script]]/fetch-recent-posts.tcl
+source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
 
 # Patterns that identify seen-mutation requests. These must NEVER leave the browser.
 set SEEN_BLOCK_PATTERNS {

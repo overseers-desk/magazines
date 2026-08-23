@@ -33,7 +33,7 @@ package require json
 
 # Shared IG helpers (ig::dget, ig::truthy, ig::seconds_to_iso, the typed-JSON
 # encoder, sv_resolve_user_id, api_headers) live in the keystone library.
-source [file dirname [info script]]/fetch-recent-posts.tcl
+source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
 
 namespace eval audit {}
 

@@ -26,7 +26,7 @@
 # (--from <file> is a legacy-only convenience; file reads are a host capability
 # the safe interp removes, so the serialiser form takes the CSV positional.)
 
-source [file dirname [info script]]/fetch-recent-posts.tcl
+source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
 
 # Signal field -> output column name.
 set SIGNAL_FIELDS {tagged_users coauthors sponsors mentions}

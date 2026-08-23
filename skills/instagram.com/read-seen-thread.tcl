@@ -25,7 +25,7 @@
 # thread-content fetch, and reads thread content via the policed `api` verb. The
 # seen gate, parse, and render procs are shared with the legacy path.
 
-source [file dirname [info script]]/fetch-recent-posts.tcl
+source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
 
 # Patterns identifying potential seen-mutation requests. Paused and never
 # released, so they cannot leave the browser; the script never navigates to a
