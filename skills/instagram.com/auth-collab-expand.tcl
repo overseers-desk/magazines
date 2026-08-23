@@ -208,7 +208,7 @@ proc parse_handles_csv {handles_csv} {
 
 proc serialiser_run {skillArgs} {
     if {![llength $skillArgs] || [lindex $skillArgs 0] ne "expand"} {
-        emit [ig::render_flat [dict create error "Usage: instagram.com/auth-collab-expand expand <handle1,handle2,...> \[--posts-per-handle N\]"]]
+        emit [envelope_fault "Usage: instagram.com/auth-collab-expand expand <handle1,handle2,...> \[--posts-per-handle N\]"]
         return
     }
     set rest [lrange $skillArgs 1 end]
@@ -223,18 +223,18 @@ proc serialiser_run {skillArgs} {
     }
     set handles [parse_handles_csv [lindex $positional 0]]
     if {![llength $handles]} {
-        emit [ig::render_flat [dict create error "No input handles. Pass as positional CSV (handle1,handle2,...)."]]
+        emit [envelope_fault "No input handles. Pass as positional CSV (handle1,handle2,...)."]
         return
     }
 
     nav "https://www.instagram.com/" --wait 3
     if {[dict get [state] terminal] ne ""} {
-        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]
+        emit [envelope_fault "login_wall: Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]
         return
     }
 
     set candidates [sv_expand_handles $handles $posts_per_handle]
-    emit [render_expand $handles $posts_per_handle $candidates]
+    emit [envelope_ok [dict create result [render_expand $handles $posts_per_handle $candidates]]]
 }
 
 proc main {} {

@@ -252,7 +252,7 @@ proc sv_fetch_friendships {user_id kind limit} {
 proc serialiser_run {skillArgs} {
     set command [lindex $skillArgs 0]
     if {$command ni {followers following}} {
-        emit [ig::render_flat [dict create error "Usage: instagram.com/auth-fetch-followers followers|following <handle> \[--limit N\]"]]
+        emit [envelope_fault "Usage: instagram.com/auth-fetch-followers followers|following <handle> \[--limit N\]"]
         return
     }
     set rest [lrange $skillArgs 1 end]
@@ -267,19 +267,19 @@ proc serialiser_run {skillArgs} {
     }
     set handle [lindex $positional 0]
     if {$handle eq ""} {
-        emit [ig::render_flat [dict create error "No handle. Usage: instagram.com/auth-fetch-followers followers|following <handle> \[--limit N\]"]]
+        emit [envelope_fault "No handle. Usage: instagram.com/auth-fetch-followers followers|following <handle> \[--limit N\]"]
         return
     }
 
     nav "https://www.instagram.com/" --wait 3
     if {[dict get [state] terminal] ne ""} {
-        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]
+        emit [envelope_fault "login_wall: Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]
         return
     }
 
     set uid [ig::sv_resolve_user_id $handle]
     if {[ig::dget $uid error ""] ne ""} {
-        emit [ig::render_flat $uid]
+        emit [envelope_fault [dict get $uid error]]
         return
     }
     set user_id $uid
@@ -291,7 +291,7 @@ proc serialiser_run {skillArgs} {
         limit_requested $limit \
         stop_reason $stop_reason \
         rows $rows]
-    emit [render_friendships $result]
+    emit [envelope_ok [dict create result [render_friendships $result]]]
 }
 
 proc main {} {

@@ -561,7 +561,7 @@ proc audit::null_or_scalar {v} {
 # ---------------------------------------------------------------------------
 proc serialiser_run {skillArgs} {
     if {![llength $skillArgs] || [lindex $skillArgs 0] ne "audit"} {
-        emit [ig::jenc [ig::n_obj [list error [ig::n_str "Usage: instagram.com/auth-audit-tag-reshares audit <handle> --since YYYY-MM-DD"]]]]
+        emit [envelope_fault "Usage: instagram.com/auth-audit-tag-reshares audit <handle> --since YYYY-MM-DD"]
         return
     }
     set rest [lrange $skillArgs 1 end]
@@ -577,15 +577,15 @@ proc serialiser_run {skillArgs} {
     }
     set handle [string trimleft [lindex $positional 0] @]
     if {$handle eq "" || $since eq ""} {
-        emit [ig::jenc [ig::n_obj [list error [ig::n_str "Usage: instagram.com/auth-audit-tag-reshares audit <handle> --since YYYY-MM-DD"]]]]
+        emit [envelope_fault "Usage: instagram.com/auth-audit-tag-reshares audit <handle> --since YYYY-MM-DD"]
         return
     }
 
     nav "https://www.instagram.com/" --wait 3
     if {[dict get [state] terminal] ne ""} {
-        emit [ig::jenc [ig::n_obj [list error [ig::n_str "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]]]
+        emit [envelope_fault "login_wall: Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]
         return
     }
 
-    emit [ig::jenc [audit::run_audit $handle $since]]
+    emit [envelope_ok [dict create result [ig::jenc [audit::run_audit $handle $since]]]]
 }

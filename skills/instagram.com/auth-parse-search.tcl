@@ -152,23 +152,23 @@ proc main {path} {
 proc serialiser_run {skillArgs} {
     set terms [join $skillArgs " "]
     if {$terms eq ""} {
-        emit "Usage: instagram.com/auth-parse-search <search terms>"
+        emit [envelope_fault "Usage: instagram.com/auth-parse-search <search terms>"]
         return
     }
     set q [string map {" " %20} $terms]
     nav "https://www.instagram.com/web/search/topsearch/?query=$q" --wait 4
     if {[dict get [state] terminal] ne ""} {
-        emit "Looks like the session redirected to /accounts/login/. Log in via a Chrome-compatible browser first."
+        emit [envelope_fault "login_wall: the session redirected to /accounts/login/. Log in via a Chrome-compatible browser first."]
         return
     }
     set raw [dump]
     set diag {}
     set data [parse_payload $raw [list lappend diag]]
     if {$data eq ""} {
-        emit [join $diag "\n"]
+        emit [envelope_fault "the search payload did not parse: [join $diag {; }]"]
         return
     }
-    emit [render_search_report $data]
+    emit [envelope_ok [dict create result [json::write string [render_search_report $data]]]]
 }
 
 # Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.

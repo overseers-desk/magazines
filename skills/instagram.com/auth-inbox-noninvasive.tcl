@@ -461,7 +461,7 @@ proc serialiser_run {skillArgs} {
 
     nav "https://www.instagram.com/" --wait 5
     if {[dict get [state] terminal] ne ""} {
-        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]
+        emit [envelope_fault "login_wall: Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]
         return
     }
 
@@ -469,13 +469,13 @@ proc serialiser_run {skillArgs} {
         list {
             set result [sv_cmd_list $max_threads $start_cursor]
             if {[dict exists $result threads]} {
-                emit [render_list $result]
+                emit [envelope_ok [dict create result [render_list $result]]]
             } else {
-                emit [ig::render_flat $result]
+                emit [envelope_fault [dict get $result error]]
             }
         }
         default {
-            emit [ig::render_flat [dict create error "Unknown command: $command (the serialiser path supports 'list')"]]
+            emit [envelope_fault "Unknown command: $command (the serialiser path supports 'list')"]
         }
     }
 }

@@ -33,7 +33,7 @@ proc serialiser_run {skillArgs} {
         set handle [lindex $positional 0]
     }
     if {$command eq "" || $handle eq ""} {
-        emit [ig::render_flat [dict create error "Usage: instagram.com/auth-fetch-recent-posts posts <handle> \[--limit N\]"]]
+        emit [envelope_fault "Usage: instagram.com/auth-fetch-recent-posts posts <handle> \[--limit N\]"]
         return
     }
 
@@ -41,29 +41,29 @@ proc serialiser_run {skillArgs} {
     nav "https://www.instagram.com/" --wait 3
     set st [state]
     if {[dict get $st terminal] ne ""} {
-        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get $st terminal]). Log in via a Chrome-compatible browser first."]]
+        emit [envelope_fault "login_wall: Not logged in to Instagram ([dict get $st terminal]). Log in via a Chrome-compatible browser first."]
         return
     }
 
     set uid [ig::sv_resolve_user_id $handle]
     if {[ig::dget $uid error ""] ne ""} {
-        emit [ig::render_flat $uid]
+        emit [envelope_fault [dict get $uid error]]
         return
     }
     set user_id $uid
 
     set items [ig::sv_fetch_feed $user_id $limit]
     if {![llength $items]} {
-        emit [ig::render_posts_result [dict create handle $handle user_id $user_id \
-            post_count 0 \
-            note "Feed returned no items. Account may be private or feed empty." \
-            posts {}]]
+        emit [envelope_ok [dict create result [ig::render_posts_result \
+            [dict create handle $handle user_id $user_id post_count 0 \
+                note "Feed returned no items. Account may be private or feed empty." \
+                posts {}]]]]
         return
     }
     set posts [ig::parse_media_items $items]
     set result [dict create handle $handle user_id $user_id \
         post_count [llength $posts] posts $posts]
-    emit [ig::render_posts_result $result]
+    emit [envelope_ok [dict create result [ig::render_posts_result $result]]]
 }
 
 # ---------------------------------------------------------------------------

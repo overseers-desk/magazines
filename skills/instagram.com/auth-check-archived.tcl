@@ -202,19 +202,19 @@ proc serialiser_run {skillArgs} {
     set handle [lindex $positional 0]
     set codes [ca_parse_shortcodes [lindex $positional 1]]
     if {$handle eq "" || ![llength $codes]} {
-        emit [ig::render_flat [dict create error "Usage: instagram.com/auth-check-archived <handle> <shortcode>\[,<shortcode>...\] \[--grid-limit N\]"]]
+        emit [envelope_fault "Usage: instagram.com/auth-check-archived <handle> <shortcode>\[,<shortcode>...\] \[--grid-limit N\]"]
         return
     }
 
     nav "https://www.instagram.com/" --wait 3
     if {[dict get [state] terminal] ne ""} {
-        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]
+        emit [envelope_fault "login_wall: Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]
         return
     }
 
     set uid [ig::sv_resolve_user_id $handle]
     if {[ig::dget $uid error ""] ne ""} {
-        emit [ig::render_flat $uid]
+        emit [envelope_fault [dict get $uid error]]
         return
     }
     set gridItems [ig::sv_fetch_feed $uid $grid_limit]
@@ -247,7 +247,7 @@ proc serialiser_run {skillArgs} {
         lappend rows $v
     }
 
-    emit [ca_render $handle [llength $gridPosts] $gridOldest $gridComplete $rows]
+    emit [envelope_ok [dict create result [ca_render $handle [llength $gridPosts] $gridOldest $gridComplete $rows]]]
 }
 
 # ---------------------------------------------------------------------------

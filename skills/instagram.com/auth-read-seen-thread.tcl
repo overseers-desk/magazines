@@ -569,7 +569,7 @@ proc sv_cmd_all_seen {max_messages} {
 proc serialiser_run {skillArgs} {
     global SEEN_BLOCK_PATTERNS
     if {![llength $skillArgs]} {
-        emit [ig::jenc [ig::n_obj [list error [ig::n_str "Usage: instagram.com/auth-read-seen-thread thread|by-handle|all-seen ..."]]]]
+        emit [envelope_fault "Usage: instagram.com/auth-read-seen-thread thread|by-handle|all-seen ..."]
         return
     }
     set command [lindex $skillArgs 0]
@@ -584,7 +584,7 @@ proc serialiser_run {skillArgs} {
         }
     }
     if {$command ni {thread by-handle all-seen}} {
-        emit [ig::jenc [ig::n_obj [list error [ig::n_str "Usage: instagram.com/auth-read-seen-thread thread|by-handle|all-seen ..."]]]]
+        emit [envelope_fault "Usage: instagram.com/auth-read-seen-thread thread|by-handle|all-seen ..."]
         return
     }
 
@@ -593,7 +593,7 @@ proc serialiser_run {skillArgs} {
 
     nav "https://www.instagram.com/" --wait 4
     if {[dict get [state] terminal] ne ""} {
-        emit [ig::jenc [ig::n_obj [list error [ig::n_str "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]]]
+        emit [envelope_fault "login_wall: Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]
         return
     }
 
@@ -602,7 +602,7 @@ proc serialiser_run {skillArgs} {
         by-handle { set node [sv_cmd_by_handle [lindex $positional 0] $limit] }
         all-seen  { set node [sv_cmd_all_seen $limit] }
     }
-    emit [ig::jenc $node]
+    emit [envelope_ok [dict create result [ig::jenc $node]]]
 }
 
 proc main {} {

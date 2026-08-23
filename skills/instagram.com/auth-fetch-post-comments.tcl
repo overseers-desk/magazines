@@ -233,7 +233,7 @@ proc sv_cmd_comments {post_ref limit} {
 
 proc serialiser_run {skillArgs} {
     if {![llength $skillArgs] || [lindex $skillArgs 0] ne "comments"} {
-        emit [ig::render_flat [dict create error "Usage: instagram.com/auth-fetch-post-comments comments <shortcode|post_id|media_id> \[--limit N\]"]]
+        emit [envelope_fault "Usage: instagram.com/auth-fetch-post-comments comments <shortcode|post_id|media_id> \[--limit N\]"]
         return
     }
     set rest [lrange $skillArgs 1 end]
@@ -248,21 +248,21 @@ proc serialiser_run {skillArgs} {
     }
     set post_ref [lindex $positional 0]
     if {$post_ref eq ""} {
-        emit [ig::render_flat [dict create error "No post reference. Usage: instagram.com/auth-fetch-post-comments comments <shortcode|post_id|media_id> \[--limit N\]"]]
+        emit [envelope_fault "No post reference. Usage: instagram.com/auth-fetch-post-comments comments <shortcode|post_id|media_id> \[--limit N\]"]
         return
     }
 
     nav [sv_cover_url $post_ref] --wait 4
     if {[dict get [state] terminal] ne ""} {
-        emit [ig::render_flat [dict create error "Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]]
+        emit [envelope_fault "login_wall: Not logged in to Instagram ([dict get [state] terminal]). Log in via a Chrome-compatible browser first."]
         return
     }
 
     set result [sv_cmd_comments $post_ref $limit]
     if {[dict exists $result comments]} {
-        emit [render_comments $result]
+        emit [envelope_ok [dict create result [render_comments $result]]]
     } else {
-        emit [ig::render_flat $result]
+        emit [envelope_fault [dict get $result error]]
     }
 }
 
