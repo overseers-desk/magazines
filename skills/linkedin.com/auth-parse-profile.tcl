@@ -16,25 +16,25 @@ proc serialiser_run {skillArgs} {
         if {$arg eq ""} { set arg $a }
     }
     if {$arg eq ""} {
-        emit "ERROR: usage: linkedin.com/auth-parse-profile <slug-or-url> \[--quick\]"
+        emit [envelope_fault "usage: linkedin.com/auth-parse-profile <slug-or-url> \[--quick\]"]
         return
     }
     set slug [slug_from_arg $arg]
     if {$slug eq ""} {
-        emit "ERROR: could not derive a profile slug from '$arg'"
+        emit [envelope_fault "could not derive a profile slug from '$arg'"]
         return
     }
 
     # 1. Topcard (always).
     nav "https://www.linkedin.com/in/$slug/" --wait 6
     if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
+        emit [envelope_fault "login_wall: LinkedIn session expired. Log in via a Chrome-compatible browser first."]
         return
     }
     set main_html [scroll_and_dump]
     set record [render_profile $main_html $arg]
     if {$record eq "@@LOGIN@@"} {
-        emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
+        emit [envelope_fault "login_wall: LinkedIn session expired. Log in via a Chrome-compatible browser first."]
         return
     }
     set cov [dict create topcard fetched experience not_fetched \
@@ -50,7 +50,7 @@ proc serialiser_run {skillArgs} {
     if {$quick} {
         append record "\ncurrent_company: not_fetched"
         append record "\n[render_coverage $cov]"
-        emit $record
+        emit [envelope_ok [dict create result [json::write string $record]]]
         return
     }
 
@@ -86,7 +86,7 @@ proc serialiser_run {skillArgs} {
     append record "\n[render_skills_block $skills]"
     append record "\nabout: [emit_or_null $about]"
     append record "\n[render_coverage $cov]"
-    emit $record
+    emit [envelope_ok [dict create result [json::write string $record]]]
 }
 
 # Direct-tclsh entry: an HTML path and optional url/slug. Skipped when sourced as

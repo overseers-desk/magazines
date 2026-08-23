@@ -215,7 +215,7 @@ proc serialiser_run {skillArgs} {
     set value [expr {[llength $positional] > 1 ? [lindex $positional 1] : ""}]
 
     if {![info exists FIELD_OPEN($field)]} {
-        emit "{\"status\":\"error\",\"reason\":\"unknown field '$field'; known: [array names FIELD_OPEN]\"}"
+        emit [envelope_fault "unknown field '$field'; known: [array names FIELD_OPEN]"]
         return
     }
     set open $FIELD_OPEN($field)
@@ -223,18 +223,18 @@ proc serialiser_run {skillArgs} {
     set locate $FIELD_LOCATE($field)
 
     if {![sv_open_form $open $ready]} {
-        emit "{\"status\":\"error\",\"reason\":\"session not active, sign-in wall, or editor not ready\"}"
+        emit [envelope_fault "login_wall: session not active, sign-in wall, or editor not ready"]
         return
     }
     set current [eval $locate]
     if {![sv_js_bool {!!document.querySelector('[data-sv-edit="1"]')}]} {
-        emit "{\"status\":\"error\",\"reason\":\"editor for '$field' not found (DOM may have changed; run --dump)\"}"
+        emit [envelope_fault "editor for '$field' not found (DOM may have changed; run --dump)"]
         return
     }
     log "Current $field ([cp_length $current] chars): [string range $current 0 80]"
 
     if {$dump} {
-        emit "{\"status\":\"dump\",\"field\":\"$field\",\"current_len\":[cp_length $current],\"current\":[json::write string $current]}"
+        emit [envelope_ok [dict create result [json::write object status [json::write string dump] field [json::write string $field] current_len [cp_length $current] current [json::write string $current]]]]
         return
     }
 
@@ -242,18 +242,18 @@ proc serialiser_run {skillArgs} {
     log "After type ([cp_length $typed] chars): [string range $typed 0 80]"
 
     if {$dry_run} {
-        emit "{\"status\":\"dry_run\",\"field\":\"$field\",\"was\":[json::write string $current],\"typed\":[json::write string $typed]}"
+        emit [envelope_ok [dict create result [json::write object status [json::write string dry_run] field [json::write string $field] was [json::write string $current] typed [json::write string $typed]]]]
         return
     }
 
     set sv [sv_click_save]
     if {![dict get $sv clicked]} {
-        emit "{\"status\":\"error\",\"reason\":\"Save button not found after typing\"}"
+        emit [envelope_fault "Save button not found after typing"]
         return
     }
     set after [sv_read_field $open $ready $locate]
     set ok [expr {[string trim $after] eq [string trim $value]}]
-    emit "{\"status\":\"[expr {$ok ? {saved} : {uncertain}}]\",\"field\":\"$field\",\"was\":[json::write string $current],\"now\":[json::write string $after]}"
+    emit [envelope_ok [dict create result [json::write object status [json::write string [expr {$ok ? {saved} : {uncertain}}]] field [json::write string $field] was [json::write string $current] now [json::write string $after]]]]
 }
 
 # Direct-tclsh entry is unused for this skill (serialiser path only).

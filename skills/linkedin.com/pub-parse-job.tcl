@@ -264,27 +264,27 @@ proc job_id_from_arg {arg} {
 proc serialiser_run {skillArgs} {
     set arg [lindex $skillArgs 0]
     if {$arg eq ""} {
-        emit "Usage: linkedin.com/pub-parse-job <job-id-or-url>"
+        emit [envelope_fault "Usage: linkedin.com/pub-parse-job <job-id-or-url>"]
         return
     }
     set jobId [job_id_from_arg $arg]
     if {$jobId eq ""} {
-        emit "ERROR: could not find a job id in '$arg'"
+        emit [envelope_fault "could not find a job id in '$arg'"]
         return
     }
     set guest "https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/$jobId"
     set view  "https://www.linkedin.com/jobs/view/$jobId/"
     nav $guest --wait 6
     if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: terminal state '[dict get [state] terminal]'. Run linkedin.com/login first."
+        emit [envelope_fault "login_wall: terminal state '[dict get [state] terminal]'. Run linkedin.com/login first."]
         return
     }
     set report [render_job [dump] $jobId $view]
     if {$report eq "@@LOGIN@@"} {
-        emit "ERROR: LinkedIn session expired. Run linkedin.com/login first."
+        emit [envelope_fault "login_wall: LinkedIn session expired. Run linkedin.com/login first."]
         return
     }
-    emit $report
+    emit [envelope_ok [dict create result [json::write string $report]]]
 }
 
 # ---- direct-tclsh entry (file-fed; skipped when sourced as a skill) -------

@@ -500,7 +500,7 @@ proc sv_wait_for {selector ticks} {
 
 # Emit a result and stop. Centralised so every exit path renders via result_json.
 proc sv_emit_result {d} {
-    emit [result_json $d]
+    emit [envelope_ok [dict create result [result_json $d]]]
 }
 
 proc serialiser_run {skillArgs} {

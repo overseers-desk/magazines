@@ -389,7 +389,7 @@ proc sv_wait_for {selector ticks} {
 }
 
 proc sv_emit_result {d} {
-    emit [result_json $d]
+    emit [envelope_ok [dict create result [result_json $d]]]
 }
 
 proc serialiser_run {skillArgs} {

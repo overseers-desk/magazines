@@ -172,18 +172,18 @@ proc keyword_search {html_path keywords} {
 # ---------------------------------------------------------------------------
 proc serialiser_run {skillArgs} {
     if {[llength $skillArgs] < 2} {
-        emit "Usage: linkedin.com/auth-keyword-search <slug> keyword1 \[keyword2 ...\]"
+        emit [envelope_fault "Usage: linkedin.com/auth-keyword-search <slug> keyword1 \[keyword2 ...\]"]
         return
     }
     set slug [string trim [lindex $skillArgs 0] /]
     set keywords [lrange $skillArgs 1 end]
     nav "https://www.linkedin.com/in/$slug/" --wait 5
     if {[dict get [state] terminal] ne ""} {
-        emit "ERROR: LinkedIn session expired. Log in via a Chrome-compatible browser first."
+        emit [envelope_fault "login_wall: LinkedIn session expired. Log in via a Chrome-compatible browser first."]
         return
     }
     set html [dump]
-    emit [render_keyword_search $html $keywords]
+    emit [envelope_ok [dict create result [json::write string [render_keyword_search $html $keywords]]]]
 }
 
 # Direct-tclsh entry: an HTML path plus keywords. Skipped when sourced as a skill.
