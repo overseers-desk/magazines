@@ -29,7 +29,7 @@ The harness owns pacing+jitter on every wire-touching verb and the 429/login bac
 ## 1-2. Search for people
 
 ```bash
-browser-serialiser facebook.com/parse-search SEARCH TERMS
+browser-serialiser facebook.com/auth-parse-search SEARCH TERMS
 ```
 
 Pass terms as plain arguments (the script URL-encodes them and navigates to `/search/people/?q=...`). Outputs profile URLs (both vanity `/username` and numeric `/profile.php?id=`) with nearby visible text.
@@ -46,7 +46,7 @@ Try in order if no results:
 ## 3-4. Fetch and parse a profile
 
 ```bash
-browser-serialiser facebook.com/parse-profile HANDLE_OR_URL
+browser-serialiser facebook.com/auth-parse-profile HANDLE_OR_URL
 ```
 
 Navigates to the profile (a bare handle resolves to `https://www.facebook.com/HANDLE`; a numeric id to `/profile.php?id=ID`) and extracts name, meta descriptions, JSON-LD Person data (if present), bio/intro lines, role/work mentions, location mentions, and visible text blocks.
@@ -56,7 +56,7 @@ For richer bio data, point the same script at the about page URL: `https://www.f
 ## 5. Parse recent posts
 
 ```bash
-browser-serialiser facebook.com/parse-posts HANDLE_OR_URL
+browser-serialiser facebook.com/auth-parse-posts HANDLE_OR_URL
 ```
 
 Navigates to the profile and extracts per post: text content, hashtags, tagged/mentioned people and pages (with profile URLs), and shared-from source. Produces a summary of all hashtags and tagged entities across posts.
@@ -64,7 +64,7 @@ Navigates to the profile and extracts per post: text content, hashtags, tagged/m
 The script auto-detects the profile owner's ID to exclude self-references. To override:
 
 ```bash
-browser-serialiser facebook.com/parse-posts HANDLE_OR_URL --owner-id 100006232604720
+browser-serialiser facebook.com/auth-parse-posts HANDLE_OR_URL --owner-id 100006232604720
 ```
 
 How it works: each Facebook post carries a unique `__cft__[0]` token in all its links. The script uses `data-ad-preview="message"` markers to locate post boundaries, then associates hashtag and profile links via these tokens. Comments are excluded by limiting tag search to the header + content region.
@@ -74,7 +74,7 @@ How it works: each Facebook post carries a unique `__cft__[0]` token in all its 
 A `https://www.facebook.com/reel/{ID}` URL renders an empty shell with no content. Use the page-post permalink form:
 
 ```bash
-browser-serialiser facebook.com/parse-reel https://www.facebook.com/PAGE_ID/posts/POST_ID
+browser-serialiser facebook.com/auth-parse-reel https://www.facebook.com/PAGE_ID/posts/POST_ID
 ```
 
 `POST_ID` for a recent reel can be found in the main profile dump (§3). Look for `"post_id":"NNNNNNNNN"` adjacent to the reel's `/reel/{ID}` URL — there is one such pair per recent reel embedded in the profile JSON.
@@ -86,7 +86,7 @@ Limit: Facebook lazy-loads comments. A single render yields the first ~5-10 comm
 ## 7. Parse reels-tab view counts
 
 ```bash
-browser-serialiser facebook.com/parse-reels-tab HANDLE_OR_URL
+browser-serialiser facebook.com/auth-parse-reels-tab HANDLE_OR_URL
 ```
 
 Navigates to the profile's reels tab (`/HANDLE/reels`, or `/profile.php?id=ID&sk=reels_tab` for a numeric id) and extracts per visible reel card: reel URL and view count (e.g. `191K`). The render yields the first few cards before lazy-load — typical yield is 3 reels.
@@ -96,7 +96,7 @@ How it works: each reel card has an eye-icon SVG with a fixed path string (`M7.5
 ## 8. Keyword search
 
 ```bash
-browser-serialiser facebook.com/keyword-search HANDLE_OR_URL keyword1 keyword2 ...
+browser-serialiser facebook.com/auth-keyword-search HANDLE_OR_URL keyword1 keyword2 ...
 ```
 
 Navigates to the profile, then for each keyword shows the count and surrounding context — useful for checking whether a profile mentions specific companies, roles, locations, or topics without reading the entire DOM. The first argument is the profile reference; the rest are keywords.
@@ -106,10 +106,10 @@ Navigates to the profile, then for each keyword shows the count and surrounding 
 The reel viewer (`https://www.facebook.com/reel/{id}`) is an authenticated SPA that defers comment loading until the Comment button is clicked, and uses "Most relevant" sort by default. The reel-comments script drives the viewer: it navigates via `capture` (so the page's own GraphQL comment responses are buffered — the primary private-data path), clicks Comment, switches sort to an unfiltered view, scrolls and expands "N replies" / "See more" until the harvested set stops growing, harvests the GraphQL bodies for canonical comment text, and emits the parsed Markdown directly.
 
 ```bash
-browser-serialiser facebook.com/reel-comments-cdp https://www.facebook.com/reel/REEL_ID --max-rounds 200
+browser-serialiser facebook.com/auth-reel-comments-cdp https://www.facebook.com/reel/REEL_ID --max-rounds 200
 ```
 
-`facebook.com/parse-reel-comments URL` is the same end-to-end (it reuses the same driver and renderer); either reference produces the Markdown.
+`facebook.com/auth-parse-reel-comments URL` is the same end-to-end (it reuses the same driver and renderer); either reference produces the Markdown.
 
 Output format is raw: `Author · age` followed by body lines for each top-level comment, with replies indented under their parent (prefixed with `↳`). No headers, no profile URLs, no comment IDs — designed for reading.
 
@@ -118,7 +118,7 @@ The number of comments returned matches what Facebook serves over its GraphQL en
 ## 10. Audit the group-post activity log
 
 ```bash
-browser-serialiser facebook.com/parse-activity <profile-id|activity-url> [--max-rounds N]
+browser-serialiser facebook.com/auth-parse-activity <profile-id|activity-url> [--max-rounds N]
 ```
 
 Navigates the profile's group-posts activity log (`/<id>/allactivity/?category_key=GROUPPOSTS`), scrolls to lazy-load entries until the on-page count stops growing (or `--max-rounds`, default 25), and lists each group post under its date-section header: time, group, privacy, and the post permalink. A bare numeric id builds the activity URL; a full activity-log URL is used as given.
@@ -130,9 +130,9 @@ Group names come from the activity-title JSON, present for plain "posted in <gro
 ## 11. Find posts by keyword
 
 ```bash
-browser-serialiser facebook.com/search-posts --group <id|name|url> <terms...>
-browser-serialiser facebook.com/search-posts <terms...>
-browser-serialiser facebook.com/search-posts --group <id|name|url> --feed <terms...>
+browser-serialiser facebook.com/auth-search-posts --group <id|name|url> <terms...>
+browser-serialiser facebook.com/auth-search-posts <terms...>
+browser-serialiser facebook.com/auth-search-posts --group <id|name|url> --feed <terms...>
 ```
 
 Three scopes. With `--group` and terms, searches inside that group. With terms alone, searches Facebook-wide. With `--group --feed`, browses the group's recent posts and filters them locally, which is the scope to reach for when a group's own search returns little. A group is named by numeric id, vanity name, or full URL. `--max-rounds N` bounds the scroll, default 25.

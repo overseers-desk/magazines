@@ -88,7 +88,7 @@ post-send DOM capture:
   still-open modal and returns a terminal token — `email_required` (email input /
   `data-test-send-invite-modal-check-email-link` / the verify text present) or
   `blocked_challenge` (a visible challenge) — leaving `uncertain` only for a modal with
-  no terminal signal. `send-invite.tcl`, both the serialiser and legacy paths.
+  no terminal signal. `auth-send-invite.tcl`, both the serialiser and legacy paths.
 - **Caller note:** `spar-manager`'s `linkedin_send_one.tcl` maps every non-`sent` status to
   `{error ...}` and leaves the row unstamped, so the row is re-dispatched on the next T6
   run regardless of the reason string. The clearer status alone does NOT stop the retry
@@ -110,4 +110,4 @@ These LIX (LinkedIn Experiment) keys appeared in the custom-invite page JSON sta
 
 ## Retiring the old method
 
-The skill at `~/.claude/skills/linkedin/` replaces `aesop/linkedin-lookup-method/`. The scripts (`parse-search.tcl`, `parse-profile.tcl`, `keyword-search.tcl`) are copied into the skill directory. Once confirmed working, remove the LinkedIn lookup line from `~/.claude/CLAUDE.md` and optionally delete the old directory.
+The skill at `~/.claude/skills/linkedin/` replaces `aesop/linkedin-lookup-method/`. The scripts (`auth-parse-search.tcl`, `auth-parse-profile.tcl`, `auth-keyword-search.tcl`) are copied into the skill directory. Once confirmed working, remove the LinkedIn lookup line from `~/.claude/CLAUDE.md` and optionally delete the old directory.

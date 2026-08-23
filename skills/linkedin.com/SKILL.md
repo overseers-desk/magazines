@@ -8,7 +8,7 @@ argument-hint: <name, URL, or search terms>
 
 This workflow produces large DOM outputs (1-20MB per page). Spawn a **Sonnet subagent** to execute it so the main conversation context is not consumed. Tell the subagent to use the scripts in `${CLAUDE_PLUGIN_ROOT}/skills/linkedin.com/` — do not paste scripts inline.
 
-Each script runs through `browser-serialiser`, which owns the browser and exposes a policed command surface (the skill drives `nav`/`dump`/`type`/`click` verbs, never a raw socket). The skill is named by a reference relative to `skills/`, without the `.tcl` suffix: `linkedin.com/parse-profile`, `linkedin.com/send-invite`, and so on. See `serialised-browsing` for the surface contract.
+Each script runs through `browser-serialiser`, which owns the browser and exposes a policed command surface (the skill drives `nav`/`dump`/`type`/`click` verbs, never a raw socket). The skill is named by a reference relative to `skills/`, without the `.tcl` suffix: `linkedin.com/auth-parse-profile`, `linkedin.com/auth-send-invite`, and so on. See `serialised-browsing` for the surface contract.
 
 ## Prerequisites
 
@@ -40,9 +40,9 @@ Run this when a fetch returns a sign-in title, before assuming the plumbing is b
 Use **people search**, not "all" search. One reference builds the search URL, reads the rendered results, and parses them:
 
 ```bash
-browser-serialiser linkedin.com/parse-search "SEARCH TERMS"
-browser-serialiser linkedin.com/parse-search '{"keywords":"loan","connectionOf":["ACoAA..."],"network":["F"]}'
-browser-serialiser linkedin.com/parse-search '{"keywords":"loan","connectionOf":["ACoAA...","ACoAB...","ACoAC..."]}'
+browser-serialiser linkedin.com/auth-parse-search "SEARCH TERMS"
+browser-serialiser linkedin.com/auth-parse-search '{"keywords":"loan","connectionOf":["ACoAA..."],"network":["F"]}'
+browser-serialiser linkedin.com/auth-parse-search '{"keywords":"loan","connectionOf":["ACoAA...","ACoAB...","ACoAC..."]}'
 ```
 
 A bare string is a keyword search. A JSON object combines a keyword with LinkedIn's filters.
@@ -101,8 +101,8 @@ A search returning zero results does not mean the person has no LinkedIn. Try al
 ## 2. Parse a profile
 
 ```bash
-browser-serialiser linkedin.com/parse-profile USERNAME            # complete (default)
-browser-serialiser linkedin.com/parse-profile USERNAME --quick     # topcard only, one navigation
+browser-serialiser linkedin.com/auth-parse-profile USERNAME            # complete (default)
+browser-serialiser linkedin.com/auth-parse-profile USERNAME --quick     # topcard only, one navigation
 ```
 
 `USERNAME` is the vanity slug or a full profile URL. By default this fetches the
@@ -131,7 +131,7 @@ frequent value is the signed-in viewer's own id, not the owner.
 ## 2a. Parse a job posting
 
 ```bash
-browser-serialiser linkedin.com/parse-job <job-id-or-url>
+browser-serialiser linkedin.com/auth-parse-job <job-id-or-url>
 ```
 
 `<job-id-or-url>` is a numeric job id, a `/jobs/view/<id>` URL, or any URL carrying `currentJobId=<id>`. The script navigates to the guest job-posting fragment (`jobs-guest/jobs/api/jobPosting/<id>`), whose class names are stable and whose description is the full text — so it does not depend on the logged-in SPA's randomised classes and is not truncated by the "… more" fold. Emits a YAML record: `job_id`, `url` (the human `/jobs/view/` link), `title`, `company`, `location`, `posted`, `seniority`, `employment_type`, `job_function`, `industries`, and the full `description` as a literal block scalar. Redirect stdout to `<id>.yaml` to save it. Falls back to JobPosting JSON-LD (present on a logged-out full job page) and then to the og:/<title> meta tags when the guest fragment is unavailable.
@@ -139,7 +139,7 @@ browser-serialiser linkedin.com/parse-job <job-id-or-url>
 ## 2b. Read a member's Contact info
 
 ```bash
-browser-serialiser linkedin.com/contact-info VANITY
+browser-serialiser linkedin.com/auth-contact-info VANITY
 ```
 
 `VANITY` is the vanity slug, an `ACoAA...` profile id, or a full `/in/.../` URL. This reads the member's self-listed Contact info — the data behind LinkedIn's "Contact info" modal. That modal does not mount in a headless session, so the DOM is empty; the script instead fetches the voyager GraphQL query the modal itself issues (`profile-contact-info-finder`, keyed by `memberIdentity`) and parses the privileged fields. Same in-page-fetch pattern as the messaging playbooks; `li-canonical.tcl` carries the shared helpers.
@@ -152,12 +152,12 @@ It emits the canonical envelope `{result, cursor, hasMore, fault}`. `result` is:
  "websites": [{"url","label","category"}], "birthday": "MM-DD"|null}
 ```
 
-`viewer_urn` is the logged-in member's own profile urn, captured from the session (via `/voyager/api/me`) so the persist records which own account the share-state was read as — ownership from the haul, never from config; it is null on the rare read where the self endpoint is unreadable. Email and phone are shared only by members who chose to (usually 1st-degree). When a member has not shared an email, `email_shared` is `false` and `emails` is `[]`, while `profile_url` and any other shared fields are still returned — a fetched empty, distinguishable from a failed fetch (which sets `fault`). `birthday` carries month and day only (LinkedIn exposes no year). The `queryId` rotates; if a run returns `fault` with "no profile found", refresh `LI_CONTACT_QUERY` in `contact-info.tcl` from the modal's request in DevTools.
+`viewer_urn` is the logged-in member's own profile urn, captured from the session (via `/voyager/api/me`) so the persist records which own account the share-state was read as — ownership from the haul, never from config; it is null on the rare read where the self endpoint is unreadable. Email and phone are shared only by members who chose to (usually 1st-degree). When a member has not shared an email, `email_shared` is `false` and `emails` is `[]`, while `profile_url` and any other shared fields are still returned — a fetched empty, distinguishable from a failed fetch (which sets `fault`). `birthday` carries month and day only (LinkedIn exposes no year). The `queryId` rotates; if a run returns `fault` with "no profile found", refresh `LI_CONTACT_QUERY` in `auth-contact-info.tcl` from the modal's request in DevTools.
 
 ## 3. Keyword search (optional)
 
 ```bash
-browser-serialiser linkedin.com/keyword-search USERNAME keyword1 keyword2 ...
+browser-serialiser linkedin.com/auth-keyword-search USERNAME keyword1 keyword2 ...
 ```
 
 Navigates to `/in/USERNAME/`, dumps the DOM, and reports whether the profile mentions specific terms with surrounding context.
@@ -167,7 +167,7 @@ Navigates to `/in/USERNAME/`, dumps the DOM, and reports whether the profile men
 The connection invite page is at a constructable URL. Navigating there with the parser dumps the modal that renders:
 
 ```bash
-browser-serialiser linkedin.com/parse-search "USERNAME"   # or read the modal text via a profile dump
+browser-serialiser linkedin.com/auth-parse-search "USERNAME"   # or read the modal text via a profile dump
 ```
 
 The invite flow itself (step 6) navigates to `https://www.linkedin.com/preload/custom-invite/?vanityName=USERNAME` and inspects the modal before typing. The connectable states are:
@@ -182,7 +182,7 @@ If the modal shows "Add a note" and "Send without a note", the person is connect
 ## 5. Send connection invite with note
 
 ```bash
-browser-serialiser linkedin.com/send-invite VANITY_NAME "Your note (≤300 chars)"
+browser-serialiser linkedin.com/auth-send-invite VANITY_NAME "Your note (≤300 chars)"
 ```
 
 `VANITY_NAME` is the slug from the profile URL: `/in/john-smith-123/` → `john-smith-123`. The skill drives the policed verbs:
@@ -209,7 +209,7 @@ browser-serialiser linkedin.com/send-invite VANITY_NAME "Your note (≤300 chars
 
 `--dry-run` types the note but stops before the send click:
 ```bash
-browser-serialiser linkedin.com/send-invite VANITY_NAME "note" --dry-run
+browser-serialiser linkedin.com/auth-send-invite VANITY_NAME "note" --dry-run
 ```
 
 **Note character limit:** LinkedIn enforces 300 chars client-side (no `maxlength` HTML attribute). The skill enforces this before connecting.
@@ -217,7 +217,7 @@ browser-serialiser linkedin.com/send-invite VANITY_NAME "note" --dry-run
 ## 6. Send a direct message to a connection
 
 ```bash
-browser-serialiser linkedin.com/send-message VANITY_NAME "Message text"
+browser-serialiser linkedin.com/auth-send-message VANITY_NAME "Message text"
 ```
 
 The person must be a first-degree connection. The skill:
@@ -228,7 +228,7 @@ The person must be a first-degree connection. The skill:
 
 `--dry-run` types the message but stops before the send click:
 ```bash
-browser-serialiser linkedin.com/send-message VANITY_NAME "text" --dry-run
+browser-serialiser linkedin.com/auth-send-message VANITY_NAME "text" --dry-run
 ```
 
 **Confirmation output:**
@@ -244,10 +244,10 @@ is reached through `/in/me/`, which LinkedIn redirects to whatever account is
 signed in, so no profile slug is passed.
 
 ```bash
-browser-serialiser linkedin.com/set-profile-field headline "New headline"   # ≤220 chars
-browser-serialiser linkedin.com/set-profile-field about    "New About text"
-browser-serialiser linkedin.com/set-profile-field <field> --dump            # read current value, no change
-browser-serialiser linkedin.com/set-profile-field <field> "text" --dry-run  # type into the editor but do not Save
+browser-serialiser linkedin.com/auth-set-profile-field headline "New headline"   # ≤220 chars
+browser-serialiser linkedin.com/auth-set-profile-field about    "New About text"
+browser-serialiser linkedin.com/auth-set-profile-field <field> --dump            # read current value, no change
+browser-serialiser linkedin.com/auth-set-profile-field <field> "text" --dry-run  # type into the editor but do not Save
 ```
 
 `<field>` is `headline` or `about`. The skill opens the field's edit form (the
@@ -293,8 +293,8 @@ difficulty is unknown, not established.
 Two B-job playbooks mirror LinkedIn messaging into a caller's store (an overseer drives them as type-B jobs). Unlike the read skills, these do not DOM-dump — they open `/messaging/`, harvest the page's own voyager request to learn the live `queryId` (LinkedIn rotates these) and the mailbox urn, then re-issue the fetch in-page over the session cookies. The response is LinkedIn's normalized GraphQL envelope; the parse lives in `li-canonical.tcl`.
 
 ```bash
-browser-serialiser linkedin.com/li-inbox
-browser-serialiser linkedin.com/li-thread "conversationUrn <urn:li:msg_conversation:(...)>"
+browser-serialiser linkedin.com/auth-li-inbox
+browser-serialiser linkedin.com/auth-li-thread "conversationUrn <urn:li:msg_conversation:(...)>"
 ```
 
 `li-inbox` emits a canonical inbox envelope: `{result:{ownProfileUrn, threads:[{conversation_urn, backend_thread_urn, is_group, title, last_activity, created_at, unread_count, unread, category, participants:[{profile_urn, first_name, last_name, profile_url}]}]}, cursor, hasMore, fault}`. One run mirrors the current inbox (the most recent conversations); it carries no older-than cursor.
@@ -308,25 +308,25 @@ browser-serialiser linkedin.com/li-thread "conversationUrn <urn:li:msg_conversat
 A B-job playbook that enumerates the **logged-in member's own** connection list — the people the My Network "Connections" page lists, not the faceted view a search filtered on `connectionOf` gives of a *third party's* network (that one is mutuals-gated). LinkedIn migrated this page off the voyager GraphQL query to a Server-Driven UI (SDUI) surface: the rows now arrive as React Server Components "flight" payloads on the rsc-action `connectionsList` pager, not a re-issuable JSON API. So the playbook navigates the page, lets it fire its own pagination requests, harvests those flight bodies (base64-wrapped by CDP), and parses each card by pattern — the profile `/in/<slug>/` link, the bold display-name node, the "Connected on <date>" line, and the fsd_profile urn inside the card's message-compose link.
 
 ```bash
-browser-serialiser linkedin.com/li-connections
-browser-serialiser linkedin.com/li-connections '{"maxScrolls":10}'
+browser-serialiser linkedin.com/auth-li-connections
+browser-serialiser linkedin.com/auth-li-connections '{"maxScrolls":10}'
 ```
 
 Emits the canonical envelope. `result` is `{ownProfileUrn, connections:[{profile_urn, first_name, last_name, profile_url, connected_at}]}`. `ownProfileUrn` is the logged-in member's own profile urn, captured from the session the way `li-inbox` captures its identity. `first_name`/`last_name` are split from the one display-name string LinkedIn renders (first token / remainder). `connected_at` is the connected-on date (`"YYYY-MM-DD"`), null when absent. This is a **single-shot enumerator**: SDUI scroll-pagination has no offset cursor, so one run scrolls the last card into view repeatedly to pull further pages until the list stops growing (bounded by the optional `maxScrolls` arg, default 50), dedupes by urn, and emits every connection at once — `cursor` is always null, `hasMore` always false.
 
-`li-connections.tcl` has a direct-tclsh entry for offline parser testing against a saved flight (the decoded RSC body, or its raw base64): `tclsh9.0 li-connections.tcl <flight.txt> <ownProfileUrn>`.
+`auth-li-connections.tcl` has a direct-tclsh entry for offline parser testing against a saved flight (the decoded RSC body, or its raw base64): `tclsh9.0 auth-li-connections.tcl <flight.txt> <ownProfileUrn>`.
 
 ## 9. Read a profile header (job envelope)
 
 A B-job profile-header read. `parse-profile` (§2) stays the interactive YAML verb; this one emits the canonical envelope for the persist leg. Args JSON carries `{profileUrn, slug}` (slug is a vanity or an `ACoAA` id; it drives the navigation, `profileUrn` is a fallback identity). It reuses parse-profile's extraction (headline, about, location, current company from the ongoing Experience entry) and adds the connection/follower count pairs and `current_title`.
 
 ```bash
-browser-serialiser linkedin.com/li-profile '{"slug":"ada-lovelace"}'
+browser-serialiser linkedin.com/auth-li-profile '{"slug":"ada-lovelace"}'
 ```
 
 Emits the canonical envelope. `result` is `{profile_urn, headline, about, location, current_title, current_company, connection_count, connection_raw, follower_count, follower_raw}`. LinkedIn shows `"500+"` once a member passes 500 connections and delivers follower counts display-formed (`"1,234"`, `"10K"`), so each count keeps the verbatim token in its `_raw` field and a best-effort parsed integer beside it (null when absent or unparseable). `profile_urn` is read from the page (the dominant owner urn), falling back to the passed `profileUrn`.
 
-`li-profile.tcl` has a direct-tclsh entry for offline extraction testing against a saved profile page: `tclsh9.0 li-profile.tcl <profile.html> [slug]`.
+`auth-li-profile.tcl` has a direct-tclsh entry for offline extraction testing against a saved profile page: `tclsh9.0 auth-li-profile.tcl <profile.html> [slug]`.
 
 ## 10. Report who the logged-in session is
 

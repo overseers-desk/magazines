@@ -16,13 +16,13 @@ remaining skills are reworked onto (Phase 2).
 A skill is named by a **reference** relative to the `skills/` directory, without
 the `.tcl` suffix:
 
-    instagram.com/fetch-recent-posts   ->   skills/instagram.com/fetch-recent-posts.tcl
+    instagram.com/auth-fetch-recent-posts   ->   skills/instagram.com/auth-fetch-recent-posts.tcl
 
 The reference must stay inside `skills/` (a `..` or absolute reference is
 refused). Invoke standalone with:
 
     browser-serialiser <skill-ref> [skill args...]
-    browser-serialiser instagram.com/fetch-recent-posts posts <handle> --limit 3
+    browser-serialiser instagram.com/auth-fetch-recent-posts posts <handle> --limit 3
 
 ## Entry convention
 
@@ -33,7 +33,7 @@ The harness sources the skill file into the safe interp and then calls one proc:
 `skillArgs` is the list of arguments after the skill reference. The proc drives
 the verbs and calls `emit` exactly once with the result string; the harness
 prints what was emitted. A skill file may also keep its legacy `main` for direct
-`tclsh` use, as `instagram.com/fetch-recent-posts` does; the harness ignores
+`tclsh` use, as `instagram.com/auth-fetch-recent-posts` does; the harness ignores
 everything but `serialiser_run`.
 
 A skill may `source` its sibling files in the same skill directory, the files in

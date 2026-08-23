@@ -47,7 +47,7 @@ the broader click-verb question is open.
 
 **Status:** open.
 
-## 2026-04-17 parse-search.tcl: role field contains adjacent profile's name
+## 2026-04-17 auth-parse-search.tcl: role field contains adjacent profile's name
 
 **Symptom:** parsed search results pair one profile's name with the *next* profile's headline. When a calling agent uses the output to populate a roster, some rows end up with another person's NAME written into the role field.
 
@@ -209,7 +209,7 @@ The page states **no result total** at all, so there is no count to page against
 
 **Symptom:** `li-connections` reports success and enumerates the full connection list, but each record carries only `profile_urn`. `first_name`, `last_name`, `profile_url` and `connected_at` are all null.
 
-**Repro:** `browser-serialiser linkedin.com/li-connections '{"maxScrolls":2}'` returned 516 connections, 0 of them with a name.
+**Repro:** `browser-serialiser linkedin.com/auth-li-connections '{"maxScrolls":2}'` returned 516 connections, 0 of them with a name.
 
 **Impact:** a caller reading the documented shape gets an identity-only list. It is enough to feed `connectionOf`, which is how it was used here, and not enough for anything that needs to show or match a person. The failure is silent: the envelope reports no fault.
 

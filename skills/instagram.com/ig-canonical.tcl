@@ -2,7 +2,7 @@
 # Home: skills/instagram.com/ig-canonical.tcl
 # B-job playbooks share.
 #
-# A playbook (ig-inbox.tcl, ig-thread.tcl, ig-profile.tcl, ig-posts.tcl) runs inside
+# A playbook (auth-ig-inbox.tcl, auth-ig-thread.tcl, auth-ig-profile.tcl, auth-ig-posts.tcl) runs inside
 # the serialiser harness's safe interp: it `nav`s to the page a human views, fetches
 # the body with `api`/`dump`, feeds that body through the parsers here, and `emit`s the
 # CANONICAL envelope {result, cursor, hasMore, fault} the BI server's persist consumes.

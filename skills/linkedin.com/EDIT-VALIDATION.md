@@ -24,7 +24,7 @@ server-driven-UI profile (edit forms carry `componentkey="com.linkedin.sdui…"`
 
 ### Headline (claimed: automated)
 
-Run `browser-serialiser linkedin.com/set-profile-field headline --dump`.
+Run `browser-serialiser linkedin.com/auth-set-profile-field headline --dump`.
 Expect `{"status":"dump","field":"headline","current_len":N,"current":"<your headline>"}`
 with the current headline text. This exercises the whole open+locate path without
 saving.
@@ -38,7 +38,7 @@ counter; update `FIELD_OPEN`/`FIELD_READY`/`FIELD_LOCATE` for `headline`.
 
 ### About (claimed: automated)
 
-Run `browser-serialiser linkedin.com/set-profile-field about --dump`.
+Run `browser-serialiser linkedin.com/auth-set-profile-field about --dump`.
 Expect a dump with the current About text. The open is racy (it clicks the "Edit
 about" pencil; the SPA click sometimes routes to a URL that redirects back to the
 profile), so the skill retries up to three times — one `--dump` may still fail on

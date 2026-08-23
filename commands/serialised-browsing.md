@@ -14,7 +14,7 @@ A **skill by reference** (the normal path). The serialiser loads the skill into 
 
 ```bash
 browser-serialiser <site>/<script> <args>
-# e.g. browser-serialiser instagram.com/ig-profile HANDLE
+# e.g. browser-serialiser instagram.com/auth-ig-profile HANDLE
 ```
 
 The skill never opens a socket or touches the disk: capability confinement and anti-ban pacing are enforced by the harness, not by the skill. Who drives the browser is decided per run, by the handshake below.

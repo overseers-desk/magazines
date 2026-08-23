@@ -118,8 +118,8 @@ proc serialiser::LogUrl {url} {
 #
 # REF->PATH RULE: "<dir>/<name>" resolves to "<Root>/skills/<dir>/<name>.tcl".
 # The ref is a path RELATIVE to the skills/ directory, without the .tcl suffix.
-# Example: "instagram.com/fetch-recent-posts" ->
-#          "<Root>/skills/instagram.com/fetch-recent-posts.tcl".
+# Example: "instagram.com/auth-fetch-recent-posts" ->
+#          "<Root>/skills/instagram.com/auth-fetch-recent-posts.tcl".
 # The resolved path must stay under <Root>/skills/ (no "..", no absolute ref),
 # so a ref cannot reach outside the curated tree.
 proc serialiser::resolveSkill {ref} {

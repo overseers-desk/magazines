@@ -723,7 +723,7 @@ proc parse_profile {html_path url_arg} {
 # identical render over the in-memory HTML (no file read; Plane 1 removes file
 # access). Emits the same YAML record.
 #
-#     browser-serialiser linkedin.com/parse-profile <slug-or-url>
+#     browser-serialiser linkedin.com/auth-parse-profile <slug-or-url>
 # ---------------------------------------------------------------------------
 # The Experience section is lazy-mounted below the fold and so never reaches the
 # header record's evidence_blocks (texts[:15] off the top of the page). The

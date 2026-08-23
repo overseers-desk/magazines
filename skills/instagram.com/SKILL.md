@@ -24,7 +24,7 @@ The harness owns pacing+jitter on every wire-touching verb and the 429/login bac
 
 Before invoking any DM-content script (§9, and any future script whose filename carries `mark-seen`, `mutate-seen`, or `send`), name the specific thread(s) about to be touched and surface the read-state implication to the user, then wait for an explicit yes. For §9 the implication to surface is: this will only return content for threads already opened in the user's Instagram client; the script refuses unread threads and will not mark anything seen on the user's behalf.
 
-§5 (`inbox-noninvasive.tcl`) is exempt — it reads inbox metadata only, never thread content, and blocks seen-mutation requests at the Fetch layer.
+§5 (`auth-inbox-noninvasive.tcl`) is exempt — it reads inbox metadata only, never thread content, and blocks seen-mutation requests at the Fetch layer.
 
 The internal refusal gate inside §9 is a backstop. A run without prior disclosure violates the policy even if the script would have refused anyway.
 
@@ -33,7 +33,7 @@ The internal refusal gate inside §9 is a backstop. A run without prior disclosu
 Instagram's rendered search page (`/explore/search/keyword/?q=...`) is GraphQL-hydrated and stays empty within a reasonable time budget. The internal endpoint `/web/search/topsearch/?query=...`, authenticated, returns clean JSON directly. The script navigates there, reads the JSON body, and prints the parsed report in one step:
 
 ```bash
-browser-serialiser instagram.com/parse-search SEARCH TERMS
+browser-serialiser instagram.com/auth-parse-search SEARCH TERMS
 ```
 
 Pass terms as plain arguments (the script URL-encodes them). The topsearch response contains `users[]`, `hashtags[]`, and `places[]`. Each user includes `username`, `full_name`, `is_verified`, `is_private`, and (where applicable) `social_context` listing mutual followers — useful signal for disambiguation. The output is a ranked list of candidate handles with display name, verified/private flags, profile URL, and mutual-followers context.
@@ -43,7 +43,7 @@ Pass terms as plain arguments (the script URL-encodes them). The topsearch respo
 The script navigates to the profile, dumps the rendered DOM, and emits the canonical envelope in one step:
 
 ```bash
-browser-serialiser instagram.com/ig-profile HANDLE
+browser-serialiser instagram.com/auth-ig-profile HANDLE
 ```
 
 The output is the canonical envelope `{result, cursor, hasMore, fault}`. A profile is a single read, so `cursor` is null and `hasMore` is false. On success `fault` is null and `result` is the superset object — the server validates its required subset against `social/api/contracts/ig-profile.schema.json` and discards the rest, while a skill caller reads whichever fields it wants:
@@ -63,7 +63,7 @@ A removed or non-existent profile sets `result` to null and `fault` to `{shape:"
 This script reads inbox metadata only. It must not be modified to read individual thread content. If you need message content from a specific thread, that is a separate, invasive operation. Write a different script with a different name.
 
 ```bash
-browser-serialiser instagram.com/inbox-noninvasive list
+browser-serialiser instagram.com/auth-inbox-noninvasive list
 ```
 
 Emits JSON with one entry per thread: `username`, `full_name`, `thread_id`, `last_activity_iso`, `last_snippet` (up to 120 chars of the last message text or a type label), `unseen` (boolean), `is_group`.
@@ -73,8 +73,8 @@ Requires a logged-in session. Does not navigate to `/direct/inbox/` to avoid tri
 ## 6. Recent posts for a handle
 
 ```bash
-browser-serialiser instagram.com/fetch-recent-posts posts HANDLE
-browser-serialiser instagram.com/fetch-recent-posts posts HANDLE --limit 50
+browser-serialiser instagram.com/auth-fetch-recent-posts posts HANDLE
+browser-serialiser instagram.com/auth-fetch-recent-posts posts HANDLE --limit 50
 ```
 
 Default limit is 12. Pagination via the feed API's `next_max_id` cursor happens automatically when `--limit` exceeds 12. The script navigates to the profile page once to resolve the user_id (from inline JSON or the `web_profile_info` API, both covered by that nav), then reads `/api/v1/feed/user/<user_id>/` via the policed `api` verb in a loop until the limit is reached or `more_available` is false.
@@ -97,8 +97,8 @@ The five handle-bearing fields above (`mentions`, `tagged_users`, `coauthors`, `
 ## 7. Collab partner expansion (multi-handle spider)
 
 ```bash
-browser-serialiser instagram.com/collab-expand expand handle1,handle2,handle3
-browser-serialiser instagram.com/collab-expand expand handle1,handle2 --posts-per-handle 36
+browser-serialiser instagram.com/auth-collab-expand expand handle1,handle2,handle3
+browser-serialiser instagram.com/auth-collab-expand expand handle1,handle2 --posts-per-handle 36
 ```
 
 Walks a list of input handles, fetches recent posts for each (paginated via §6's helpers), and accumulates the union of `tagged_users`, `coauthors`, `sponsors`, and caption `mentions` across all posts. (The legacy `--from <file>` seed-list option is direct-tclsh-only; pass the CSV positional under the serialiser.) Outputs candidate handles NOT already in the input set, ranked by explicit-collab signal first (tagged + coauthor + sponsor counts) and then by caption-mention count and breadth of source handles.
@@ -112,8 +112,8 @@ Default `--posts-per-handle` is 24 (about two pages). Pacing: roughly one feed p
 ## 8. Post comments (for comment-circle discovery)
 
 ```bash
-browser-serialiser instagram.com/fetch-post-comments comments SHORTCODE
-browser-serialiser instagram.com/fetch-post-comments comments POST_ID
+browser-serialiser instagram.com/auth-fetch-post-comments comments SHORTCODE
+browser-serialiser instagram.com/auth-fetch-post-comments comments POST_ID
 ```
 
 Accepts a shortcode (e.g. `DXsPrn5AvNH`), a full post_id from the feed API (`<media_id>_<user_id>`), or a bare numeric `media_id`. Shortcode-to-media-id conversion is a local base64 decode, so no extra fetch is needed to resolve. Navigates to the post permalink (the covering view), then reads `/api/v1/media/<media_id>/comments/` via the policed `api` verb.
@@ -136,9 +136,9 @@ The `comment_count_total` field in the response is the live count from this endp
 ## 9. DM thread history reader (seen threads only)
 
 ```bash
-browser-serialiser instagram.com/read-seen-thread thread <thread_id> [--limit N]
-browser-serialiser instagram.com/read-seen-thread by-handle <handle>   [--limit N]
-browser-serialiser instagram.com/read-seen-thread all-seen             [--limit N]
+browser-serialiser instagram.com/auth-read-seen-thread thread <thread_id> [--limit N]
+browser-serialiser instagram.com/auth-read-seen-thread by-handle <handle>   [--limit N]
+browser-serialiser instagram.com/auth-read-seen-thread all-seen             [--limit N]
 ```
 
 Fetches message history from a DM thread for P-phase use. Companion to §5: §5 enumerates inbox metadata without ever touching thread content; §9 reads thread content but only for threads the operator has already marked seen. The hyphen-delimited word "seen" in the filename is load-bearing, parallel to "noninvasive" in §5.
@@ -154,8 +154,8 @@ Verified 2026-05-12 against the live inbox: refusal path correctly skipped a thr
 ## 10. Followers / following list extractor
 
 ```bash
-browser-serialiser instagram.com/fetch-followers followers HANDLE [--limit N]
-browser-serialiser instagram.com/fetch-followers following HANDLE [--limit N]
+browser-serialiser instagram.com/auth-fetch-followers followers HANDLE [--limit N]
+browser-serialiser instagram.com/auth-fetch-followers following HANDLE [--limit N]
 ```
 
 Enumerates `/api/v1/friendships/<user_id>/followers/` or `/.../following/` via the policed `api` verb. Resolves handle → user_id by reusing `sv_resolve_user_id` from §6 (the profile nav is the covering view), then paginates the cursor-based endpoint (25 users per page, `next_max_id`) until `--limit` is reached or the endpoint reports no more pages.
@@ -188,7 +188,7 @@ Verified 2026-05-19 against `@_a.j.handyman_`: header counts 162 followers / 188
 Built for SOP D40 (Social Media Reply) §6: the service team must reshare customer-tagged stories and posts to the brand's own story. This script audits which tags since `--since` were not reshared.
 
 ```bash
-browser-serialiser instagram.com/audit-tag-reshares audit HANDLE --since 2026-05-01
+browser-serialiser instagram.com/auth-audit-tag-reshares audit HANDLE --since 2026-05-01
 ```
 
 The reshare-match heuristic (which inspects `reshared_reel.id`, `imported_taken_at`, and `reel_mentions[].user_id`) is best-effort and may need adjustment once real fields are inspected.
@@ -215,7 +215,7 @@ Operational notes:
 Decides whether one or more posts are ARCHIVED. An archived Instagram post is removed from the owner's public profile grid (the `feed/user` listing) but stays reachable at its permalink by the logged-in owner, who sees it only in the Archive section. Neither signal alone is enough: an archived post's permalink DOM renders just like a live one, and the grid omits it the same way it omits a deleted post. The discriminator is the cross-check — a post is archived when its permalink still renders the post AND its shortcode is absent from the grid feed.
 
 ```bash
-browser-serialiser instagram.com/check-archived HANDLE SHORTCODE[,SHORTCODE...] [--grid-limit N]
+browser-serialiser instagram.com/auth-check-archived HANDLE SHORTCODE[,SHORTCODE...] [--grid-limit N]
 ```
 
 The shortcode list is comma-separated; a full permalink (`.../reel/<code>/` or `/p/<code>/`) is also accepted and reduced to its shortcode. The grid is fetched ONCE per run and reused for every shortcode, so checking N posts costs one feed pagination plus N permalink navigations. The script resolves the handle to its user_id and pages `feed/user` the same way §6 does, then navigates each permalink and reads its rendered DOM (`dump`).

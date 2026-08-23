@@ -4,7 +4,7 @@
 # LinkedIn periodically expires the active session but keeps a remember-me cookie
 # that allows re-login without a password. This script clicks the "Continue as
 # <name>" button to mint a fresh session, which persists to the user-data-dir
-# on disk for subsequent skill runs (send-invite.tcl, send-message.tcl).
+# on disk for subsequent skill runs (auth-send-invite.tcl, auth-send-message.tcl).
 #
 # Serialiser path (see SKILL.md): browser-serialiser linkedin.com/login [--check]
 #   navigates home over the policed verbs, detects the login form via eval/state,
