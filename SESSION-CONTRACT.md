@@ -8,9 +8,11 @@ The failure it prevents: a caller reads a skill's output, finds nothing, and rec
 
 A site whose SKILL.md names a logged-in session as a prerequisite carries `skills/<site>/whoami.tcl`, a skill like any other, referenced as `<site>/whoami`.
 
-Ordinary work reports identity too (§4), so the probe is what a caller runs when a site has sat idle and no recent run has spoken for the session.
+A lane opening runs the probe, always. Whether the operator opened the lane or a consumer opened it at startup, `<site>/whoami` runs before work does. No site is exempt because its probe costs a request: making the probe cheap is the skill's job, and what each site pays is §4.
 
-It navigates once, names the account, and costs nothing else. It emits the canonical envelope with an `identity` key holding the site's own id for the signed-in account. `identity` is uniform across sites, so one caller reads one key whatever the site.
+Between opening and closing, ordinary work reports identity on every run (§4), so a running lane learns its session died from the next job rather than from a separate probe.
+
+The probe navigates once and names the account. It emits the canonical envelope with an `identity` key holding the site's own id for the signed-in account. `identity` is uniform across sites, so one caller reads one key whatever the site.
 
 A signed-out page is a fault, never a result. The fault carries the `login_wall` shape.
 
