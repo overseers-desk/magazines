@@ -48,7 +48,7 @@ namespace eval posts {
 
 # --- ig-profile: fbid_v2 from the hydrated JSON near the handle -----------------
 namespace eval profile {
-    source [file join $::here ig-profile.tcl]
+    source [file join $::here lib ig-profile.tcl]
     set html {<html><head>
 <meta property="og:title" content="Tabs Tribe (@tabs_tribe) &#8226; Instagram photos">
 <meta property="og:description" content="1,234 Followers, 56 Following, 78 Posts">

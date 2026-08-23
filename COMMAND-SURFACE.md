@@ -38,8 +38,10 @@ everything but `serialiser_run`.
 
 A skill may `source` its sibling files in the same skill directory, the files in
 its own `lib/`, and anything in the shared `lib` at the root, and nothing else:
-the safe interp's access path is exactly those directories. This preserves
-single-source-of-truth for shared components: helpers that several of a skill's
+the safe interp's access path is exactly those directories, each named in its
+own right. A `..` hop between them is refused, so a file in a skill's `lib/`
+sources its neighbours there rather than reaching back into the skill
+directory. This preserves single-source-of-truth for shared components: helpers that several of a skill's
 actions draw on live in that skill's `lib/`, as the Instagram feed-and-parse
 helpers do.
 
