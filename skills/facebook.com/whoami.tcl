@@ -31,33 +31,14 @@ proc whoami_result {} {
         name     null]
 }
 
-proc fb::envelope_ok {result} {
-    return [json::write object result $result cursor null hasMore false fault null]
-}
-
-# The fault shape the BI server's persist discriminates on. login_wall is the
-# only tag this probe raises; anything else arrives unrecognised, and the tag is
-# stripped from the detail so the text stays human.
-proc fb::envelope_fault {detail} {
-    set shape unrecognised
-    if {[regexp {^(login_wall):\s} $detail -> tag]} {
-        set shape $tag
-        regsub "^${tag}:\\s+" $detail "" detail
-    }
-    set f [json::write object \
-        shape  [json::write string $shape] \
-        detail [json::write string [string range $detail 0 200]]]
-    return [json::write object result null cursor null hasMore false fault $f]
-}
-
 proc serialiser_run {skillArgs} {
     nav "https://www.facebook.com/"
     set st [state]
     set terminal [expr {[dict exists $st terminal] ? [dict get $st terminal] : ""}]
     if {$terminal in {logged-out checkpoint}} {
-        emit [fb::envelope_fault "login_wall: facebook.com walled the session ($terminal)"]
+        emit [envelope_fault "login_wall: facebook.com walled the session ($terminal)"]
         return
     }
-    if {[catch {whoami_result} r]} { emit [fb::envelope_fault $r]; return }
-    emit [fb::envelope_ok $r]
+    if {[catch {whoami_result} r]} { emit [envelope_fault $r]; return }
+    emit [envelope_ok [dict create result $r]]
 }

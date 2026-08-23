@@ -157,6 +157,9 @@ proc serialiser::resolveSkill {ref} {
 # replacement for the old per-host gate and the narrow seen-mutation veto.
 #
 # Shape: dict host-suffix -> list of {endpointGlob coveringNavGlob ...} pairs.
+# The value is a Tcl list read in pairs, so a comment inside the braces is data
+# and silently unpairs the rest of the site's entry.
+
 # An `api` call to a path matching endpointGlob is allowed only if the last nav
 # landed on a URL matching the paired coveringNavGlob.
 variable serialiser::ViewBeforeFetch {
