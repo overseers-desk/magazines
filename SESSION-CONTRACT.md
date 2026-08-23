@@ -8,6 +8,8 @@ The failure it prevents: a caller reads a skill's output, finds nothing, and rec
 
 A site whose SKILL.md names a logged-in session as a prerequisite carries `skills/<site>/whoami.tcl`, a skill like any other, referenced as `<site>/whoami`.
 
+Ordinary work reports identity too (§4), so the probe is what a caller runs when a site has sat idle and no recent run has spoken for the session.
+
 It navigates once, names the account, and costs nothing else. It emits the canonical envelope with an `identity` key holding the site's own id for the signed-in account. `identity` is uniform across sites, so one caller reads one key whatever the site.
 
 A signed-out page is a fault, never a result. The fault carries the `login_wall` shape.
@@ -52,7 +54,27 @@ The codes already in use here are 2, 3, 4, 5, 64, 65, 66, 75 and 78; `FLIGHT-SEA
 
 Where the harness has already classified the run terminal as `logged-out` or `checkpoint`, that classification is the session's absence and the action exits 77 on it.
 
-## 4. Conformance is a test, and adoption is per site
+## 4. An auth- action reports the identity it saw
+
+Every run of an `auth-` action names the account the page was rendered for, in the same `identity` key `whoami.tcl` emits, as a sibling of `result` in the envelope:
+
+    {"result": {...}, "identity": "1569557680", "cursor": null, "hasMore": false, "fault": null}
+
+It sits beside `result` rather than inside it, so one caller reads one place whatever the site returns, and no site's result shape has to make room for it.
+
+The point is that work becomes the liveness check. A caller that reads `identity` on every signed-in run learns the session died from the first run after it died, rather than from the first run that went looking. On 22 August the session died at 05:20 and the loss surfaced at 05:57; the documents written in between are the cost of that gap.
+
+An action that lands on a signed-out page reports nobody and exits 77 (§3). It does not proceed and it does not return a partial result.
+
+What this costs differs by site, and the cheap shape is not available everywhere:
+
+- `instagram.com` reads `ds_user_id` from `document.cookie`. No request. `ig_viewer_id` in `ig-canonical.tcl` already does it.
+- `facebook.com` reads `c_user` the same way, as `whoami.tcl` does.
+- `linkedin.com` has no cookie naming the member. The reliable source is `own_profile` in `li-canonical.tcl`, one request against `/voyager/api/me`. Three actions already pay it. For the rest, read it once per browser lease and reuse it: the profile cannot change under a lease, so the cost is one request per lease rather than one per action. A session that dies mid-lease still walls the read, and §3 catches it there.
+
+A profile page's legacy `urn:li:member:NNN` often carries the viewer's own id, but only often. It is not the source for this.
+
+## 5. Conformance is a test, and adoption is per site
 
 `lib/session-contract-selftest.tcl` enforces the prefix rule on every site that has adopted the contract, and a site adopts it by carrying `whoami.tcl`. Presence of the probe is the opt-in, so no separate list of migrated sites exists to drift.
 
