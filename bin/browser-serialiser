@@ -79,6 +79,17 @@ proc log_dir {} {
 }
 
 # Read one value from config.ini's [section] key. Empty if absent.
+# The account a site expects to find signed in, for the 77 message a person
+# reads. Each site names its own: the key is whatever that site calls an
+# account. Empty when unset, and the message then omits the clause.
+proc expected_account {site} {
+    foreach key {handle user_id public_identifier member_id} {
+        set v [config_get $site $key]
+        if {$v ne ""} { return $v }
+    }
+    return ""
+}
+
 proc config_get {section key} {
     set path [config_path]
     if {![file exists $path]} { return "" }
@@ -637,7 +648,9 @@ proc serialiser_delegate {skillRef skillArgs} {
             if {$detail in {logged-out checkpoint}} {
                 tray::notify "Browser skill stopped" \
                     "Log in to [file dirname $skillRef] in Chromium, then retry."
-                die 77 "session missing: [file dirname $skillRef]"
+                set site [file dirname $skillRef]
+                set who [expected_account $site]
+                die 77 "session missing: $site[expr {$who ne "" ? ", expected $who" : ""}]"
             }
             die 66 "terminal $detail"
         }
@@ -792,7 +805,10 @@ proc run_standalone {skillRef skillArgs} {
         if {[lindex $code 0] eq "SERIALISER_TERMINAL"} {
             set wall [lindex $code 1]
             if {$wall in {logged-out checkpoint}} {
-                puts stderr "session missing: [file dirname $skillRef], profile \"$udd\""
+                set site [file dirname $skillRef]
+                set who [expected_account $site]
+                set clause [expr {$who ne "" ? ", expected $who" : ""}]
+                puts stderr "session missing: $site$clause, profile \"$udd\""
                 tray::notify "Browser skill stopped" \
                     "Log in to [file dirname $skillRef] in Chromium, then retry."
                 set rc 77

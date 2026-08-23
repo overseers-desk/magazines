@@ -14,6 +14,8 @@ Each script navigates to the relevant page, dumps the rendered DOM (or, for reel
 
 A logged-in Facebook session in the user-data-dir the serialiser targets.
 
+Optional config, `[facebook.com] user_id`: the numeric account expected signed in. `browser-serialiser` names it in the `session missing` line it prints on exit 77, so a person reading a failed run knows which login to restore.
+
 ### No-session detection
 
 When no one is logged in, Facebook embeds `"USER_ID":"0"` and `"ACCOUNT_ID":"0"` in the page config and serves a login wall (`id="login_form"`, `input name="email"`, `input name="pass"`, action `login/device-based/regular/login/`). The `"USER_ID":"0"` marker is the reliable one: it fires even on a public profile whose `<title>` still reads like a real page (e.g. `Mark Zuckerberg | Facebook`) behind the wall, where a title-only check would be fooled. When logged in, `USER_ID`/`ACCOUNT_ID` carry the real numeric account id.

@@ -14,6 +14,8 @@ Each script runs through `browser-serialiser`, which owns the browser and expose
 
 A logged-in LinkedIn session in the user-data-dir that `browser-serialiser` targets. This skill constructs LinkedIn URLs, navigates to them, dumps the rendered DOM, and parses the result.
 
+Optional config, `[linkedin.com] public_identifier`: the vanity slug of the member expected signed in. `browser-serialiser` names it in the `session missing` line it prints on exit 77, so a person reading a failed run knows which login to restore.
+
 If the dumped DOM title contains "Sign In", "Log In", "Iniciar sesión", or "Registrarse", the session is not active. LinkedIn expires the session periodically while keeping a remember-me cookie. First run `linkedin.com/login` (see "Establish a session" below) to re-mint a session via the fastrack flow without a password. If that reports `logged_out` (no remember-me), or if the title persists after a successful login, then investigate the plumbing: the user-data-dir may be wrong, or another chromium instance may hold the same user-data-dir.
 
 ## Establish a session

@@ -27,3 +27,15 @@ password = <PASSWORD>
 member_id = <ID>
 last_name = <SURNAME>
 pin = <PIN>
+
+# The account each site expects signed in. Optional: it is named in the
+# "session missing" line (exit 77) so a person reading a failed run knows which
+# login to restore. Each site's key is what that site calls an account.
+[facebook.com]
+user_id = <NUMERIC-ID>
+
+[instagram.com]
+handle = <HANDLE>
+
+[linkedin.com]
+public_identifier = <VANITY-SLUG>

@@ -12,6 +12,8 @@ Spawn a **Sonnet subagent** to run the workflow. Each script runs under the **se
 
 A logged-in Instagram session in the user-data-dir the serialiser targets.
 
+Optional config, `[instagram.com] handle`: the account expected signed in. `browser-serialiser` names it in the `session missing` line it prints on exit 77, so a person reading a failed run knows which login to restore.
+
 Note: `--lang` flags do not override Instagram's locale; it is a server-side account setting. The parsers are locale-agnostic, so this does not matter.
 
 If a request redirects to `/accounts/login/` or returns empty JSON, the session has expired or been rate-limited. The harness classifies this as a terminal `logged-out`/`checkpoint` state and stops; let the user log in interactively before retrying.
