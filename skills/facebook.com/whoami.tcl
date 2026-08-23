@@ -1,5 +1,5 @@
 # whoami.tcl - report who the logged-in Facebook session is, run inside the
-# serialiser harness. Home: skills/facebook.com/whoami.tcl
+# serialiser harness.
 #
 # The cheapest identity-plus-liveness probe, built like Instagram's sibling and
 # for the same reason: it navs to facebook.com and reads the c_user cookie,

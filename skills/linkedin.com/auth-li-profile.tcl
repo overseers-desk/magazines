@@ -1,5 +1,4 @@
 # auth-li-profile.tcl - the li-profile B-job playbook, run inside the serialiser harness.
-# Home: skills/linkedin.com/auth-li-profile.tcl
 #
 # A job-envelope profile-header read for the BL04 persist leg. auth-parse-profile.tcl
 # stays as-is for interactive YAML use; this verb reuses its extraction and emits

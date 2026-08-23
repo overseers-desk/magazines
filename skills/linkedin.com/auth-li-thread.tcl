@@ -1,5 +1,4 @@
 # auth-li-thread.tcl - the li-thread B-job playbook, run inside the serialiser harness.
-# Home: skills/linkedin.com/auth-li-thread.tcl
 #
 # Backfills one messaging thread: takes a conversationUrn (from the connector's
 # selectReady), harvests the live messengerMessages queryId from the messaging

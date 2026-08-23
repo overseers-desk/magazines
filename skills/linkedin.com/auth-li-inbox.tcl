@@ -1,5 +1,4 @@
 # auth-li-inbox.tcl - the li-inbox B-job playbook, run inside the serialiser harness.
-# Home: skills/linkedin.com/auth-li-inbox.tcl
 #
 # Enumerates the LinkedIn messaging inbox: opens /messaging/, harvests the page's
 # own voyager messengerConversations request (for the live queryId and the mailbox

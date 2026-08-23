@@ -1,5 +1,5 @@
 # whoami.tcl - report who the logged-in Instagram session is, run inside the
-# serialiser harness. Home: skills/instagram.com/whoami.tcl
+# serialiser harness.
 #
 # The cheapest identity-plus-liveness probe, and unlike LinkedIn's it needs NO
 # api fetch: it navs to instagram.com and reads the ds_user_id cookie, Instagram's

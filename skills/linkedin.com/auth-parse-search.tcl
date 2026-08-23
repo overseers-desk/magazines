@@ -1,7 +1,6 @@
 #!/usr/bin/env tclsh
 # People search: a keyword, LinkedIn's filters, and several people's networks in
 # one call.
-# Home: skills/linkedin.com/auth-parse-search.tcl
 #
 # Serialiser path (see SKILL.md):
 #   browser-serialiser linkedin.com/auth-parse-search "<search terms>"

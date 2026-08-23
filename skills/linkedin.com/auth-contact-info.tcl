@@ -1,5 +1,4 @@
 # auth-contact-info.tcl - the contact-info read verb, run inside the serialiser harness.
-# Home: skills/linkedin.com/auth-contact-info.tcl
 #
 # Reads a member's self-listed Contact info (email, phones, websites, twitter,
 # birthday) - the data LinkedIn's "Contact info" modal shows. The modal does not

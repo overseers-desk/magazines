@@ -1,7 +1,6 @@
 # li-canonical.tcl - the LinkedIn parsers and envelope builders the skill's verbs
 # share: the messaging pair (li-inbox, li-thread), the people-search page
 # (parse-search), and the canonical envelope every verb that persists emits.
-# Home: skills/linkedin.com/li-canonical.tcl
 #
 # Two source shapes are parsed here, and they have nothing in common but the
 # envelope they end in. Messaging arrives as LinkedIn's normalized GraphQL
