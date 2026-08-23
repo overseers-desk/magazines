@@ -37,9 +37,10 @@ namespace eval serialiser {
     # path are both anchored here.
     variable Root ""
 
-    # This file's own directory, captured at load. envelope.tcl sits beside it,
-    # and is read from here rather than from Root so a caller that never set
-    # Root still gets the envelope procs.
+    # This file's own directory, captured at load. envelope.tcl sits beside it
+    # and is read from here rather than from Root, so a caller that never set
+    # Root still gets the envelope procs. A host staging this directory copies
+    # it whole: a copy of this file alone loads and then fails inside a run.
     variable HarnessDir [file dirname [file normalize [info script]]]
 
     # The CDP client object for the current run (a cdp::Client). The verbs drive
