@@ -145,6 +145,16 @@ The harvest is wider than the query. Scrolling a results page makes Facebook fet
 
 Facebook-wide search returns Page and profile posts as well as group posts, so those are cited under their owner rather than under a group.
 
+## 12. Report who the logged-in session is
+
+Reads the `c_user` cookie, Facebook's own name for the signed-in account. No API call and no DOM dump, so it costs one navigation on a site whose pages run 1-15MB:
+
+```bash
+browser-serialiser facebook.com/whoami
+```
+
+Emits the canonical envelope. `result` is `{identity, name}`. `identity` is the numeric account id, the same number the page config carries as `USER_ID`; `name` is null by design, so the account is named from the caller's own records rather than from a page scrape that could name a bystander. A logged-out page, or one the harness classified `logged-out`/`checkpoint`, is a `fault` with the `login_wall` shape, never a result.
+
 ## DOM parsing notes
 
 Facebook (as of 2026) uses randomised CSS class names (e.g. `x1lliihq x6ikm8r`), no semantic IDs, deeply nested div hierarchies, lazy loading, and pages of 1-15MB. The scripts extract `<title>`, `<meta>` tags, JSON-LD, and visible text via `>content<` pattern matching. Do not select by CSS class name — they change between sessions.
