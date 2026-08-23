@@ -1,5 +1,5 @@
 # whoami.tcl - report who the logged-in session is, run inside the serialiser
-# harness. Home: skillbooks/skills/linkedin.com/whoami.tcl
+# harness. Home: skills/linkedin.com/whoami.tcl
 #
 # The cheapest identity-plus-liveness probe: one voyager request against
 # /voyager/api/me, the tiny self endpoint every LinkedIn page loads - the same

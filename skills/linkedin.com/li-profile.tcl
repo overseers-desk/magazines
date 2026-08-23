@@ -1,5 +1,5 @@
 # li-profile.tcl - the li-profile B-job playbook, run inside the serialiser harness.
-# Home: skillbooks/skills/linkedin.com/li-profile.tcl
+# Home: skills/linkedin.com/li-profile.tcl
 #
 # A job-envelope profile-header read for the BL04 persist leg. parse-profile.tcl
 # stays as-is for interactive YAML use; this verb reuses its extraction and emits

@@ -1,5 +1,5 @@
 # li-connections.tcl - the li-connections B-job playbook, run inside the serialiser
-# harness. Home: skillbooks/skills/linkedin.com/li-connections.tcl
+# harness. Home: skills/linkedin.com/li-connections.tcl
 #
 # Enumerates the LOGGED-IN member's OWN connection list - the people the My Network
 # "Connections" page lists, NOT the connectionOf-filtered people search (that one
