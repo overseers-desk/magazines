@@ -827,26 +827,36 @@ proc serialiser::FetchPaced {path params headers} {
 }
 
 # Do one in-page fetch of a same-origin path, returning the body and writing the
-# HTTP status into the named var. The page-context JS sends the standard IG-style
-# auth headers (X-CSRFToken from the cookie, X-Requested-With) plus any caller
-# headers; a non-2xx returns the status with an empty body. Same-origin only.
+# HTTP status into the named var. The page-context JS sends the CSRF token the
+# site itself uses, plus X-Requested-With and any caller headers; a non-2xx
+# returns the status with an empty body. Same-origin only.
+#
+# Sites name their CSRF token differently and read it from a different header.
+# The Django-style pair (a `csrftoken` cookie sent as `X-CSRFToken`) covers
+# Instagram and Facebook. LinkedIn's token is its `JSESSIONID` cookie and it
+# reads the `csrf-token` header. Both are sent when their cookie is present, so
+# a call carries whichever the site is looking for and nothing spurious.
 proc serialiser::DoFetch {path params headersList statusVar} {
     variable Cdp
     upvar 1 $statusVar status
     set url $path
     if {$params ne ""} { append url "?" $params }
-    # Build the headers object for the fetch. The CSRF token is read in-page from
-    # the cookie so it is always the live value.
-    set hdrPairs {"'X-Requested-With':'XMLHttpRequest'" "'X-CSRFToken':csrf"}
+    # Build the headers object for the fetch. Each CSRF token is read in-page
+    # from its cookie, so it is always the live value.
+    set hdrPairs {"'X-Requested-With':'XMLHttpRequest'"}
     foreach {hk hv} $headersList {
         lappend hdrPairs "[json::write string $hk]:[json::write string $hv]"
     }
     set js {
     (async () => {
         const csrf = (document.cookie.match(/csrftoken=([^;]+)/)||[])[1] || '';
+        const jsid = (document.cookie.match(/JSESSIONID="?([^";]+)"?/)||[])[1] || '';
+        const hdrs = { @HDRS@ };
+        if (csrf) hdrs['X-CSRFToken'] = csrf;
+        if (jsid) hdrs['csrf-token'] = jsid;
         const resp = await fetch(@URL@, {
             credentials: 'include',
-            headers: { @HDRS@ }
+            headers: hdrs
         });
         const text = await resp.text();
         return JSON.stringify({status: resp.status, body: text});
