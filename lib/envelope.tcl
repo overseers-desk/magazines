@@ -21,17 +21,37 @@ proc fault_shape_of {detail} {
     }
     return unrecognised
 }
+# The account the page was rendered for (SESSION-CONTRACT.md §4). A site that
+# can name its signed-in account defines site_identity; a site that cannot
+# leaves it undefined and the key comes back null, which is the declared
+# capability the contract describes.
+#
+# Read once per run and remembered: the signed-in account cannot change under
+# one browser lease, and on a site whose only source is a request (LinkedIn's
+# /voyager/api/me) a read per emit would be a request per emit.
+proc run_identity {} {
+    if {[info exists ::_run_identity]} { return $::_run_identity }
+    set ::_run_identity null
+    if {[llength [info commands site_identity]]} {
+        if {![catch {site_identity} v] && $v ne ""} {
+            set ::_run_identity [json::write string $v]
+        }
+    }
+    return $::_run_identity
+}
+
 proc envelope_ok {r} {
     set cursor [dict_get_or $r cursor ""]
     set c [expr {$cursor eq "" ? "null" : [json::write string $cursor]}]
     set h [expr {[dict_get_or $r hasMore 0] ? "true" : "false"}]
     return [json::write object result [dict get $r result] \
-                cursor $c hasMore $h fault null]
+                identity [run_identity] cursor $c hasMore $h fault null]
 }
 proc envelope_fault {detail} {
     set shape [fault_shape_of $detail]
     if {$shape ne "unrecognised"} { regsub "^${shape}:\\s+" $detail "" detail }
     set f [json::write object shape [json::write string $shape] \
                 detail [json::write string [string range $detail 0 200]]]
-    return [json::write object result null cursor null hasMore false fault $f]
+    return [json::write object result null identity [run_identity] \
+                cursor null hasMore false fault $f]
 }

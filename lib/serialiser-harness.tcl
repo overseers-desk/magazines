@@ -294,6 +294,7 @@ proc serialiser::run {skillPath cdp skillArgs {site ""}} {
 
         serialiser::InjectVerbs $interp
         serialiser::InjectEnvelope $interp
+        serialiser::InjectIdentity $interp $skillPath
 
         # tcllib json and base64 are pure-Tcl and safe; let the skill's parsers use them.
         catch {$interp eval {package require json}}
@@ -341,6 +342,20 @@ proc serialiser::InjectEnvelope {interp} {
     set f [open [file join $HarnessDir envelope.tcl] r]
     set body [read $f]
     close $f
+    $interp eval $body
+}
+
+# The site's own reader for the account a page was rendered for
+# (SESSION-CONTRACT.md §4). A site that can name its signed-in account puts
+# `proc site_identity` in skills/<site>/lib/identity.tcl; the envelope calls it
+# once per run. A site with no such file names nobody, which is the declared
+# capability the contract describes, and its envelopes carry a null identity.
+proc serialiser::InjectIdentity {interp skillPath} {
+    set f [file join [file dirname $skillPath] lib identity.tcl]
+    if {![file exists $f]} return
+    set ch [open $f r]
+    set body [read $ch]
+    close $ch
     $interp eval $body
 }
 
