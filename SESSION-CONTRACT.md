@@ -103,7 +103,9 @@ The key being present is half the rule. A site that declares no identity source 
 
 The rule is scoped to `auth-` actions. A `pub-` result never had an identity to lack, and a site with no login runs nothing else, so applying it wider would distrust every result from most of the tree.
 
-Within `auth-`, a present null has two causes and both want the same answer. The page was signed out, which is the case the rule is for. Or the read failed, and an authenticated result that cannot be shown to be authenticated is one to hold. Those two are not distinguishable from the envelope, and on a site whose only source is a request rather than a cookie, a failed read is the commoner of the two.
+Within `auth-`, a present null has two causes and both want the same answer. The page was signed out, which is the case the rule is for. Or the read failed, and an authenticated result that cannot be shown to be authenticated is one to hold. Those two are not distinguishable from the envelope.
+
+How strong the evidence is depends on what the site's reader costs, which §4 lists. Where the account comes from a cookie, a failed read means the cookie was absent, which is being signed out, so a present null is close to proof. Where it comes from a request, a failed request is the commoner cause, so a present null is a reason to look rather than a verdict. A caller that stops work on it wants a way to start again without a human, since a stop taken on the weaker evidence is one it will sometimes take wrongly.
 
 What a caller holds on is the account the job asked for, not one the page named. There is no name on the page; that is the fact the rule fires on.
 
