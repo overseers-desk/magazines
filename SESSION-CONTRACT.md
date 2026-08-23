@@ -69,6 +69,14 @@ Every run of an `auth-` action names the account the page was rendered for, in t
 
 It sits beside `result` rather than inside it, so one caller reads one place whatever the site returns, and no site's result shape has to make room for it.
 
+The key has three states and a caller acts differently on each:
+
+- **absent** the site declares no identity source, and never had an account to name.
+- **null** the site was asked and named nobody. A signed-out page reads this way, and so does a read that failed.
+- **a string** the account the page was rendered for.
+
+A fault carries no identity key at all. Its shape says what went wrong, and a run that failed before it navigated has no page whose viewer to name.
+
 The point is that work becomes the liveness check. A caller that reads `identity` on every signed-in run learns the session died from the first run after it died, rather than from the first run that went looking. On 22 August the session died at 05:20 and the loss surfaced at 05:57; the documents written in between are the cost of that gap.
 
 An action that lands on a signed-out page reports nobody and exits 77 (§3). It does not proceed and it does not return a partial result.
@@ -89,11 +97,13 @@ A profile page's legacy `urn:li:member:NNN` often carries the viewer's own id, b
 
 The wall the harness raises is the site's own evidence, and a site that wants to serve a signed-out page without saying so gives none. `skills/facebook.com/SKILL.md` records that case: a public profile served at 200, on an ordinary URL, whose `<title>` reads like a real page while the page config carries `"USER_ID":"0"`. The URL test never fires and the title test is fooled, so a caller waiting for a wall waits for something that is not coming. The page is not walled at all; it is served, and it is empty of the viewer.
 
-The rule that covers it is the caller's, not the harness's. A result from an `auth-` action carrying a null `identity` is not to be trusted, whether or not a wall was raised. That page carries no account cookie either, so identity is null exactly where the data is not to be trusted.
+The rule that covers it is the caller's, not the harness's. A result from an `auth-` action whose `identity` key is present and null is not to be trusted, whether or not a wall was raised. That page carries no account cookie either, so identity is null exactly where the data is not to be trusted.
+
+The key being present is half the rule. A site that declares no identity source omits the key, so its results are not caught by this; it never claimed to know who was signed in. A caller that treated an absent key as a null one would distrust every result from every site with no reader, which is most of the tree.
 
 The rule is scoped to `auth-` actions. A `pub-` result never had an identity to lack, and a site with no login runs nothing else, so applying it wider would distrust every result from most of the tree.
 
-Within `auth-`, a null identity has three causes and all three want the same answer. The page was signed out, which is the case the rule is for. The action faulted before it navigated, so there is no result to trust anyway. Or the site declares it cannot name an account (§4), and an authenticated result that cannot be shown to be authenticated is one to hold while that declaration stands. The three need not be told apart while that declaration reads as a defect awaiting a fix. If it ever becomes a settled shape for some site, a caller will need to tell that site from a signed-out run, and this section is where that distinction goes.
+Within `auth-`, a present null has two causes and both want the same answer. The page was signed out, which is the case the rule is for. Or the read failed, and an authenticated result that cannot be shown to be authenticated is one to hold. Those two are not distinguishable from the envelope, and on a site whose only source is a request rather than a cookie, a failed read is the commoner of the two.
 
 What a caller holds on is the account the job asked for, not one the page named. There is no name on the page; that is the fact the rule fires on.
 
@@ -105,6 +115,6 @@ What a caller holds on is the account the job asked for, not one the page named.
 
 Once a site has a `whoami.tcl`, every action in it carries a prefix or the suite fails. A new action added to an adopted site fails on the commit that adds it.
 
-The test is red today. `facebook.com`, `instagram.com` and `linkedin.com` carry probes and none of their 35 actions carries a prefix yet. That rename is issue #38, and until it lands the failing run is the outstanding work rather than a regression.
+`facebook.com`, `instagram.com` and `linkedin.com` are adopted, and the test passes on 39 actions: 35 carrying a prefix, plus their three probes and one `login`, which are reserved.
 
 Sites that name a signed-in session in their SKILL.md and have no probe yet are reported as a backlog line rather than a failure. That list is the remaining adoption work, and it is visible on every run rather than tracked elsewhere.
