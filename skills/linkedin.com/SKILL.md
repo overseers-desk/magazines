@@ -27,7 +27,7 @@ browser-serialiser linkedin.com/login          # log in via fastrack if logged o
 browser-serialiser linkedin.com/login --check  # report state only, never click
 ```
 
-`login`, `send-invite`, and `send-message` drive the browser through the serialiser, which owns the browser lifecycle: one browser at a time (flock), a deadman timeout, and a teardown that reaches the browser even after snap detaches it into its own systemd scope.
+`login`, `auth-send-invite`, and `auth-send-message` drive the browser through the serialiser, which owns the browser lifecycle: one browser at a time (flock), a deadman timeout, and a teardown that reaches the browser even after snap detaches it into its own systemd scope.
 
 The JSON `status` is one of:
 - `already_logged_in` / `logged_in` — session active
@@ -75,7 +75,7 @@ Filters (sent as a list, one value or several): `network`, `geoUrn`, `schoolFilt
 
 Exercised against a live account: `keywords`, `connectionOf`, `network` (2026-08-14), and `geoUrn`. The rest are names LinkedIn's own filter bar sends and have not been run from here — treat a result filtered on one of them as unconfirmed until it is. Narrow by role with `title`; `titleFreeText` is not a LinkedIn key and was silently discarded whenever it was used.
 
-`connectionOf` takes `ACoAA...` ids, one or several, from `parse-profile`'s `urn` field or from a previous result's `profile_id` (a full URN works; the prefix is stripped). A vanity slug is refused, because LinkedIn answers one with an empty result set rather than an error. `network` is `["F"]` for first-degree, `["F","S"]` to include second. What LinkedIn returns for a third party's network is gated: first-degree means the connections you share with them, always available; second-degree is populated only when that person is your own first-degree and has not hidden their list.
+`connectionOf` takes `ACoAA...` ids, one or several, from `auth-parse-profile`'s `urn` field or from a previous result's `profile_id` (a full URN works; the prefix is stripped). A vanity slug is refused, because LinkedIn answers one with an empty result set rather than an error. `network` is `["F"]` for first-degree, `["F","S"]` to include second. What LinkedIn returns for a third party's network is gated: first-degree means the connections you share with them, always available; second-degree is populated only when that person is your own first-degree and has not hidden their list.
 
 ### What a call costs
 
@@ -133,7 +133,7 @@ frequent value is the signed-in viewer's own id, not the owner.
 ## 2a. Parse a job posting
 
 ```bash
-browser-serialiser linkedin.com/auth-parse-job <job-id-or-url>
+browser-serialiser linkedin.com/pub-parse-job <job-id-or-url>
 ```
 
 `<job-id-or-url>` is a numeric job id, a `/jobs/view/<id>` URL, or any URL carrying `currentJobId=<id>`. The script navigates to the guest job-posting fragment (`jobs-guest/jobs/api/jobPosting/<id>`), whose class names are stable and whose description is the full text — so it does not depend on the logged-in SPA's randomised classes and is not truncated by the "… more" fold. Emits a YAML record: `job_id`, `url` (the human `/jobs/view/` link), `title`, `company`, `location`, `posted`, `seniority`, `employment_type`, `job_function`, `industries`, and the full `description` as a literal block scalar. Redirect stdout to `<id>.yaml` to save it. Falls back to JobPosting JSON-LD (present on a logged-out full job page) and then to the og:/<title> meta tags when the guest fragment is unavailable.
@@ -271,7 +271,7 @@ the same browser lock as every other LinkedIn call (one session at a time).
 
 ### What this skill can and cannot edit
 
-`set-profile-field` covers the two single-value text fields below. The other
+`auth-set-profile-field` covers the two single-value text fields below. The other
 profile sections are not automated; edit them in the LinkedIn UI. How to confirm
 each row still holds (and re-recon when LinkedIn changes its DOM) is in
 `EDIT-VALIDATION.md`.
@@ -299,9 +299,9 @@ browser-serialiser linkedin.com/auth-li-inbox
 browser-serialiser linkedin.com/auth-li-thread "conversationUrn <urn:li:msg_conversation:(...)>"
 ```
 
-`li-inbox` emits a canonical inbox envelope: `{result:{ownProfileUrn, threads:[{conversation_urn, backend_thread_urn, is_group, title, last_activity, created_at, unread_count, unread, category, participants:[{profile_urn, first_name, last_name, profile_url}]}]}, cursor, hasMore, fault}`. One run mirrors the current inbox (the most recent conversations); it carries no older-than cursor.
+`auth-li-inbox` emits a canonical inbox envelope: `{result:{ownProfileUrn, threads:[{conversation_urn, backend_thread_urn, is_group, title, last_activity, created_at, unread_count, unread, category, participants:[{profile_urn, first_name, last_name, profile_url}]}]}, cursor, hasMore, fault}`. One run mirrors the current inbox (the most recent conversations); it carries no older-than cursor.
 
-`li-thread` takes a `conversationUrn` (from `li-inbox`'s output) and emits `{result:{conversationUrn, complete, participants:[...], messages:[{message_urn, sender_profile_urn, sent_at, body}]}, ...}`. One run returns the thread's most recent page; `complete` is true when the page is short enough that no older page is implied.
+`auth-li-thread` takes a `conversationUrn` (from `auth-li-inbox`'s output) and emits `{result:{conversationUrn, complete, participants:[...], messages:[{message_urn, sender_profile_urn, sent_at, body}]}, ...}`. One run returns the thread's most recent page; `complete` is true when the page is short enough that no older page is implied.
 
 `li-canonical.tcl` has a direct-tclsh entry for offline parser testing against a saved voyager body: `tclsh9.0 li-canonical.tcl inbox <conv.json> <ownProfileUrn>` (or `thread <msgs.json> <conversationUrn>`).
 
@@ -314,13 +314,13 @@ browser-serialiser linkedin.com/auth-li-connections
 browser-serialiser linkedin.com/auth-li-connections '{"maxScrolls":10}'
 ```
 
-Emits the canonical envelope. `result` is `{ownProfileUrn, connections:[{profile_urn, first_name, last_name, profile_url, connected_at}]}`. `ownProfileUrn` is the logged-in member's own profile urn, captured from the session the way `li-inbox` captures its identity. `first_name`/`last_name` are split from the one display-name string LinkedIn renders (first token / remainder). `connected_at` is the connected-on date (`"YYYY-MM-DD"`), null when absent. This is a **single-shot enumerator**: SDUI scroll-pagination has no offset cursor, so one run scrolls the last card into view repeatedly to pull further pages until the list stops growing (bounded by the optional `maxScrolls` arg, default 50), dedupes by urn, and emits every connection at once — `cursor` is always null, `hasMore` always false.
+Emits the canonical envelope. `result` is `{ownProfileUrn, connections:[{profile_urn, first_name, last_name, profile_url, connected_at}]}`. `ownProfileUrn` is the logged-in member's own profile urn, captured from the session the way `auth-li-inbox` captures its identity. `first_name`/`last_name` are split from the one display-name string LinkedIn renders (first token / remainder). `connected_at` is the connected-on date (`"YYYY-MM-DD"`), null when absent. This is a **single-shot enumerator**: SDUI scroll-pagination has no offset cursor, so one run scrolls the last card into view repeatedly to pull further pages until the list stops growing (bounded by the optional `maxScrolls` arg, default 50), dedupes by urn, and emits every connection at once — `cursor` is always null, `hasMore` always false.
 
 `auth-li-connections.tcl` has a direct-tclsh entry for offline parser testing against a saved flight (the decoded RSC body, or its raw base64): `tclsh9.0 auth-li-connections.tcl <flight.txt> <ownProfileUrn>`.
 
 ## 9. Read a profile header (job envelope)
 
-A B-job profile-header read. `parse-profile` (§2) stays the interactive YAML verb; this one emits the canonical envelope for the persist leg. Args JSON carries `{profileUrn, slug}` (slug is a vanity or an `ACoAA` id; it drives the navigation, `profileUrn` is a fallback identity). It reuses parse-profile's extraction (headline, about, location, current company from the ongoing Experience entry) and adds the connection/follower count pairs and `current_title`.
+A B-job profile-header read. `auth-parse-profile` (§2) stays the interactive YAML verb; this one emits the canonical envelope for the persist leg. Args JSON carries `{profileUrn, slug}` (slug is a vanity or an `ACoAA` id; it drives the navigation, `profileUrn` is a fallback identity). It reuses parse-profile's extraction (headline, about, location, current company from the ongoing Experience entry) and adds the connection/follower count pairs and `current_title`.
 
 ```bash
 browser-serialiser linkedin.com/auth-li-profile '{"slug":"ada-lovelace"}'

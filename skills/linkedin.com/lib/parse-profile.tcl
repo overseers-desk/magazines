@@ -1,5 +1,5 @@
 # The LinkedIn profile parser: DOM extraction and the YAML record it renders.
-# The profile-read action drives it, and li-profile.tcl draws on the same
+# The profile-read action drives it, and auth-li-profile.tcl draws on the same
 # extractors for the job-envelope header read.
 #
 # LinkedIn's DOM uses randomised class names and lazy-mounts deep sections after

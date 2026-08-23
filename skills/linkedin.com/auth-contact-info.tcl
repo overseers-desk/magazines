@@ -5,7 +5,7 @@
 # mount in a headless session, so the DOM is empty; instead this fetches the
 # voyager GraphQL query the modal itself issues (profile-contact-info-finder),
 # keyed by memberIdentity, and parses the privileged fields from the normalized
-# {data, included} envelope. The same in-page-fetch pattern as li-inbox/li-thread.
+# {data, included} envelope. The same in-page-fetch pattern as auth-li-inbox/auth-li-thread.
 #
 # Email (and phone) are present only for members who have shared them with you
 # (usually 1st-degree). When a member has not shared an email, the result carries

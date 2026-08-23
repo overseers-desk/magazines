@@ -479,7 +479,7 @@ proc fetch_voyager {url} {
 # the viewer's miniProfile entityUrn (urn:li:fs_miniProfile:<id>) plus
 # firstName/lastName/publicIdentifier. That <id> is the same opaque profile id
 # used across every urn form for this member, so urn is returned as
-# urn:li:fsd_profile:<id> - the shape parse-profile/contact-info key on. The urn
+# urn:li:fsd_profile:<id> - the shape auth-parse-profile/auth-contact-info key on. The urn
 # comes off the raw body by regex (robust to a shape shift, the original
 # own_profile_urn extraction); the name fields are best-effort from the parsed
 # MiniProfile and stay "" when the body is not JSON or carries none. urn "" means
@@ -519,7 +519,7 @@ proc own_profile {} {
 }
 
 # Just the urn ("" if unreadable) - the shape the existing callers
-# (li-connections, contact-info) consume.
+# (auth-li-connections, auth-contact-info) consume.
 proc own_profile_urn {} { return [dict get [own_profile] urn] }
 
 # --- direct-tclsh entry (offline parser self-test against a saved body) ------
