@@ -52,7 +52,7 @@ An `auth-` action that finds no session exits **77**. One line on stderr names t
 
 The caller reads the code, not the prose. A batch runner stops on 77 instead of writing a document that reads as complete.
 
-The codes already in use here are 2, 3, 4, 5, 64, 65, 66, 75 and 78; `FLIGHT-SEARCH.md` documents the ones the flight skills share, and `bin/browser-serialiser` assigns 75 to a lock-wait timeout. 77 is reserved for this condition alone.
+The codes already in use here are 2, 3, 4, 5, 64, 65, 66, 75 and 78; `FLIGHT-SEARCH.md` documents the ones the flight skills share, and `bin/browser-serialiser` assigns 75 to a lock-wait timeout. 77 is this condition alone: `bin/browser-serialiser` exits it on a `logged-out` or `checkpoint` wall, and 66 keeps the walls that are not about a session.
 
 Where the harness has already classified the run terminal as `logged-out` or `checkpoint`, that classification is the session's absence and the action exits 77 on it.
 

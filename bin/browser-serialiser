@@ -39,9 +39,10 @@ exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 #   snap Chromium, kill by launch PID AND by debug port plus a Singleton sweep so
 #   renderer children never orphan and hold the profile).
 #
-# Exit codes: 0 ok; 64 bad usage; 65 skill error; 66 terminal wall (rate-limited
-#   / logged-out / checkpoint); 75 lock-wait timeout; 78 environment (no Chromium,
-#   CDP endpoint never came up, config missing).
+# Exit codes: 0 ok; 64 bad usage; 65 skill error; 66 terminal wall (rate-limited,
+#   off-site); 75 lock-wait timeout; 77 no session (logged-out / checkpoint, see
+#   SESSION-CONTRACT.md); 78 environment (no Chromium, CDP endpoint never came
+#   up, config missing).
 
 package require json
 package require json::write
@@ -636,6 +637,7 @@ proc serialiser_delegate {skillRef skillArgs} {
             if {$detail in {logged-out checkpoint}} {
                 tray::notify "Browser skill stopped" \
                     "Log in to [file dirname $skillRef] in Chromium, then retry."
+                die 77 "session missing: [file dirname $skillRef]"
             }
             die 66 "terminal $detail"
         }
@@ -789,12 +791,15 @@ proc run_standalone {skillRef skillArgs} {
         set code [dict get $errOpts -errorcode]
         if {[lindex $code 0] eq "SERIALISER_TERMINAL"} {
             set wall [lindex $code 1]
-            puts stderr "browser-serialiser: terminal $wall"
             if {$wall in {logged-out checkpoint}} {
+                puts stderr "session missing: [file dirname $skillRef], profile \"$udd\""
                 tray::notify "Browser skill stopped" \
                     "Log in to [file dirname $skillRef] in Chromium, then retry."
+                set rc 77
+            } else {
+                puts stderr "browser-serialiser: terminal $wall"
+                set rc 66
             }
-            set rc 66
         } elseif {[lindex $code 0] eq "SERIALISER_LOCK"} {
             puts stderr "browser-serialiser: $err"
             set rc 75
@@ -845,7 +850,7 @@ proc render_parse_timeout {args} {
 proc print_usage {chan} {
     puts $chan "Usage:"
     puts $chan "  browser-serialiser <skill-ref> \[skill args...\]"
-    puts $chan "      run a policed browser skill (e.g. instagram.com/fetch-recent-posts posts <handle>)"
+    puts $chan "      run a policed browser skill (e.g. instagram.com/auth-fetch-recent-posts posts <handle>)"
     puts $chan "  browser-serialiser --dump \[-t SECS\] <url>"
     puts $chan "      render <url> and print its DOM to stdout (default -t 15)"
     puts $chan "  browser-serialiser --pdf \[-t SECS\] <outfile> <url>"

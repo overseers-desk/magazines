@@ -96,5 +96,5 @@ flights", a normal answer.
   the page matched neither result shape. Only the last case carries the
   title, URL and any message the site displayed; the others carry what
   exists at that point.
-- exit 66 with `browser-serialiser: terminal <state>` on stderr — the harness
+- exit 66 with `browser-serialiser: terminal <state>` on stderr, or 77 when that state is a login or checkpoint redirect — the harness
   hit a wall (rate-limited, logged-out, checkpoint) and ended the run.

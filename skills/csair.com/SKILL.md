@@ -109,5 +109,5 @@ A route/date combination the booking app serves but has no seats for, returns
 - `unexpected fare payload: ...` — a search response arrived but did not
   parse into the known `ita` shape; the site's payload format may have
   changed.
-- exit 66 with `browser-serialiser: terminal <state>` on stderr — the harness
+- exit 66 with `browser-serialiser: terminal <state>` on stderr, or 77 when that state is a login or checkpoint redirect — the harness
   hit a wall (rate-limited, logged-out, checkpoint) and ended the run.

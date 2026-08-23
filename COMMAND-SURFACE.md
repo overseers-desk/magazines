@@ -131,8 +131,10 @@ The harness, not the skill, classifies walls:
 - **login / checkpoint** redirect (on `nav`/`capture`) or **401/403** on `api` →
   immediate terminal (`logged-out` / `checkpoint`).
 
-On a terminal state the run ends; `browser-serialiser` exits 66 and the skill's
-`state` shows the reason. A skill never chooses to retry a wall; the only retry
+On a terminal state the run ends and the skill's `state` shows the reason.
+`browser-serialiser` exits 77 when the wall is `logged-out` or `checkpoint`, so
+a caller can stop on a missing session alone (`SESSION-CONTRACT.md`), and 66 for
+every other wall. A skill never chooses to retry a wall; the only retry
 that exists is the harness's own 429 backoff.
 
 ## Diagnostics log (standalone)

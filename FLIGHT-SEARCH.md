@@ -71,6 +71,7 @@ Stderr carries one line, exit code says the class; the airline skills use the sa
 - `4` `transport failure:`: host unreachable, timeout, answer outside any format; usually transient
 - `5` `unexpected payload:`: an answer arrived but not in the shape the skill knows; the site may have changed
 - `66` `browser-serialiser: terminal <state>`: a browser-run skill hit a wall the harness recognises (COMMAND-SURFACE.md)
+- `77` `session missing: <site>, profile "<path>"`: the wall was a login or checkpoint redirect (SESSION-CONTRACT.md)
 
 ## Where a skill's code lives
 
