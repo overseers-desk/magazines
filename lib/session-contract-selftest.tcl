@@ -1,4 +1,8 @@
-#!/usr/bin/env tclsh
+#!/bin/sh
+# the next line restarts under the newest tclsh available, the same trampoline
+# bin/browser-serialiser uses, so a check runs on the interpreter the harness
+# runs on rather than on whatever `tclsh` happens to point at \
+exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 # session-contract-selftest.tcl - the conformance test for SESSION-CONTRACT.md.
 #
 # A site adopts the contract by carrying whoami.tcl. From then on every action

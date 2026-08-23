@@ -113,7 +113,7 @@ What a caller holds on is the account the job asked for, not one the page named.
 
 `lib/session-contract-selftest.tcl` enforces the prefix rule on every site that has adopted the contract, and a site adopts it by carrying `whoami.tcl`. Presence of the probe is the opt-in, so no separate list of migrated sites exists to drift.
 
-    tclsh lib/session-contract-selftest.tcl
+    ./lib/session-contract-selftest.tcl
 
 Once a site has a `whoami.tcl`, every action in it carries a prefix or the suite fails. A new action added to an adopted site fails on the commit that adds it.
 

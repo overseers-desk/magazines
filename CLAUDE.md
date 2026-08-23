@@ -62,6 +62,15 @@ the model reads the new SKILL.md while the harness runs the old script, and the
 run comes back in the previous output shape as though the change had not been
 made.
 
+The checks run themselves rather than being handed to `tclsh`: each carries the
+same trampoline `bin/browser-serialiser` uses, so it runs on the newest
+interpreter present. Running one as `tclsh <file>` bypasses the trampoline and
+tests different behaviour from the one the harness has.
+
+    ./lib/serialiser-harness-selftest.tcl
+    ./lib/session-contract-selftest.tcl
+    ./lib/cdp-client-selftest.tcl
+
 Or inspect what the plugin exposes without running it:
 `claude --plugin-dir . plugin details magazines`. Calling a script directly
 with `python3` or `tclsh` tests the script, not the skill trigger; a skill is not

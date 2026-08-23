@@ -1,4 +1,8 @@
-#!/usr/bin/env tclsh
+#!/bin/sh
+# the next line restarts under the newest tclsh available, the same trampoline
+# bin/browser-serialiser uses, so a check runs on the interpreter the harness
+# runs on rather than on whatever `tclsh` happens to point at \
+exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 # serialiser-harness-selftest.tcl - offline check of the harness's site
 # confinement (the optional 4th serialiser::run argument) and the SiteOf fold.
 #
@@ -95,6 +99,23 @@ set tmpRoot [expr {[info exists ::env(TMPDIR)] && $::env(TMPDIR) ne "" ? $::env(
 set skillDir [file join $tmpRoot serialiser-harness-selftest-[pid]]
 file mkdir $skillDir
 foreach {name body} {
+    emit-astral {
+        # Emit the caption a live instagram run died on: the site sends the
+        # emoji as an escaped surrogate pair, and tcllib's json hands back the
+        # two halves rather than the character.
+        proc serialiser_run {skillArgs} {
+            package require json
+            set body "{\"caption\":\"Come and experience this at @historicrivermill \\ud83d\\udc0e \"}"
+            set d [::json::json2dict $body]
+            emit [dict get $d caption]
+        }
+    }
+    emit-lone-half {
+        # A high half with no partner: nothing stands for it, so it goes.
+        proc serialiser_run {skillArgs} {
+            emit "before[format %c 0xD83D]after"
+        }
+    }
     nav-each {
         # Nav every arg URL in turn; emit the last landing.
         proc serialiser_run {skillArgs} {
@@ -211,6 +232,33 @@ if {[dict get $r code] ne {SERIALISER_TERMINAL off-site} \
     fail "api drifted site: $r"
 }
 puts "PASS api with a drifted site terminates off-site"
+
+# --- the emitted result is writable: a surrogate pair is folded into the
+# --- character it stands for, and an unpaired half is dropped. Both are
+# --- checked by writing to a real utf-8 channel, which is where the live run
+# --- died with the result already built.
+set r [runprobe emit-astral {} {}]
+set emitted [dict get $r emitted]
+if {[string first [format %c 0x1F40E] $emitted] < 0} {
+    fail "emit did not fold the surrogate pair: $emitted"
+}
+foreach ch [split $emitted ""] {
+    scan $ch %c v
+    if {$v >= 0xD800 && $v <= 0xDFFF} { fail "emit left a surrogate half in the result" }
+}
+set probeOut [file join $skillDir written.txt]
+set ch [open $probeOut w]
+fconfigure $ch -encoding utf-8
+if {[catch {puts $ch $emitted} werr]} { close $ch; fail "the emitted result will not write: $werr" }
+close $ch
+file delete -force $probeOut
+puts "PASS an escaped emoji survives emit and writes to a utf-8 channel"
+
+set r [runprobe emit-lone-half {} {}]
+if {[dict get $r emitted] ne "beforeafter"} {
+    fail "an unpaired surrogate half should be dropped, got [dict get $r emitted]"
+}
+puts "PASS an unpaired surrogate half is dropped"
 
 file delete -force $skillDir
 puts "all serialiser-harness confinement cases passed"

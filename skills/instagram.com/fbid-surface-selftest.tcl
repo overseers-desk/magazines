@@ -1,4 +1,8 @@
-#!/usr/bin/env tclsh
+#!/bin/sh
+# the next line restarts under the newest tclsh available, the same trampoline
+# bin/browser-serialiser uses, so a check runs on the interpreter the harness
+# runs on rather than on whatever `tclsh` happens to point at \
+exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 # fbid-surface-selftest.tcl - the account-level fbid_v2 (the long "17841…" Graph id)
 # the connector re-keys onto must reach the canonical envelope from every IG surface
 # that carries a user object, not the inbox alone. This exercises the pure parsers

@@ -1,4 +1,8 @@
-#!/usr/bin/env tclsh
+#!/bin/sh
+# the next line restarts under the newest tclsh available, the same trampoline
+# bin/browser-serialiser uses, so a check runs on the interpreter the harness
+# runs on rather than on whatever `tclsh` happens to point at \
+exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 # cdp-client-selftest.tcl - smoke-test the cdp module.
 #
 # With CDP_WS_URL pointing at any plain-RFC6455 flat-CDP target (a real Chromium
