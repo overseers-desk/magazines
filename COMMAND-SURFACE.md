@@ -221,8 +221,23 @@ cause. Carry every header the site's own page sends on that endpoint. Unlike the
 view-before-fetch table, which is central, this is per call, so it is the line a
 port silently drops.
 
-A type-B primitive (one the overseer runs and persists) carries a second
-contract the harness does not enforce: its single `emit` must be the canonical
-envelope the BI server's `persistB` validates. That envelope's shape is owned by
-the consuming repo, not here; a primitive that emits a free-form result is
-rejected at persist, not at run.
+## What a skill emits
+
+A skill emits the canonical envelope and nothing else:
+
+    {"result": ..., "identity": ..., "cursor": ..., "hasMore": ..., "fault": ...}
+
+`result` carries whatever the action found, in whatever shape suits it. A
+document a person reads, a YAML record a caller writes to a file, a list of
+rows: each is a value inside `result`, not a substitute for the envelope. The
+reason is that a caller has to tell a result from a fault without reading prose,
+which is the distinction the session contract exists to protect. `identity`
+names the account the page was rendered for, per `SESSION-CONTRACT.md` §4.
+
+`envelope_ok` and `envelope_fault` build it.
+
+A type-B primitive (one the overseer runs and persists) carries a further
+contract the harness does not enforce: the envelope it emits is the one the BI
+server's `persistB` validates. That envelope's shape is owned by the consuming
+repo, not here; a primitive that emits a free-form result is rejected at
+persist, not at run.

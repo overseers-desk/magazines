@@ -68,6 +68,8 @@ The point is that work becomes the liveness check. A caller that reads `identity
 
 An action that lands on a signed-out page reports nobody and exits 77 (§3). It does not proceed and it does not return a partial result.
 
+A site that cannot name the signed-in account says so in its SKILL.md, and its `auth-` actions are then held to §3 alone. Read that declaration as a defect awaiting a fix rather than a settled shape: a site serving pages to a signed-in person almost always says who they are somewhere, and a skill that cannot find it has usually not looked in the right place. The declaration exists because a few sites genuinely do not say, and a rule with no exception would be obeyed with a guess.
+
 What this costs differs by site, and the cheap shape is not available everywhere:
 
 - `instagram.com` reads `ds_user_id` from `document.cookie`. No request. `ig_viewer_id` in `ig-canonical.tcl` already does it.
