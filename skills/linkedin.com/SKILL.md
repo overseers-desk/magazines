@@ -113,7 +113,7 @@ structured YAML record: name, vanity slug, the profile URN
 (`urn:li:fsd_profile:ACoAA...`, the owner's, found as the dominant id in the
 page's data payload), headline, location, `current_company`, `experience` (a list
 of entries with `title`/`company`/`start`/`end`/`current`), `skills`, `about`,
-evidence blocks, and a **`coverage:`** block. Redirect stdout to `<slug>.yaml`.
+evidence blocks, and a **`coverage:`** block. The record is the envelope's `result`, so a caller writing it to `<slug>.yaml` reads that key rather than redirecting stdout.
 
 `coverage` is the honesty contract: each section is `fetched`, `not_found`
 (the page was read and the section was absent — e.g. a profile with no skills
@@ -136,7 +136,7 @@ frequent value is the signed-in viewer's own id, not the owner.
 browser-serialiser linkedin.com/pub-parse-job <job-id-or-url>
 ```
 
-`<job-id-or-url>` is a numeric job id, a `/jobs/view/<id>` URL, or any URL carrying `currentJobId=<id>`. The script navigates to the guest job-posting fragment (`jobs-guest/jobs/api/jobPosting/<id>`), whose class names are stable and whose description is the full text — so it does not depend on the logged-in SPA's randomised classes and is not truncated by the "… more" fold. Emits a YAML record: `job_id`, `url` (the human `/jobs/view/` link), `title`, `company`, `location`, `posted`, `seniority`, `employment_type`, `job_function`, `industries`, and the full `description` as a literal block scalar. Redirect stdout to `<id>.yaml` to save it. Falls back to JobPosting JSON-LD (present on a logged-out full job page) and then to the og:/<title> meta tags when the guest fragment is unavailable.
+`<job-id-or-url>` is a numeric job id, a `/jobs/view/<id>` URL, or any URL carrying `currentJobId=<id>`. The script navigates to the guest job-posting fragment (`jobs-guest/jobs/api/jobPosting/<id>`), whose class names are stable and whose description is the full text — so it does not depend on the logged-in SPA's randomised classes and is not truncated by the "… more" fold. Emits a YAML record: `job_id`, `url` (the human `/jobs/view/` link), `title`, `company`, `location`, `posted`, `seniority`, `employment_type`, `job_function`, `industries`, and the full `description` as a literal block scalar. The record is the envelope's `result`, so a caller saving it to `<id>.yaml` reads that key. Falls back to JobPosting JSON-LD (present on a logged-out full job page) and then to the og:/<title> meta tags when the guest fragment is unavailable.
 
 ## 2b. Read a member's Contact info
 
