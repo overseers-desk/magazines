@@ -174,6 +174,71 @@ proc fb::page_absent {html} {
     return [regexp {This (?:page|content) isn.t available(?: right now)?<} $main]
 }
 
+# A JSON string value as text: \uXXXX with surrogate pairs joined, \/ and
+# the one-character escapes.
+proc fb::json_text {s} {
+    set s [regsub -all -nocase {\\u(d[89ab][0-9a-f]{2})\\u(d[c-f][0-9a-f]{2})} $s \
+        {[format %c [expr {0x10000 + ((0x\1 - 0xD800) << 10) + (0x\2 - 0xDC00)}]]}]
+    set s [regsub -all {\\u([0-9a-fA-F]{4})} $s {[format %c 0x\1]}]
+    set s [subst -nocommands -novariables [string map {\\/ / \\n \n \\" \" \\\\ \\} $s]]
+    return [subst -novariables -nobackslashes $s]
+}
+
+# The About data a page hands its client rather than draws: every
+# profile_field_sections payload in the document, as a list of
+# {section fieldType value qualifier} rows. The section is its shown title
+# ("Phone", "Email", "Address"), the value the field's text, the qualifier
+# the field's own sub-heading ("Mobile") when it has one. A document without
+# the key yields an empty list; about_fields_present tells that apart from a
+# page that declares nothing.
+proc fb::about_fields {html} {
+    # Sections and fields are located by position and paired by order: a
+    # field belongs to the last section title before it. The payload's own
+    # nesting is not walked, since a field's sub-list closes with the same
+    # brackets a section does.
+    set sections {}
+    foreach {whole stitle} [regexp -all -inline -indices \
+            {"field_section_type":"[a-z_]+","title":\{"text":"((?:[^"\\]|\\.)*)"} $html] {
+        lappend sections [lindex $whole 0] [fb::json_text [string range $html {*}$stitle]]
+    }
+    set rows {}
+    set fields [regexp -all -inline -indices {"text":"((?:[^"\\]|\\.)*)"\},"field_type":"([a-z_]+)"} $html]
+    foreach {whole value ftype} $fields {
+        set at [lindex $whole 0]
+        set section ""
+        foreach {pos title} $sections {
+            if {$pos < $at} { set section $title } else { break }
+        }
+        if {$section eq ""} { continue }
+        set tail [string range $html [lindex $whole 1] [expr {[lindex $whole 1] + 1500}]]
+        set qual ""
+        regexp {"list_items":\[\{"heading_type":"[A-Z]+","text":\{[^\}]*"text":"((?:[^"\\]|\\.)*)"} $tail -> qual
+        lappend rows [list $section [string range $html {*}$ftype] [fb::json_text [string range $html {*}$value]] [fb::json_text $qual]]
+    }
+    return [lsort -unique $rows]
+}
+proc fb::about_fields_present {html} {
+    return [expr {[string first {"profile_field_sections":} $html] >= 0}]
+}
+
+# The About tab's sub-tabs as the page lists them: {name url} pairs, url
+# unescaped. Empty on a page that is not an About tab.
+proc fb::about_subtabs {html} {
+    set out {}
+    foreach {w name url} [regexp -all -inline {\{"name":"((?:[^"\\]|\\.)*)","id":"[^"]+","url":"(https:\\/\\/www\.facebook\.com\\/[^"]*sk=directory_[a-z_]+)"} $html] {
+        lappend out [fb::json_text $name] [fb::json_text $url]
+    }
+    return $out
+}
+
+# The number behind a Page's Call button, or "" when it has none.
+proc fb::call_number {html} {
+    if {[regexp {"ProfileActionCall","phone_number":\{"display_number":"((?:[^"\\]|\\.)*)"} $html -> n]} {
+        return [fb::json_text $n]
+    }
+    return ""
+}
+
 proc fb::extract_visible_texts {html {min 5} {max 500} {min_keep 5}} {
     set filtered {}
     set seen {}

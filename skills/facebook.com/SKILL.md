@@ -54,7 +54,7 @@ browser-serialiser facebook.com/auth-parse-profile HANDLE_OR_URL
 
 Navigates to the profile (a bare handle resolves to `https://www.facebook.com/HANDLE`; a numeric id to `/profile.php?id=ID`; a Page slug carrying its id, `Name-ID` or `p/Name-ID`, to `/ID`: the hyphenated forms redirect out to meta.com and the harness ends a run that leaves the site, and `/people/Name/ID/about` renders an unavailable notice; a reference with no page behind it ("This page isn't available") is reported as a `removed` fault rather than as the signed-in shell) and extracts name, meta descriptions, JSON-LD Person data (if present), bio/intro lines, role/work mentions, location mentions, and visible text blocks.
 
-For richer bio data, point the same script at the about page URL: `https://www.facebook.com/HANDLE/about` (numeric: `/profile.php?id=ID&sk=about`).
+For the declared contact and ownership detail, point the same script at the About tab: `https://www.facebook.com/HANDLE/about` (numeric: `/profile.php?id=ID&sk=about`). The tab's values are not rendered text; they sit in the page's data payload per sub-tab, so an About read reports an `About:` block: the Call button's number, the Bio, then the Contact info and Details sub-tabs (phone with its type, email, Messenger, address, rating), each fetched as its own navigation, and the remaining sub-tabs (Intro, Category, Links, Names on some pages) by URL, readable by passing that URL as the reference. A sub-tab that declares nothing reads `none declared`; an About page whose payload lacks the `profile_field_sections` key is an `unrecognised` fault, so a schema change shows as a fault and not as an empty contact block.
 
 ## 5. Parse recent posts
 
