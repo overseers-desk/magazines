@@ -162,30 +162,6 @@ proc parse_profile {html_path} {
     parse_profile_html [fb::read_file $html_path]
 }
 
-# Resolve a profile reference (handle, numeric id, path, or full URL) to a URL
-# Facebook serves.
-#
-# A Page whose slug carries its numeric id, `Name-ID` or `p/Name-ID`, is served
-# only at /people/Name/ID/...: the site resolves the hyphenated forms to its own
-# /about, which redirects out to meta.com, and the harness ends the run off-site.
-# The fold happens before the navigation so the guard never sees it.
-proc fb_profile_url {ref} {
-    set base "https://www.facebook.com"
-    set path ""
-    if {[regexp {^https?://(?:[a-z0-9-]+\.)?facebook\.com(/.*)?$} $ref -> path]} {
-    } elseif {[string match "http*://*" $ref]} {
-        return $ref
-    } elseif {[regexp {^\d+$} $ref]} {
-        return "$base/profile.php?id=$ref"
-    } else {
-        set path "/[string trimleft $ref @/]"
-    }
-    if {[regexp {^/(?:p/)?([^/?#]+)-(\d{10,})(/[^?#]*)?(\?.*)?$} $path -> name id rest query]} {
-        return "$base/people/$name/$id$rest$query"
-    }
-    return "$base$path"
-}
-
 # ---------------------------------------------------------------------------
 # Serialiser entry: nav to the profile, dump the rendered DOM, run the identical
 # parse under fb::report, emit the captured report. A login wall caught by
@@ -205,7 +181,7 @@ proc serialiser_run {skillArgs} {
         emit [envelope_fault "Usage: facebook.com/auth-parse-profile <handle|profile-url>"]
         return
     }
-    nav [fb_profile_url $target] --wait 5
+    nav [fb::profile_url $target] --wait 5
     if {[dict get [state] terminal] ne ""} {
         emit [envelope_fault "login_wall: Facebook: not logged in - no session in this profile. Log in via the GUI Chromium, then close it and retry."]
         return

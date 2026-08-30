@@ -339,23 +339,13 @@ proc serialiser_run {skillArgs} {
         emit [envelope_fault "Usage: facebook.com/auth-parse-posts <handle|profile-url> \[--owner-id ID\]"]
         return
     }
-    nav [fb_profile_url $target] --wait 5
+    nav [fb::profile_url $target] --wait 5
     if {[dict get [state] terminal] ne ""} {
         emit [envelope_fault "login_wall: Facebook session expired. Log in via a Chrome-compatible browser first."]
         return
     }
     set html [dump]
     emit [fb::report out { parse_posts_html $html $owner_id }]
-}
-
-# Resolve a profile reference (a bare handle, a numeric id, or a full URL) to a
-# facebook.com profile URL to navigate to.
-proc fb_profile_url {ref} {
-    if {[string match "http*://*" $ref]} { return $ref }
-    if {[regexp {^\d+$} $ref]} {
-        return "https://www.facebook.com/profile.php?id=$ref"
-    }
-    return "https://www.facebook.com/[string trimleft $ref @/]"
 }
 
 # Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.

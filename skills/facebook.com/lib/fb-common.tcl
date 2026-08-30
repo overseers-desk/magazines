@@ -45,6 +45,30 @@ proc fb::commafy {n} {
 # because Tcl's ARE is POSIX longest-match: a .*? would run to the LAST
 # </title> on a page with more than one title, whereas Python's .*? (and this
 # [^<]*) take the first. Both yield the first title's text.
+# Resolve a profile reference (handle, numeric id, path, or full URL) to a URL
+# Facebook serves.
+#
+# A Page whose slug carries its numeric id, `Name-ID` or `p/Name-ID`, is served
+# only at /people/Name/ID/...: the site resolves the hyphenated forms to its own
+# /about, which redirects out to meta.com, and the harness ends the run off-site.
+# The fold happens before the navigation so the guard never sees it.
+proc fb::profile_url {ref} {
+    set base "https://www.facebook.com"
+    set path ""
+    if {[regexp {^https?://(?:[a-z0-9-]+\.)?facebook\.com(/.*)?$} $ref -> path]} {
+    } elseif {[string match "http*://*" $ref]} {
+        return $ref
+    } elseif {[regexp {^\d+$} $ref]} {
+        return "$base/profile.php?id=$ref"
+    } else {
+        set path "/[string trimleft $ref @/]"
+    }
+    if {[regexp {^/(?:p/)?([^/?#]+)-(\d{10,})(/[^?#]*)?(\?.*)?$} $path -> name id rest query]} {
+        return "$base/people/$name/$id$rest$query"
+    }
+    return "$base$path"
+}
+
 proc fb::title {html {default ""}} {
     if {[regexp {(?s)<title[^>]*>([^<]*)</title>} $html -> t]} {
         return [string trim $t]

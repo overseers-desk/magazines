@@ -135,15 +135,6 @@ proc keyword_search_html {html keywords} {
     }
 }
 
-# Resolve a profile reference (handle, numeric id, or full URL) to a URL.
-proc fb_profile_url {ref} {
-    if {[string match "http*://*" $ref]} { return $ref }
-    if {[regexp {^\d+$} $ref]} {
-        return "https://www.facebook.com/profile.php?id=$ref"
-    }
-    return "https://www.facebook.com/[string trimleft $ref @/]"
-}
-
 # ---------------------------------------------------------------------------
 # Serialiser entry: nav to the profile, dump the rendered DOM, run the identical
 # keyword search under fb::report, emit the report. The first argument is the
@@ -159,7 +150,7 @@ proc serialiser_run {skillArgs} {
     }
     set target [lindex $skillArgs 0]
     set keywords [lrange $skillArgs 1 end]
-    nav [fb_profile_url $target] --wait 5
+    nav [fb::profile_url $target] --wait 5
     if {[dict get [state] terminal] ne ""} {
         emit [envelope_fault "login_wall: Facebook session expired. Log in via a Chrome-compatible browser first."]
         return
