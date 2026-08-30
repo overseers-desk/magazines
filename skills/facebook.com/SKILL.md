@@ -32,9 +32,10 @@ The harness owns pacing+jitter on every wire-touching verb and the 429/login bac
 
 ```bash
 browser-serialiser facebook.com/auth-parse-search SEARCH TERMS
+browser-serialiser facebook.com/auth-parse-search --pages SEARCH TERMS
 ```
 
-Pass terms as plain arguments (the script URL-encodes them and navigates to `/search/people/?q=...`). Outputs profile URLs (both vanity `/username` and numeric `/profile.php?id=`) with nearby visible text.
+Pass terms as plain arguments (the script URL-encodes them and navigates to `/search/people/?q=...`, or `/search/pages/` with `--pages`). Outputs profile URLs (both vanity `/username` and numeric `/profile.php?id=`) with nearby visible text, read from the page's result region only. The people vertical lists no Page, so a business or trade name belongs in `--pages`. A query Facebook finds nothing for reports `No results` with the site's own notice; a page with neither rows nor the notice is an `unrecognised` fault.
 
 ### Search variants for hard-to-find people
 

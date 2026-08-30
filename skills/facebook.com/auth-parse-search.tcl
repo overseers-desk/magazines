@@ -1,8 +1,8 @@
 #!/usr/bin/env tclsh
 # Parse Facebook people-search results to extract profile URLs and context.
 #
-# Serialiser path (see SKILL.md §1-2): browser-serialiser facebook.com/auth-parse-search <search terms>
-#   navigates to /search/people/?q=..., dumps the rendered DOM, and runs the identical parse.
+# Serialiser path (see SKILL.md §1-2): browser-serialiser facebook.com/auth-parse-search [--pages] <search terms>
+#   navigates to /search/people/?q=... (or /search/pages/), dumps the rendered DOM, and runs the identical parse.
 # Direct path (legacy, file-fed): tclsh auth-parse-search.tcl <html-file>
 #
 # Facebook's DOM uses randomised class names, so we cannot select by class.
@@ -44,78 +44,75 @@ proc parse_search_results_html {html} {
         exit 1
     }
 
-    puts "Page title: $title"
+    puts "Page title: [fb::name_from_title $title]"
     puts "HTML size: [fb::commafy [fb::cp_length $html]] bytes"
     puts ""
 
-    # Extract profile URLs — vanity (/username) and numeric (/profile.php?id=),
-    # from href attributes and raw text, in the same order the Python appended.
-    set vanity_matches [capture_list $html {href="https?://(?:www\.)?facebook\.com/([a-zA-Z0-9._]+?)(?:\?|"|/)}]
-    set numeric_matches [capture_list $html {href="https?://(?:www\.)?facebook\.com/profile\.php\?id=(\d+)}]
-    # Also non-href contexts (data attributes, JSON), appended after.
-    lappend_all vanity_matches [capture_list $html {facebook\.com/([a-zA-Z0-9._]{5,})(?:[?"/&\s])}]
-    lappend_all numeric_matches [capture_list $html {facebook\.com/profile\.php\?id=(\d+)}]
-    # JSON-escaped form: facebook.com\/username (backslash before each slash).
-    lappend_all vanity_matches [capture_list $html {facebook\.com\\/([a-zA-Z0-9._]{5,})(?:[?"\\/&\s])}]
-    lappend_all numeric_matches [capture_list $html {facebook\.com\\/profile\.php\\?id=(\d+)}]
+    # Only the result region is read. The signed-in chrome around it (left
+    # navigation, chat list, notifications tray, "People you may know") is
+    # made of profile links, and read whole the document yields the same two
+    # hundred profiles whatever the query. Facebook answers an empty search
+    # in that region with a notice, which is the result then; a region with
+    # neither rows nor the notice is a read that did not happen.
+    set main [fb::main_region $html]
+    if {[string length $main] == [string length $html]} {
+        puts "ERROR: unrecognised: no result region (role=main) in the search page"
+        exit 1
+    }
+    if {[regexp {We didn.t find any results} $main]} {
+        puts "No results: Facebook answers \"We didn't find any results\" for this query."
+        return
+    }
+    if {![regexp {role="article"} $main]} {
+        puts "ERROR: unrecognised: the result region carries neither result rows nor the no-results notice"
+        exit 1
+    }
+    set html $main
 
+    # One profile per result row: each role="article" row links its profile
+    # (twice, picture and name). Anything read outside the rows, the script
+    # payloads after them in particular, is not a result.
+    set starts {}
+    foreach pair [regexp -all -inline -indices {<[a-z]+[^>]*\srole="article"} $html] {
+        lappend starts [lindex $pair 0]
+    }
     set seen {}
     set profiles {}
-
-    foreach username $vanity_matches {
-        set username_lower [string trimright [string tolower $username] "."]
-        if {$username_lower in $::NON_PROFILE_PATHS} { continue }
-        if {[dict exists $seen $username_lower]} { continue }
-        # Skip if it looks like a file or resource path.
-        if {[string first "." $username_lower] >= 0 && ![isalnum_nodot $username_lower]} {
-            continue
+    for {set i 0} {$i < [llength $starts]} {incr i} {
+        set from [lindex $starts $i]
+        set to [expr {$i + 1 < [llength $starts] ? [lindex $starts $i+1] - 1 : "end"}]
+        set row [string range $html $from $to]
+        if {[regexp {href="https?://(?:www\.)?facebook\.com/profile\.php\?id=(\d+)} $row -> nid]} {
+            if {[dict exists $seen $nid]} continue
+            dict set seen $nid 1
+            lappend profiles [list numeric $nid $row]
+        } elseif {[regexp {href="https?://(?:www\.)?facebook\.com/([a-zA-Z0-9._]+?)(?:\?|"|/)} $row -> username]} {
+            set key [string trimright [string tolower $username] "."]
+            if {$key in $::NON_PROFILE_PATHS || [dict exists $seen $key]} continue
+            dict set seen $key 1
+            lappend profiles [list vanity $username $row]
         }
-        dict set seen $username_lower 1
-        lappend profiles [list vanity $username]
-    }
-
-    foreach nid $numeric_matches {
-        if {[dict exists $seen $nid]} { continue }
-        dict set seen $nid 1
-        lappend profiles [list numeric $nid]
     }
 
     if {![llength $profiles]} {
-        puts "No profiles found in search results."
-        puts "Possible causes: login required, empty results, or DOM structure changed."
-        return
+        puts "ERROR: unrecognised: result rows present but none carries a profile link"
+        exit 1
     }
 
     puts "Found [llength $profiles] unique profiles:"
     puts ""
 
-    # NB the embedded empty alternative (display:||font-) is carried verbatim
-    # from the Python source: it makes this alternation match every string, so
-    # the headline is always "(no text extracted)". Reproduced for byte-identical
-    # output with the predecessor (a forward-only port preserves behaviour, not
-    # the latent intent).
-    set noise_re {_[0-9a-f]{8}|x[0-9a-z]{6,}|componentkey|tabindex|aria-|function\s|var |\.video|padding|margin:|display:||font-|overflow|opacity|cursor:|visibility|pointer-events|webpack|__MODULE|require\(|exports\.|React\.}
+    set noise_re {_[0-9a-f]{8}|x[0-9a-z]{6,}|componentkey|tabindex|aria-|function\s|var |\.video|padding|margin:|display:|font-|overflow|opacity|cursor:|visibility|pointer-events|webpack|__MODULE|require\(|exports\.|React\.}
 
     foreach prof $profiles {
-        lassign $prof ptype pid
+        lassign $prof ptype pid window
         if {$ptype eq "vanity"} {
             set url "https://www.facebook.com/$pid"
-            set search_term "/$pid"
         } else {
             set url "https://www.facebook.com/profile.php?id=$pid"
-            set search_term "id=$pid"
         }
 
-        set idx [string first $search_term $html]
-        if {$idx < 0} { continue }
-
-        # Window of HTML around the profile link.
-        set ws [expr {$idx - 2000}]
-        if {$ws < 0} { set ws 0 }
-        set we [expr {$idx + 3000}]
-        set window [string range $html $ws $we]
-
-        # Visible text between tags (>text<), 3..300 chars.
+        # The row's visible text between tags (>text<), 3..300 chars.
         set clean_parts {}
         set frag_seen {}
         foreach {whole frag} [regexp -all -inline -- {>([^<]+)<} $window] {
@@ -169,13 +166,20 @@ proc lappend_all {varname more} {
 #     browser-serialiser facebook.com/auth-parse-search <search terms>
 # ---------------------------------------------------------------------------
 proc serialiser_run {skillArgs} {
-    set terms [join $skillArgs " "]
+    # --pages searches the Pages vertical; the default, people, lists no Page,
+    # so a business looked for there reads as absent.
+    set vertical people
+    set words {}
+    foreach a $skillArgs {
+        if {$a eq "--pages"} { set vertical pages } else { lappend words $a }
+    }
+    set terms [join $words " "]
     if {$terms eq ""} {
-        emit [envelope_fault "Usage: facebook.com/auth-parse-search <search terms>"]
+        emit [envelope_fault "Usage: facebook.com/auth-parse-search \[--pages\] <search terms>"]
         return
     }
     set q [string map {" " %20} $terms]
-    nav "https://www.facebook.com/search/people/?q=$q" --wait 5
+    nav "https://www.facebook.com/search/$vertical/?q=$q" --wait 5
     if {[dict get [state] terminal] ne ""} {
         emit [envelope_fault "login_wall: Facebook session expired. Log in via a Chrome-compatible browser first."]
         return

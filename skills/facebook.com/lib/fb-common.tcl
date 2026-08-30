@@ -250,12 +250,17 @@ proc fb::report {bodyVar script} {
     # A parser exit raised as a Safe Base error: the report printed up to that
     # point is already captured, so swallow it and return it as the fault. The
     # message names its shape after the ERROR: prefix ("removed: ..." for a page
-    # the site says is not there); an untagged message is the login wall. A
-    # different error is re-raised.
+    # the site says is not there, "unrecognised: ..." for a page the parser
+    # cannot read); an untagged message is the login wall. A different error
+    # is re-raised.
     if {$code && $result eq {wrong # args: should be "exit"}} {
         set msg [regsub {^ERROR:\s*} [string trim $captured] ""]
         if {$msg eq ""} { set msg "Facebook served a login wall" }
-        if {[fault_shape_of $msg] eq "unrecognised"} { set msg "login_wall: $msg" }
+        if {[regexp {^unrecognised:\s+} $msg]} {
+            regsub {^unrecognised:\s+} $msg "" msg
+        } elseif {[fault_shape_of $msg] eq "unrecognised"} {
+            set msg "login_wall: $msg"
+        }
         return [envelope_fault $msg]
     }
     if {$code} {
