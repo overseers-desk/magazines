@@ -37,8 +37,8 @@ proc parse_profile_html {html} {
     # a bare title and an unavailable notice: a report of it would carry the
     # operator's notifications as the profile.
     set name [fb::name_from_title $title]
-    if {[regexp {content isn.t available} $html] || [regexp {^(?:\(\d+\) )?Facebook$} $title]} {
-        puts "ERROR: removed: Facebook has no page at this reference (the site answers \"This content isn't available right now\")"
+    if {[fb::page_absent $html]} {
+        puts "ERROR: removed: Facebook has no page at this reference (the site answers \"This page isn't available\")"
         exit 1
     }
 

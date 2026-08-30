@@ -26,7 +26,18 @@ proc parse_posts_html {html owner_id} {
         exit 1
     }
 
+    if {[fb::page_absent $html]} {
+        puts "ERROR: removed: Facebook has no page at this reference (the site answers \"This page isn't available\")"
+        exit 1
+    }
     set name [fb::name_from_title $title]
+    # Posts are read from the page's own region; the signed-in chrome before
+    # it carries the operator's chats and notifications.
+    set main [fb::main_region $html]
+    if {[string length $main] == [string length $html]} {
+        puts "ERROR: unrecognised: no content region (role=main) in the document"
+        exit 1
+    }
 
     puts "Profile: $name"
     puts "HTML size: [fb::commafy [fb::cp_length $html]] bytes"
@@ -34,6 +45,7 @@ proc parse_posts_html {html owner_id} {
     if {$owner_id eq ""} {
         set owner_id [detect_owner_id $html]
     }
+    set html $main
     if {$owner_id ne ""} {
         puts "Owner ID: $owner_id"
     }

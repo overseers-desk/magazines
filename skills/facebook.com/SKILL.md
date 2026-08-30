@@ -52,7 +52,7 @@ Try in order if no results:
 browser-serialiser facebook.com/auth-parse-profile HANDLE_OR_URL
 ```
 
-Navigates to the profile (a bare handle resolves to `https://www.facebook.com/HANDLE`; a numeric id to `/profile.php?id=ID`; a Page slug carrying its id, `Name-ID` or `p/Name-ID`, to `/ID`: the hyphenated forms redirect out to meta.com and the harness ends a run that leaves the site, and `/people/Name/ID/about` renders an unavailable notice; a reference with no page behind it is reported as a `removed` fault rather than as the signed-in shell) and extracts name, meta descriptions, JSON-LD Person data (if present), bio/intro lines, role/work mentions, location mentions, and visible text blocks.
+Navigates to the profile (a bare handle resolves to `https://www.facebook.com/HANDLE`; a numeric id to `/profile.php?id=ID`; a Page slug carrying its id, `Name-ID` or `p/Name-ID`, to `/ID`: the hyphenated forms redirect out to meta.com and the harness ends a run that leaves the site, and `/people/Name/ID/about` renders an unavailable notice; a reference with no page behind it ("This page isn't available") is reported as a `removed` fault rather than as the signed-in shell) and extracts name, meta descriptions, JSON-LD Person data (if present), bio/intro lines, role/work mentions, location mentions, and visible text blocks.
 
 For richer bio data, point the same script at the about page URL: `https://www.facebook.com/HANDLE/about` (numeric: `/profile.php?id=ID&sk=about`).
 

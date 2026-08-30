@@ -64,13 +64,27 @@ proc keyword_search {html_path keywords} {
 }
 
 proc keyword_search_html {html keywords} {
-    # The whole document as a code-point list, so every offset and slice below
+    set title [fb::title $html "NOT FOUND"]
+    if {[fb::page_absent $html]} {
+        puts "ERROR: removed: Facebook has no page at this reference (the site answers \"This page isn't available\")"
+        exit 1
+    }
+    # Only the page's own region is searched: the signed-in chrome before it
+    # (notifications tray, chat drawers) would otherwise count towards a
+    # keyword with nothing to show it did. A document without the region is
+    # not a rendered page.
+    set main [fb::main_region $html]
+    if {[string length $main] == [string length $html]} {
+        puts "ERROR: unrecognised: no content region (role=main) in the document"
+        exit 1
+    }
+    set html $main
+    # The region as a code-point list, so every offset and slice below
     # matches Python's str indexing regardless of emoji in the markup.
     set cps [cp_list $html]
     set ncp [llength $cps]
 
-    set title [fb::title $html "NOT FOUND"]
-    puts "Profile: $title"
+    puts "Profile: [fb::name_from_title $title]"
     puts "HTML size: [fb::commafy $ncp] bytes"
     puts ""
 
@@ -131,7 +145,7 @@ proc keyword_search_html {html keywords} {
     }
 
     if {!$found_any} {
-        puts "None of the keywords were found in this profile."
+        puts "None of the keywords occur in this page's content."
     }
 }
 

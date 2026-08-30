@@ -150,15 +150,28 @@ proc fb::unescape {s} {
 # The {min max} window differs per caller (profile uses 5..500, posts uses
 # 3..2000), so it is a parameter; min_keep is the post-strip length floor
 # (5 for profile, 3 for posts).
-# The page's own content: the document from its role="main" region on. What
-# precedes it is the signed-in chrome, the notifications tray and chat drawers
-# among it, whose text otherwise fills a report before the page's body arrives.
-# A document with no such region is returned whole.
+# The page's own content: the document from its role="main" region on, less
+# the script blocks. What precedes the region is the signed-in chrome, the
+# notifications tray and chat drawers among it, whose text otherwise fills a
+# report before the page's body arrives; the scripts after it carry the
+# chrome's data payloads, which a keyword count would otherwise include. A
+# document with no such region is returned whole.
 proc fb::main_region {html} {
     if {[regexp -indices {<[a-z]+[^>]*\srole="main"} $html at]} {
-        return [string range $html [lindex $at 0] end]
+        set main [string range $html [lindex $at 0] end]
+        return [regsub -all {(?s)<script[\s>][^>]*>.*?</script>} $main ""]
     }
     return $html
+}
+
+# True when the document is Facebook's answer for a reference it has no page
+# for: the signed-in shell whose content region holds only the notice. The
+# title does not tell, since a rendered timeline also captures with the bare
+# "Facebook" title, and a post whose attachment is gone carries its own
+# "isn't available at the moment" line, which is not this.
+proc fb::page_absent {html} {
+    set main [fb::main_region $html]
+    return [regexp {This (?:page|content) isn.t available(?: right now)?<} $main]
 }
 
 proc fb::extract_visible_texts {html {min 5} {max 500} {min_keep 5}} {
