@@ -62,6 +62,11 @@ the model reads the new SKILL.md while the harness runs the old script, and the
 run comes back in the previous output shape as though the change had not been
 made.
 
+The `PATH="$PWD/bin:$PATH"` form is for the session doing the editing. Any
+other session, and any batch job, runs skills from the installed plugin, not
+from this checkout. A checkout being edited can be broken between two edits,
+and a run that picks up that moment fails as if the skill were broken.
+
 The checks run themselves rather than being handed to `tclsh`: each carries the
 same trampoline `bin/browser-serialiser` uses, so it runs on the newest
 interpreter present. Running one as `tclsh <file>` bypasses the trampoline and
