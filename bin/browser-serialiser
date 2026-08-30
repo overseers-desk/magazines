@@ -677,14 +677,17 @@ proc serialiser_delegate {skillRef skillArgs} {
 # (we do NOT relaunch our own Chromium and contend for the shared profile). POST
 # /browser/dump is non-streaming - one JSON reply {dom,fault} - so a plain
 # http::geturl serves; $host is the gate key (the URL's site). The timeout allows for
-# the slot ceiling (~90s) plus the render budget plus launch and reply overhead.
+# the slot ceiling plus the render budget plus launch and reply overhead. The browser
+# pool holds one slot, so a caller queues behind every other job for the same site, and
+# a sweep submitting scores of them puts the last caller an hour back. The ceiling is
+# an hour for that reason: it bounds a wedged slot without abandoning honest queueing.
 proc dump_delegate {url timeoutSecs host} {
     if {![overseer_up]} { return [dict create delegated 0] }
     package require http
     set port [overseer_port]
     set body "{\"url\":[json::write string $url],\"host\":[json::write string $host],\"timeoutMs\":[expr {$timeoutSecs * 1000}]}"
     set bodyBytes [encoding convertto utf-8 $body]
-    set tmo [expr {90000 + $timeoutSecs * 1000 + 10000}]
+    set tmo [expr {3600000 + $timeoutSecs * 1000 + 10000}]
     if {[catch {http::geturl "http://127.0.0.1:$port/browser/dump" \
             -query $bodyBytes -type application/json -timeout $tmo} tok]} {
         die 65 "overseer /browser/dump connect failed: $tok"
