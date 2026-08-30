@@ -49,9 +49,11 @@ proc fb::commafy {n} {
 # Facebook serves.
 #
 # A Page whose slug carries its numeric id, `Name-ID` or `p/Name-ID`, is served
-# only at /people/Name/ID/...: the site resolves the hyphenated forms to its own
-# /about, which redirects out to meta.com, and the harness ends the run off-site.
-# The fold happens before the navigation so the guard never sees it.
+# at /ID/...: the site resolves the hyphenated forms to its own /about, which
+# redirects out to meta.com, and the harness ends the run off-site; the
+# /people/Name/ID/about route it also offers renders "This content isn't
+# available" for the same page. The fold happens before the navigation so the
+# guard never sees the redirect.
 proc fb::profile_url {ref} {
     set base "https://www.facebook.com"
     set path ""
@@ -64,7 +66,7 @@ proc fb::profile_url {ref} {
         set path "/[string trimleft $ref @/]"
     }
     if {[regexp {^/(?:p/)?([^/?#]+)-(\d{10,})(/[^?#]*)?(\?.*)?$} $path -> name id rest query]} {
-        return "$base/people/$name/$id$rest$query"
+        return "$base/$id$rest$query"
     }
     return "$base$path"
 }
@@ -89,7 +91,8 @@ proc fb::title_is_login {title} {
 # Strip the " | Facebook" / " - Facebook" / " – Facebook" suffix from a title to
 # recover the bare profile/page name.
 proc fb::name_from_title {title} {
-    set name $title
+    # A signed-in tab prefixes the title with its unread badge, "(4) Name".
+    set name [regsub {^\(\d+\)\s*} $title ""]
     foreach sep {" | Facebook" " - Facebook" " – Facebook"} {
         set idx [string first $sep $name]
         if {$idx >= 0} {
@@ -147,6 +150,17 @@ proc fb::unescape {s} {
 # The {min max} window differs per caller (profile uses 5..500, posts uses
 # 3..2000), so it is a parameter; min_keep is the post-strip length floor
 # (5 for profile, 3 for posts).
+# The page's own content: the document from its role="main" region on. What
+# precedes it is the signed-in chrome, the notifications tray and chat drawers
+# among it, whose text otherwise fills a report before the page's body arrives.
+# A document with no such region is returned whole.
+proc fb::main_region {html} {
+    if {[regexp -indices {<[a-z]+[^>]*\srole="main"} $html at]} {
+        return [string range $html [lindex $at 0] end]
+    }
+    return $html
+}
+
 proc fb::extract_visible_texts {html {min 5} {max 500} {min_keep 5}} {
     set filtered {}
     set seen {}
@@ -233,13 +247,16 @@ proc fb::report {bodyVar script} {
     rename ::puts {}
     rename ::fb::_cap_real ::puts
     unset -nocomplain ::fb::_cap_buf
-    # A parser exit (the login-wall path) raised as a Safe Base error: the report
-    # printed up to that point is already captured, so swallow it and return the
-    # buffer. A different error is re-raised.
+    # A parser exit raised as a Safe Base error: the report printed up to that
+    # point is already captured, so swallow it and return it as the fault. The
+    # message names its shape after the ERROR: prefix ("removed: ..." for a page
+    # the site says is not there); an untagged message is the login wall. A
+    # different error is re-raised.
     if {$code && $result eq {wrong # args: should be "exit"}} {
-        set msg [string trim $captured]
+        set msg [regsub {^ERROR:\s*} [string trim $captured] ""]
         if {$msg eq ""} { set msg "Facebook served a login wall" }
-        return [envelope_fault "login_wall: $msg"]
+        if {[fault_shape_of $msg] eq "unrecognised"} { set msg "login_wall: $msg" }
+        return [envelope_fault $msg]
     }
     if {$code} {
         return -code $code $result

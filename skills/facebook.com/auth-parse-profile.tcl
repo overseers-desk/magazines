@@ -33,7 +33,14 @@ proc parse_profile_html {html} {
         exit 1
     }
 
+    # A reference the site has no page for renders the signed-in shell with
+    # a bare title and an unavailable notice: a report of it would carry the
+    # operator's notifications as the profile.
     set name [fb::name_from_title $title]
+    if {[regexp {content isn.t available} $html] || [regexp {^(?:\(\d+\) )?Facebook$} $title]} {
+        puts "ERROR: removed: Facebook has no page at this reference (the site answers \"This content isn't available right now\")"
+        exit 1
+    }
 
     puts "Name: $name"
     puts "HTML size: [fb::commafy [fb::cp_length $html]] bytes"
@@ -70,7 +77,7 @@ proc parse_profile_html {html} {
     }
 
     # --- Visible text ---
-    set texts [fb::extract_visible_texts $html 5 500 5]
+    set texts [fb::extract_visible_texts [fb::main_region $html] 5 500 5]
 
     # --- Bio / Intro ---
     set bio_keywords {
