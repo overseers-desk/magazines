@@ -105,10 +105,10 @@ with `dwell` instead.
 | `type` | `type <text>` | "" | Insert text into the focused element (`Input.insertText`). Paced. |
 | `click` | `click <cssSelector>` | 1 or 0 | Click the first matching element in-page. Paced. |
 | `key` | `key <keyname>` | "" | Dispatch a trusted key press to the focused element (`Input.dispatchKeyEvent`). Needed where a rich-text editor ignores a synthetic event, e.g. a send-on-Enter message composer with no Send button. Known keys: `Enter`, `Backspace`. Paced. |
-| `state` | `state` | dict | The harness's view of the run: `terminal` (""/`rate-limited`/`logged-out`/`checkpoint`/`off-site`), `lastNav`, `pages`. A skill reads `terminal` to stop gracefully. |
+| `state` | `state` | dict | The harness's view of the run: `terminal` (""/`rate-limited`/`logged-out`/`checkpoint`/`off-site`), `lastNav`, `pages`. `off-site` arises where a hosting overseer confined the run to its granted site and a landing fell outside it. A skill reads `terminal` to stop gracefully. |
 | `emit` | `emit <result>` | "" | The skill's single output. The harness returns it as the run result. |
 | `dwell` | `dwell <seconds>` | "" | A deliberate human-ish pause the skill may request (reading time between views). The harness owns timing. |
-| `log` | `log <message>` | "" | A diagnostic line to stderr (the only channel besides `emit`). |
+| `log` | `log <message>` | "" | A diagnostic line to the hosting process's stderr, the only channel besides `emit`; standalone that is the caller's terminal, delegated it is the overseer's. |
 
 `capture`/`harvest` are one verb pair and `dwell`/`log` are documented together,
 so the surface reads as: `nav`, `dump`, `eval`, `api`, `capture`(+`harvest`),
@@ -195,6 +195,16 @@ glob with the navigation glob that must have preceded it. An undeclared endpoint
 or one without its covering `nav`, is refused. New private endpoints are added to
 that table as skills are reworked (Phase 2); the default path for private data is
 `capture`+scroll, where view-before-fetch is intrinsic.
+
+## Studying a site
+
+The contract above says what a finished skill is. Finding out what to write is its own phase, and it runs cheapest first:
+
+1. **Browserless.** curl the endpoint and read the status; capture the real headers with net-log; read the client JS bundle for parameter formats rather than guessing. The diagnosis methodology CLAUDE.md points to carries the procedure and its discipline.
+2. **`browser-serialiser --dump <url>`** for the rendered DOM of a page that needs a browser but no login or interaction.
+3. **A scratch skill** for a logged-in page or in-page action: a throwaway `.tcl` under `skills/<domain>/`, run by reference like any skill, deleted when the real one lands. Its instruments are `eval` (arbitrary JS in the page), `capture`/`harvest` (the site's own API traffic; the arming note below the verb table applies), `dump`, and `log`. This is the sandbox's counterpart of a DevTools console and network tab.
+
+The edit-run loop holds under either host. A run handed to an overseer executes the skill file this serialiser resolved, so the file being edited is the file that runs. What changes when delegated is diagnostics: the reply is the result envelope alone, `log` lines stay with the hosting process, and a run with no frame for ~90 s is failed as hung. An author who wants `log` lines on the terminal runs while no overseer is up.
 
 ## Writing a skill: shape
 

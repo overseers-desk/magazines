@@ -60,7 +60,7 @@ model to run `browser-serialiser`, which resolves through PATH to the installed
 plugin cache, whose tree is pinned at the commit that was installed. Without it
 the model reads the new SKILL.md while the harness runs the old script, and the
 run comes back in the previous output shape as though the change had not been
-made.
+made. The override covers delegation too: the serialiser hands an overseer the skill path this checkout resolved, so a delegated run also executes the file being edited.
 
 The `PATH="$PWD/bin:$PATH"` form is for the session doing the editing. Any
 other session, and any batch job, runs skills from the installed plugin, not
