@@ -11,7 +11,7 @@ Flightnetwork's booking-confirmation email does not contain a travel-document PD
 ## Inputs
 
 - An order reference: Flightnetwork order number (e.g. `1124-069-215`), etraveli ref (e.g. `P05LOP`), or the airline check-in PNR.
-- Mailbox: any `mailroom -i <block>`. Default to the user's personal account if known, else `--all-imap`.
+- Mailbox: any `courier --imap <block>`. Default to the user's personal account if known, else `--all-imap`.
 - Output path: where to write the PDF. Caller's choice. On Linux with a snap-confined chromium, the binary can only write under `$HOME/snap/chromium/common/`; render there, then move to the final location.
 
 ## Procedure
@@ -19,17 +19,17 @@ Flightnetwork's booking-confirmation email does not contain a travel-document PD
 ### 1. Find the order email
 
 ```bash
-mailroom -i <imap-block> search "from:flightnetwork.com" --format json
+courier --imap <imap-block> search "from:flightnetwork.com" --format json
 ```
 
 Sender alone is precise; FN account inboxes typically carry few enough mails to disambiguate from the result list by date or subject. If the inbox holds many FN bookings, narrow with a date window (`after:YYYY/MM/DD`, `newer_than:`), not with a literal order-ref keyword: refs and surrounding labels vary by template language ("Order", "Pedido", "Reserva", "Buchung") and an AND-query can silently drop localized variants. Pick either the booking-confirmation email (subject starts "Your trip is confirmed") or the trip-info follow-up ("here's all information regarding your trip"). Both contain the same etraveli redirect links. Record `folder` and `uid`.
 
 ### 2. Extract any etraveli redirect from the body
 
-`mailroom links` returns the URLs but with empty anchor text, so filtering by text does not help. Just pull any `info.etraveli.com/pub/cc?...` URL from the body:
+`courier links` returns the URLs but with empty anchor text, so filtering by text does not help. Just pull any `info.etraveli.com/pub/cc?...` URL from the body:
 
 ```bash
-mailroom -i <imap-block> read -f <folder> -u <uid> | python3 -c '
+courier --imap <imap-block> read -f <folder> -u <uid> | python3 -c '
 import json, sys, re
 d = json.load(sys.stdin)
 body = next(iter(next(iter(d.values())).values()))["body"]
@@ -87,4 +87,4 @@ Filename for the Fares folder follows the travel-folder SOP; see `sop-travel-fol
 
 - The token is opaque (gzip+base64). It is order-scoped and stable on the timescale of a normal trip; do not try to construct or guess it.
 - Marketing/bot text on this page is minimal: the rendered PDF is two clean pages per round-trip, one per segment. Compare against the email-print PDF, which is dominated by ads.
-- If `mailroom search` returns multiple matches (confirmation + trip-info + reminders), any of them work for token extraction. Prefer the most recent; older email tokens have not been observed to expire, but freshest is safest.
+- If `courier search` returns multiple matches (confirmation + trip-info + reminders), any of them work for token extraction. Prefer the most recent; older email tokens have not been observed to expire, but freshest is safest.
