@@ -23,7 +23,7 @@ The rules the drafting agent and the subeditor both work to are in `email-rulebo
    When `$VOICE_GUIDE` has content: the agent is an impersonator. It returns READING (first-person friction notes as the named author), POLISHED (the email as the author would send it), and QUERIES (what the author would need to know to finalise it herself).
 4. Read READING first. Compare each friction point or interpretation against what the draft meant. Fix the draft based on what the agent surfaces. Resolve queries from your conversation context, asking the user if the brief does not answer. Do not invent.
 5. Show the user the polished body inline; revise as requested by re-running the skill.
-6. Send via mailroom once approved. The skill does not send.
+6. Send via courier once approved. The skill does not send.
 
 ## Files
 
