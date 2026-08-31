@@ -38,7 +38,13 @@ One logged-in Chromium profile serves every agent on the machine, so `browser-se
 - **Overseer arrives mid-run**: nothing changes for this run. The overseer starts parked beside a live standalone browser, holds its browser jobs, and takes over when the run's teardown frees the profile.
 - **`--pdf`**: the overseer has no PDF door, so this mode always runs standalone under the lock, which the overseer honours for the run's whole span.
 
+Three facts for a skill author working beside one. A delegated run executes the skill file this serialiser resolved, so an edited working tree is what runs. The delegated reply carries the result envelope alone: `log` output stays at the overseer, and ~90 s without a frame fails the run as hung. A running overseer also offers, from its tray, a browsing session that opens a headful Chromium on the shared profile and parks browser jobs while it lives, which is the supported way to sit on a logged-in site with DevTools.
+
 So it is safe to start a run while no overseer is up, and safe for an overseer to start at any point after; neither side needs the other stopped first. The overseer's half of the contract is enforced where the overseer is built, not here.
+
+## Exit codes
+
+`0` result emitted. `64` usage. `65` skill error, and every delegation failure (connect, non-200, closed stream, 90 s of frame silence, an overseer-side skill fault). `66` terminal wall other than a missing session (rate-limited, off-site). `75` lock-wait timeout. `77` no session: logged out or checkpoint, per SESSION-CONTRACT.md. `78` environment: no Chromium, CDP endpoint never up, config missing.
 
 ## Do not blame the user's browser
 
