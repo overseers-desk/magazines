@@ -228,23 +228,33 @@ proc cmd_list {cdp argsd} {
     return [eval_js $cdp $js]
 }
 
-# Return {title found} for <otid> by reading the speeches list. A successful
-# rename bumps the recording's modification time, so the list (newest-modified
-# first) carries it near the top; a small page is enough. {{} 0} when absent or
-# on read failure.
-proc fetch_speech_title {cdp otid {page_size 25}} {
-    set js "
+# Return {title found} for <otid> by reading the single recording directly
+# (/forward/api/v1/speech?otid=, the same call cmd_fetch uses) rather than
+# paging the speeches list. An earlier version scanned the list on the
+# assumption that a rename bumps modification time and sorts the recording
+# near the top; that assumption does not hold for a recording whose
+# created_at is old (observed 2026-09-02: a December 2023 recording's rename
+# succeeded but stayed absent from a 25-item list read), producing a false
+# "not persisted" failure the caller then had to work around by re-fetching.
+# Reading the recording by its own otid has no such ordering dependency.
+# {{} 0} when absent or on read failure.
+proc fetch_speech_title {cdp otid} {
+    set js {
     (async () => {
-        const csrf = document.cookie.match(/csrftoken=(\[^;\]+)/)?.\[1\] || '';
-        const resp = await fetch('/forward/api/v1/speeches?page_size=$page_size', {
-            credentials: 'include',
-            headers: {'x-csrftoken': csrf}
-        });
-        const data = await resp.json();
-        const s = (data.speeches || \[\]).find(x => x.otid === [json_str $otid]);
-        return JSON.stringify({title: s ? s.title : null, found: !!s});
+        try {
+            const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
+            const resp = await fetch('/forward/api/v1/speech?otid=@OTID@', {
+                credentials: 'include',
+                headers: {'x-csrftoken': csrf}
+            });
+            if (!resp.ok) return JSON.stringify({title: null, found: false});
+            const data = await resp.json();
+            const sp = (data && data.speech) || data;
+            return JSON.stringify({title: sp && sp.title != null ? sp.title : null, found: !!(sp && sp.otid)});
+        } catch (e) { return JSON.stringify({title: null, found: false}); }
     })()
-    "
+    }
+    set js [string map [list @OTID@ $otid] $js]
     lassign [eval_js $cdp $js] kind doc
     if {$kind eq "json" && ![catch {json::json2dict $doc} d]} {
         set title [expr {[dict exists $d title] ? [dict get $d title] : ""}]
@@ -259,8 +269,8 @@ proc fetch_speech_title {cdp otid {page_size 25}} {
 #
 # set_speech_title returns a {"status": "OK"} body even when the rename does not
 # stick (observed 2026-05-14: two calls reported OK, the title stayed "Note").
-# Checking the HTTP status would not catch that, so this reads the title back
-# from the speeches list and only reports OK once it matches.
+# Checking the HTTP status would not catch that, so this reads the recording
+# back directly and only reports OK once it matches.
 proc cmd_rename {cdp argsd} {
     set otid [dict get $argsd otid]
     set title [dict get $argsd new_title]
