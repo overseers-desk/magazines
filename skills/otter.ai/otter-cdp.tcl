@@ -235,8 +235,9 @@ proc cmd_list {cdp argsd} {
 # near the top; that assumption does not hold for a recording whose
 # created_at is old (observed 2026-09-02: a December 2023 recording's rename
 # succeeded but stayed absent from a 25-item list read), producing a false
-# "not persisted" failure the caller then had to work around by re-fetching.
-# Reading the recording by its own otid has no such ordering dependency.
+# "not persisted" failure; the invoker had to work around it by separately
+# running `fetch` to confirm the rename had actually stuck. Reading the
+# recording by its own otid has no such ordering dependency.
 # {{} 0} when absent or on read failure.
 proc fetch_speech_title {cdp otid} {
     set js {
@@ -323,8 +324,8 @@ proc cmd_rename {cdp argsd} {
         }
         if {$attempt < $attempts} {
             puts stderr "Rename verification failed (attempt $attempt/$attempts):\
- API returned '$post_response' but list shows title='$observed_title'\
- found=$found; retrying."
+ API returned '$post_response' but re-fetching the recording shows\
+ title='$observed_title' found=$found; retrying."
             after 2000
         }
     }
@@ -335,7 +336,7 @@ proc cmd_rename {cdp argsd} {
         "[json_str otid]:[json_str $otid]" \
         "[json_str requested_title]:[json_str $title]" \
         "[json_str observed_title]:$obs" \
-        "[json_str found_in_list]:[expr {$found ? {true} : {false}}]" \
+        "[json_str found_on_refetch]:[expr {$found ? {true} : {false}}]" \
         "[json_str post_response]:[json_str $post_response]"]
     if {$warning ne ""} {
         lappend pairs "[json_str warning]:[json_str $warning]"
