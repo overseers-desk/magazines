@@ -707,16 +707,21 @@ proc ig::api_headers {} {
 }
 
 # Resolve a handle to its numeric user_id over the policed surface: nav to the
-# profile (the covering view for the feed api), then ask web_profile_info, whose
-# answer is keyed to the username asked for. Returns the user_id string or a
-# dict {error ...}.
+# profile (the covering view for the feed api), then read the id out of the
+# page the nav already fetched. Returns the user_id string or a dict {error ...}.
 #
-# The page's own scripts are the fallback, not the primary, and the JS below
-# reads only fields scoped to the profile being viewed. A bare "user_id" in an
-# inline script belongs to the SIGNED-IN VIEWER, so matching it returns the
-# operator's own id for every handle asked for, and the feed then fetched is the
-# operator's own. That is not a hypothetical: it silently produced a wrong feed
-# for four different targets before the endpoint became the primary path.
+# Two fields in that page look alike and only one is the profile's. A bare
+# "user_id" in an inline script belongs to the SIGNED-IN VIEWER, so matching it
+# returns the operator's own id for every handle asked for, and the feed then
+# fetched is the operator's own. That produced a wrong feed for four different
+# targets, reported as post_count 0, which reads as a fact about the target.
+# "profile_id" is the one scoped to the profile being viewed; ig-profile.tcl
+# reads the same field for its pk.
+#
+# web_profile_info answers the same question and is keyed on the username, but
+# it sits last: the endpoint returns 429 for a session whose profile navigation
+# is being served normally, so reaching for it first turns a working read into a
+# terminal rate-limited run.
 proc ig::sv_resolve_user_id {handle} {
     # A numeric pk is not a handle. Instagram's profile URL takes a username, so
     # a pk here navigates to a "page not found" whose scripts still describe the
@@ -729,15 +734,14 @@ proc ig::sv_resolve_user_id {handle} {
     if {[dict get $st terminal] ne ""} {
         return [dict create error "Redirected to a wall ([dict get $st terminal]). Session may be expired or rate-limited."]
     }
-    set body [api "/api/v1/users/web_profile_info/" \
-        --params "username=$handle" --headers [ig::api_headers]]
-    if {![catch {json::json2dict $body} info]} {
-        set uid [ig::dget [ig::dget [ig::dget $info data {}] user {}] id ""]
-        if {$uid ne ""} { return $uid }
-    }
     set js_extract_id {
     (async () => {
         const scripts = Array.from(document.querySelectorAll('script:not([src])'));
+        for (const s of scripts) {
+            const t = s.textContent || '';
+            const m = t.match(/"profile_id"\s*:\s*"(\d+)"/);
+            if (m) return JSON.stringify({user_id: m[1]});
+        }
         for (const s of scripts) {
             const t = s.textContent || '';
             const m = t.match(/"id"\s*:\s*"(\d+)".*?"is_private"/s);
@@ -756,6 +760,12 @@ proc ig::sv_resolve_user_id {handle} {
         if {[ig::dget $parsed user_id ""] ne ""} {
             return [dict get $parsed user_id]
         }
+    }
+    set body [api "/api/v1/users/web_profile_info/" \
+        --params "username=$handle" --headers [ig::api_headers]]
+    if {![catch {json::json2dict $body} info]} {
+        set uid [ig::dget [ig::dget [ig::dget $info data {}] user {}] id ""]
+        if {$uid ne ""} { return $uid }
     }
     return [dict create error "Could not determine user_id for @$handle"]
 }
