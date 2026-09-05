@@ -79,7 +79,7 @@ browser-serialiser instagram.com/auth-fetch-recent-posts posts HANDLE
 browser-serialiser instagram.com/auth-fetch-recent-posts posts HANDLE --limit 50
 ```
 
-Default limit is 12. Pagination via the feed API's `next_max_id` cursor happens automatically when `--limit` exceeds 12. The script navigates to the profile page once to resolve the user_id (from inline JSON or the `web_profile_info` API, both covered by that nav), then reads `/api/v1/feed/user/<user_id>/` via the policed `api` verb in a loop until the limit is reached or `more_available` is false.
+Default limit is 12. Pagination via the feed API's `next_max_id` cursor happens automatically when `--limit` exceeds 12. The script navigates to the profile page once (the covering view), resolves the user_id from the `web_profile_info` API keyed on the username, falling back to profile-scoped inline JSON, then reads `/api/v1/feed/user/<user_id>/` via the policed `api` verb in a loop until the limit is reached or `more_available` is false.
 
 (`--raw-out PATH`, which writes the unparsed feed items to a file, is a direct-tclsh-only option; the serialiser path's safe interpreter has no file access, so the parsed JSON on stdout is the only output there.)
 

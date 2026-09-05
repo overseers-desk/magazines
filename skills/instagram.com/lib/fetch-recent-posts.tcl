@@ -707,47 +707,55 @@ proc ig::api_headers {} {
 }
 
 # Resolve a handle to its numeric user_id over the policed surface: nav to the
-# profile (the covering view for the feed api), then eval the same extraction JS
-# the legacy path uses. Returns the user_id string or a dict {error ...}.
+# profile (the covering view for the feed api), then ask web_profile_info, whose
+# answer is keyed to the username asked for. Returns the user_id string or a
+# dict {error ...}.
+#
+# The page's own scripts are the fallback, not the primary, and the JS below
+# reads only fields scoped to the profile being viewed. A bare "user_id" in an
+# inline script belongs to the SIGNED-IN VIEWER, so matching it returns the
+# operator's own id for every handle asked for, and the feed then fetched is the
+# operator's own. That is not a hypothetical: it silently produced a wrong feed
+# for four different targets before the endpoint became the primary path.
 proc ig::sv_resolve_user_id {handle} {
+    # A numeric pk is not a handle. Instagram's profile URL takes a username, so
+    # a pk here navigates to a "page not found" whose scripts still describe the
+    # viewer. Say so rather than resolving something else.
+    if {[regexp {^\d+$} $handle]} {
+        return [dict create error "\"$handle\" is a numeric user id, not a handle. Pass the @username; look it up with auth-ig-profile if only the id is known."]
+    }
     nav "https://www.instagram.com/$handle/" --wait 4
     set st [state]
     if {[dict get $st terminal] ne ""} {
         return [dict create error "Redirected to a wall ([dict get $st terminal]). Session may be expired or rate-limited."]
+    }
+    set body [api "/api/v1/users/web_profile_info/" \
+        --params "username=$handle" --headers [ig::api_headers]]
+    if {![catch {json::json2dict $body} info]} {
+        set uid [ig::dget [ig::dget [ig::dget $info data {}] user {}] id ""]
+        if {$uid ne ""} { return $uid }
     }
     set js_extract_id {
     (async () => {
         const scripts = Array.from(document.querySelectorAll('script:not([src])'));
         for (const s of scripts) {
             const t = s.textContent || '';
-            const m = t.match(/"user_id"\s*:\s*"(\d+)"/);
+            const m = t.match(/"id"\s*:\s*"(\d+)".*?"is_private"/s);
             if (m) return JSON.stringify({user_id: m[1]});
-            const m2 = t.match(/"id"\s*:\s*"(\d+)".*?"is_private"/s);
-            if (m2) return JSON.stringify({user_id: m2[1]});
         }
         try {
             const sd = window._sharedData;
-            if (sd) {
-                const uid = sd?.entry_data?.ProfilePage?.[0]?.graphql?.user?.id;
-                if (uid) return JSON.stringify({user_id: uid});
-            }
+            const uid = sd?.entry_data?.ProfilePage?.[0]?.graphql?.user?.id;
+            if (uid) return JSON.stringify({user_id: uid});
         } catch(e) {}
         return JSON.stringify({error: 'user_id not found in page'});
     })()
     }
     set raw [eval $js_extract_id]
-    if {[catch {json::json2dict $raw} parsed]} {
-        return [dict create error "Could not parse user_id extraction result"]
-    }
-    if {[ig::dget $parsed user_id ""] ne ""} {
-        return [dict get $parsed user_id]
-    }
-    # Fall back to the web_profile_info endpoint via the policed api verb.
-    set body [api "/api/v1/users/web_profile_info/" \
-        --params "username=$handle" --headers [ig::api_headers]]
-    if {![catch {json::json2dict $body} info]} {
-        set uid [ig::dget [ig::dget [ig::dget $info data {}] user {}] id ""]
-        if {$uid ne ""} { return $uid }
+    if {![catch {json::json2dict $raw} parsed]} {
+        if {[ig::dget $parsed user_id ""] ne ""} {
+            return [dict get $parsed user_id]
+        }
     }
     return [dict create error "Could not determine user_id for @$handle"]
 }
