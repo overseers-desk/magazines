@@ -148,6 +148,20 @@ The harvest is wider than the query. Scrolling a results page makes Facebook fet
 
 Facebook-wide search returns Page and profile posts as well as group posts, so those are cited under their owner rather than under a group.
 
+## 13. Parse a photos tab into image URLs
+
+```bash
+browser-serialiser facebook.com/auth-parse-photos HANDLE_OR_URL
+```
+
+Navigates the profile's photos tab (`/HANDLE/photos`, or `/profile.php?id=ID&sk=photos` for a numeric id), dumps the rendered DOM, and reports the gallery's photo permalinks (`/photo/?fbid=<id>`) and the distinct CDN image URLs behind the tiles, each marked `content` or `profile`. Signed URLs keep their query string, without which they do not fetch, and they expire.
+
+The parse ends at the URL. What an image SHOWS is the caller's to read: download the file and view it. A business card, a float or vehicle decal, a name tag, signage or an awards plaque in a small business's gallery routinely carries a legal name, an ABN or an address that appears nowhere in the page's text, which is the reason to come here at all. The harness's safe interpreter reaches no disk, so the skill cannot do that half.
+
+A headless render yields the first screenful, typically a few dozen images, before lazy-load stops. Deduplication is on the URL path, since one image recurs at several render sizes.
+
+The reference is passed through as given rather than normalised. A Page can answer on one handle and not another: `/alice.starheart/photos` returned the gallery while the same Page's vanity username returned the signed-in shell, whose title is the bare site name. That case is reported as not having landed on a photos tab, rather than as a gallery with no photos.
+
 ## 12. Report who the logged-in session is
 
 Reads the `c_user` cookie, Facebook's own name for the signed-in account. No API call and no DOM dump, so it costs one navigation on a site whose pages run 1-15MB:
