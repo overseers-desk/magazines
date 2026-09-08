@@ -1,4 +1,7 @@
-#!/usr/bin/env tclsh
+#!/bin/sh
+# the next line restarts under the newest tclsh available (the sh trampoline from
+# the tclsh man page: sh runs the exec, Tcl reads it as part of this comment) \
+exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 # Log into Qantas Frequent Flyer and print account state.
 #
 # Drives the sign-in form on www.qantas.com, navigates to my-account, and

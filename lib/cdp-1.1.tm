@@ -27,10 +27,8 @@
 #   $cdp events                          ;# the parked events (list of dicts)
 #   $cdp clearEvents                     ;# empty the event buffer
 
-# The matter-upstream copy declares Tcl 9 for its Tk 9 desktop context
-# (system tray); this copy touches none of that and declares no floor.
-# A re-vendor from matter reintroduces the line and needs it removed again.
-package provide cdp 1.0.1
+package require Tcl 9
+package provide cdp 1.1
 
 package require json
 package require json::write
@@ -374,6 +372,22 @@ oo::class create cdp::Client {
         return [my cdp Page.navigate [dict create url $url]]
     }
 
+    # The message for a raised JS exception. exceptionDetails.text holds the
+    # bare word "Uncaught"; what the page actually threw is in exception, as a
+    # description for an Error and as a value for a thrown primitive. First
+    # line only, so one fault stays one line in a caller's log.
+    method ExcMessage {exc} {
+        set text ""
+        foreach path {{exception description} {exception value} text} {
+            if {[dict exists $exc {*}$path]} {
+                set text [string trim [lindex [split [dict get $exc {*}$path] \n] 0]]
+                if {$text ne ""} break
+            }
+        }
+        if {$text eq ""} { return "JS exception" }
+        return "JS exception: $text"
+    }
+
     # Runtime.evaluate of a JS expression with returnByValue + awaitPromise.
     # Returns the JS value, or raises on a JS exception.
     method evaluate {expr} {
@@ -381,11 +395,7 @@ oo::class create cdp::Client {
             expression $expr awaitPromise true returnByValue true]]
         set result [dict get $resp result]
         if {[dict exists $result exceptionDetails]} {
-            set exc [dict get $result exceptionDetails]
-            if {[dict exists $exc text]} {
-                error "JS exception: [dict get $exc text]"
-            }
-            error "JS exception"
+            error [my ExcMessage [dict get $result exceptionDetails]]
         }
         if {[dict exists $result result value]} {
             return [dict get $result result value]
