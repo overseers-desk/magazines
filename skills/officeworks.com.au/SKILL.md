@@ -6,7 +6,7 @@ allowed-tools: Bash, Read
 
 # Officeworks Print + Create pricing
 
-Officeworks sells print as many products, each with its own price schedule, at `/print-copy/p/<slug>`. This skill reads the ladder a product's price grid shows, for a chosen size, paper stock, siding and colour. It was built and verified against **Flyers** (`flyers-pcdhflcp`) and **Document Prints** (`document-prints-pcdhdpcp`); any other Print + Create slug can be passed through and works where its `pricingType` is one of the two below.
+Officeworks sells print as many products, each with its own price schedule, at `/print-copy/p/<slug>`. This skill reads the ladder a product's price grid shows, for a chosen size, paper stock, siding and colour. It was built and verified against **Flyers** (`flyers-pcdhflcp`) and **Document Prints** (`document-prints-pcdhdpcp`); any other Print + Create slug can be passed through and works where its `pricingType` is one of the composition rules below.
 
 No login, no browser, no cookie.
 
@@ -26,9 +26,9 @@ Verified 2026-09-12: it answers with **no User-Agent, no cookie, no CSRF token a
 
 The option tree comes from `window.__INITIAL_STATE__` on the product page (`productReducer.productConfiguration`), which plain curl returns at HTTP 200. The ladder is composed from that tree, so the page's own dropdowns are never driven.
 
-## The two composition rules
+## The composition rules
 
-`productConfiguration.pricingType` picks which. Both were read out of the page's own `client.<hash>.bundle.js`.
+`productConfiguration.pricingType` picks which. Each was read out of the page's own `client.<hash>.bundle.js`.
 
 **`PERMUTATION`** — Flyers. One `genSku` prices the whole configuration. It is `productShortCode` followed by the `optionKey` of every **non-optional** component that carries an `optionKeyOrder`, concatenated in `optionKeyOrder` order with nothing between them. Flyers is `FY` + Pack Size (`03`) + Finished Size (`09`) + Siding (`12`) + Business Print Paper (`21`) + Template (`84`), so the default DL / 50-pack / single / 120gsm bond / upload is `FY3310S80U`, which prices at 1995 — the same figure the page server-renders into `priceReducer`. The ladder walks the Pack Size component, so **the price is per pack**, and the per-unit figure is the pack price divided by the pack quantity, as the widget does it.
 

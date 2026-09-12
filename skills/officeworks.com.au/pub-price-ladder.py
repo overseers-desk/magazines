@@ -15,7 +15,7 @@ User-Agent, and returns {"totalPrice": <cents>, "items": {<sku>: {"price": <cent
 not found"}. So this script needs no browser: it reads window.__INITIAL_STATE__ off
 the product page for the option tree, composes the SKUs itself, and prices them.
 
-Two composition rules, chosen by productConfiguration.pricingType:
+The composition rules, chosen by productConfiguration.pricingType:
 
   PERMUTATION (Flyers, PCDHFLCP)
       One genSku per whole configuration. It is productShortCode followed by the
@@ -29,7 +29,7 @@ Two composition rules, chosen by productConfiguration.pricingType:
       quantity band), so the ladder is those options priced in one call.
       Price is per printed side, and the paper stock is charged per sheet on top.
 
-Both rules are the page's own, read out of client.<hash>.bundle.js.
+Each rule is the page's own, read out of client.<hash>.bundle.js.
 
 Usage:
     pub-price-ladder.py options --product flyers
@@ -52,9 +52,10 @@ PRICING = SITE + "/app/pcc-product/api/pricing"
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
 
-# The two products this skill was built and verified against. Any other
+# The products this skill was built and verified against. Any other
 # /print-copy/p/ slug may be passed through as --product and will work wherever
-# its pricingType is one of the two below.
+# its pricingType is one of the composition rules described in the module
+# docstring above.
 PRODUCTS = {
     "flyers": "/print-copy/p/flyers-pcdhflcp",
     "document-prints": "/print-copy/p/document-prints-pcdhdpcp",
@@ -192,8 +193,7 @@ def cents(n):
 # --- PERMUTATION: one genSku per configuration, ladder over Pack Size ---------
 
 def gensku_components(cfg):
-    """The components that make up a genSku: not optional, and carrying an
-    optionKeyOrder. Sorted by that order, which is the string the page sorts on."""
+    """Sorted by optionKeyOrder, the same string the page itself sorts by."""
     got = [c for c in cfg["components"]
            if not c.get("isOptional") and c.get("optionKeyOrder")]
     return sorted(got, key=lambda c: c["optionKeyOrder"])
