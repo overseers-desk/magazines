@@ -4,15 +4,10 @@
 # Usage:
 #     browser-serialiser justgo.com/pub-find-riding-centres
 #
-# Pony Club Australia's "Find An Accredited Riding Centre" page embeds this
-# weblet, so the centres are JustGo's data on a JustGo origin. A skill filed
-# under the pony club's own domain is leased that domain and is refused the
-# moment the capture lands here, which is why this one is filed by the host it
-# actually reads.
-#
 # The weblet renders nothing useful into its first DOM: results arrive as POST
 # replies to WidgetService.mvc/ExecuteWidgetCommandAlt, so the run captures
-# those bodies rather than scraping the page.
+# those bodies rather than scraping the page. Filed under justgo.com rather
+# than the pony club's own domain that embeds it (SKILL.md).
 #
 # Public: no login, and no account to name.
 

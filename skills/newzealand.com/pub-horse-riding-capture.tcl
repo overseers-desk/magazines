@@ -4,10 +4,9 @@
 # Usage:
 #     browser-serialiser newzealand.com/pub-horse-riding-capture
 #
-# The page shows its operators in a lazy horizontal card scroller: the markup
-# for a card is written only once the scroller has been pushed past it, so the
-# first DOM holds a handful. Ten scroll-and-settle rounds bring the rest in,
-# after which the container's markup carries every card the page will show.
+# The page's operators sit in a lazy horizontal card scroller that writes a
+# card's markup only once scrolled past (SKILL.md); the loop below pushes it
+# to the end repeatedly to bring the rest in before the container is read.
 #
 # Public: no login, and no account to name.
 

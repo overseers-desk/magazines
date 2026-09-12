@@ -5,12 +5,10 @@
 # Usage:
 #     browser-serialiser worksafe.govt.nz/pub-register-search <term>
 #
-# The register is a Dynamics CRM portal. Its filter field carries id="2": a
-# numeric id, which no CSS id selector can name, since "#2" is a parse error
-# and not a miss. getElementById reaches it; the submit button and the results
-# table carry the portal's own entitylist classes. Paging clicks the portal's
-# Next link until it is gone or six pages are in hand, the register being a few
-# hundred providers rather than a corpus.
+# The register's filter field carries id="2", a numeric id no CSS id selector
+# can name ("#2" is a parse error, not a miss), so getElementById reaches it
+# (SKILL.md). Paging below stops at the portal's own Next link running out or
+# six pages, whichever comes first.
 #
 # Public: no login, and no account to name.
 
