@@ -1,6 +1,6 @@
 #!/bin/sh
-# the next line restarts under the newest tclsh available (the sh trampoline from
-# the tclsh man page: sh runs the exec, Tcl reads it as part of this comment) \
+# the next line restarts under the newest tclsh available, the same trampoline
+# bin/browser-serialiser uses \
 exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 # Vistaprint AU delivery methods: what each costs and how many business days it
 # takes to each area band, from the site's own published shipping page.

@@ -1,6 +1,6 @@
 #!/bin/sh
-# the next line restarts under the newest tclsh available (the sh trampoline from
-# the tclsh man page: sh runs the exec, Tcl reads it as part of this comment) \
+# the next line restarts under the newest tclsh available, the same trampoline
+# bin/browser-serialiser uses \
 exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 # Vistaprint AU flyer prices: the whole quantity-to-price ladder for one size and
 # stock, read from the price service the product page's own configurator calls.
@@ -40,8 +40,8 @@ proc fetch {url} {
     return $body
 }
 
-# Percent-encode one query value. Everything outside the unreserved set goes,
-# space included: the attribute values carry spaces and a "/" ("4/0 - CMYK").
+# Everything outside the unreserved set goes, space included: the attribute
+# values carry spaces and a "/" ("4/0 - CMYK").
 proc urlenc {s} {
     set out ""
     foreach ch [split $s ""] {
@@ -58,7 +58,7 @@ proc urlenc {s} {
 
 # The page mounts each React fragment with a JSON blob in its own
 # <script type="application/x-ubik-event"> tag. The pricing fragment's blob is
-# the product record; find it by fragmentId rather than by position. -xdev
+# the product record; find it by fragmentId rather than by position.
 proc pdp_product_data {html} {
     # Every quantifier here is non-greedy on purpose: a Tcl ARE takes its
     # greediness from the FIRST quantifier, so a greedy [^>]* would turn the
@@ -123,7 +123,7 @@ proc quantity_ladder {data} {
 }
 
 # Sidedness is the PrintColor attribute. The product page's own option list does
-# not carry it (it is settled in the design step), but the price service prices
+# not carry it, but the price service prices
 # it and the two values below are the ones the page's product record uses.
 proc print_colour {sides} {
     switch -- [string tolower $sides] {
@@ -238,9 +238,9 @@ proc run {argv} {
         error "price service declined this combination: [string range $body 0 300]"
     }
 
-    # The service echoes the combination it actually priced, attribute by
-    # attribute. Report that rather than what was asked, since it fills in the
-    # attributes the page leaves implicit (Grammage follows paper thickness).
+    # The service echoes the combination it actually priced. Report that rather
+    # than what was asked, since it fills in attributes the page leaves implicit
+    # (SKILL.md).
     set firstQ [lindex [lsort -integer [dict keys [dict get $priced estimatedPrices]]] 0]
     set priced_as {}
     foreach b [dict get $priced estimatedPrices $firstQ breakdown] {

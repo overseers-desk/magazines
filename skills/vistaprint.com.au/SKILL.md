@@ -6,7 +6,7 @@ allowed-tools: Bash
 
 # Vistaprint Australia
 
-Flyer prices on vistaprint.com.au are quoted by a React configurator whose quantity tiles stay `po-tile--loading` in a plain DOM dump. They do not have to be read off the page: the configurator's own price service answers an anonymous GET, so both actions here are browserless. No browser, no cookie, no token, no `pricingContext`, and no `browser-serialiser`.
+Flyer prices on vistaprint.com.au are quoted by a React configurator whose quantity tiles stay `po-tile--loading` in a plain DOM dump. They do not have to be read off the page: the configurator's own price service answers an anonymous GET. No browser, no cookie, no token, no `pricingContext`, and no `browser-serialiser`.
 
 ## Prices
 
@@ -18,7 +18,7 @@ Flyer prices on vistaprint.com.au are quoted by a React configurator whose quant
 
 `--size` is required and takes either the site's key or the name a person would type (`A5`, `A4`, `DL`, `A3`, `A7`, `A6`, `Square`). `--sides` is `single` (the default, and what the site prices when sidedness is left unsaid) or `double`. `--stock`, `--thickness` and `--fold` take any value the site offers; every option the caller does not name keeps the value the product page loads with. `--quantities` is a comma-separated list; without it the whole merchandised ladder is priced, 25 through 20000.
 
-`result.ladder` is one row per quantity with the total and the unit price, GST-inclusive and exclusive. `result.priced_as` is the combination the service says it actually priced, attribute by attribute, including the ones the page leaves implicit (`Grammage` follows paper thickness). `result.options` is the option surface read off the page that run, so a size or stock that has come or gone shows up there rather than in a stale list here.
+`result.ladder` is one row per quantity with the total and the unit price, GST-inclusive and exclusive. `result.priced_as` is the combination the service says it actually priced, attribute by attribute, including the ones the page leaves implicit (`Grammage` follows paper thickness). `result.options` is the attribute surface read off the page that run, so a size or stock that has come or gone shows up there rather than in a stale list here.
 
 Every price is for the flyer alone. Delivery is separate and is the second action.
 
@@ -32,7 +32,7 @@ Returns each delivery method with its cost and its estimated business days per a
 
 ## How the prices are reached
 
-Two GETs. The first is the product page, `https://www.vistaprint.com.au/marketing-materials/flyers`, whose server-rendered HTML carries the product record in a `<script type="application/x-ubik-event">` mount blob for `@vp/fragment-pdp-pricing-shipping`: product key, product version, the attribute surface with each option's key and display name, the default combination, and the merchandised quantity ranges. That is read every run rather than pinned here, so a repriced or re-versioned product does not become a stale constant.
+Two GETs, verified 2026-09-12. The first is the product page, `https://www.vistaprint.com.au/marketing-materials/flyers`, whose server-rendered HTML carries the product record in a `<script type="application/x-ubik-event">` mount blob for `@vp/fragment-pdp-pricing-shipping`: product key, product version, the attribute surface with each option's key and display name, the default combination, and the merchandised quantity ranges. That is read every run rather than pinned here, so a repriced or re-versioned product does not become a stale constant.
 
 The second is the price service the configurator calls:
 
