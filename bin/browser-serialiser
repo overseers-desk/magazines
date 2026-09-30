@@ -433,7 +433,7 @@ proc run_dump {url timeoutSecs} {
     return [render_session $timeoutSecs $cfg [list apply {{url timeoutSecs cdp} {
         render_navigate $cdp $url $timeoutSecs
         set html [$cdp evaluate {document.documentElement.outerHTML}]
-        puts $html
+        puts [serialiser::FoldSurrogates $html]
     }} $url $timeoutSecs] [serialiser::LogUrl $url] $handover]
 }
 
@@ -702,7 +702,8 @@ proc dump_delegate {url timeoutSecs host} {
         set detail [expr {[dict exists $f detail] ? [dict get $f detail] : ""}]
         die 65 "overseer dump fault: $detail"
     }
-    return [dict create delegated 1 dom [expr {[dict exists $resp dom] ? [dict get $resp dom] : ""}]]
+    set dom [expr {[dict exists $resp dom] ? [dict get $resp dom] : ""}]
+    return [dict create delegated 1 dom [serialiser::FoldSurrogates $dom]]
 }
 
 # Win the launch lock, yielding to an overseer that came up while we queued.
