@@ -77,7 +77,13 @@ All endpoints use these headers:
 - `Referer: https://www.ihg.com/`
 - `Sec-Fetch-Mode: cors`
 - `Sec-Fetch-Site: same-site`
-- Standard browser `User-Agent`
+- `User-Agent: $UA`, sent as `-A "$UA"`:
+
+```bash
+UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'  # tested against apis.ihg.com on 2026-10-04
+```
+
+The Akamai edge denies a Chrome version that is too old (137 was refused and 139 accepted on that date) and any `HeadlessChrome` UA, with an `Access Denied` page in place of JSON.
 
 The hotel details endpoints require `Sec-Fetch-Mode` and `Sec-Fetch-Site`. Including them on all calls is safe — they do not break the availability endpoint.
 
@@ -135,10 +141,12 @@ Request body:
 Response structure (key fields):
 - `hotels[].hotelMnemonic` — hotel code
 - `hotels[].brandCode` — see brand table above
-- `hotels[].lowestCashOnlyCost.baseAmount` — lowest price for the stay
+- `hotels[].lowestCashOnlyCost.baseAmount` — lowest **average nightly** rate across the stay, not the stay total (a 6-night Hobart stay, 2026-10: 346.91 against a 2081.45 total); for one night the two coincide
 - `hotels[].propertyCurrency` — e.g. "AUD"
 - `hotels[].ratePlanDefinitions[].code` — rate plan code
-- `hotels[].ratePlanDefinitions[].rateRange.low.baseAmount` / `.high.baseAmount` — price range per rate plan
+- `hotels[].ratePlanDefinitions[].rateRange.low.baseAmount` / `.high.baseAmount` — average nightly range per rate plan, across room types
+
+The stay total is `offers[].productUses[].rates.totalRate.amountAfterTax`, on the single-property `rateDetails` call below.
 - `hotels[].ratePlanDefinitions[].providerDescription` — rate plan description
 
 ### Room-type / suite availability and refundable rate (single property)
