@@ -13,7 +13,7 @@ Marriott's public site is served behind Akamai and calls an Apollo GraphQL backe
 All GraphQL POSTs need this full set. Missing the `graphql-require-safelisting` or `apollographql-client-name` headers produces Akamai 403.
 
 ```bash
-UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'  # not shown to work: on 2026-10-04 www.marriott.com answered this and the previous Chrome 146 value alike with Akamai Access Denied (HTTP 403)
+UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'  # not shown to work: on 2026-10-04 www.marriott.com answered Chrome 146 and 153 values alike with Akamai Access Denied (HTTP 403)
 ```
 
 ```

@@ -145,9 +145,9 @@ Response structure (key fields):
 - `hotels[].propertyCurrency` — e.g. "AUD"
 - `hotels[].ratePlanDefinitions[].code` — rate plan code
 - `hotels[].ratePlanDefinitions[].rateRange.low.baseAmount` / `.high.baseAmount` — average nightly range per rate plan, across room types
+- `hotels[].ratePlanDefinitions[].providerDescription` — rate plan description
 
 The stay total is `offers[].productUses[].rates.totalRate.amountAfterTax`, on the single-property `rateDetails` call below.
-- `hotels[].ratePlanDefinitions[].providerDescription` — rate plan description
 
 ### Room-type / suite availability and refundable rate (single property)
 
