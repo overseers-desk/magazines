@@ -27,7 +27,7 @@ if {![llength [info commands envelope_ok]]} {
 # turn into a stale constant here.
 set ::PDP "https://www.vistaprint.com.au/marketing-materials/flyers"
 set ::PRICES "https://website-pricing-service-cdn.prices.cimpress.io/v4/prices/startingAt/estimated"
-set ::UA "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+source [file join $::SkillDir ua.tcl]
 
 proc fetch {url} {
     # -g turns curl's URL globbing off: the price query carries selections[Key]

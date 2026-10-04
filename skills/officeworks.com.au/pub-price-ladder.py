@@ -49,8 +49,8 @@ import urllib.request
 
 SITE = "https://www.officeworks.com.au"
 PRICING = SITE + "/app/pcc-product/api/pricing"
-UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
+# Tested against www.officeworks.com.au on 2026-10-04.
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
 
 # The products this skill was built and verified against. Any other
 # /print-copy/p/ slug may be passed through as --product and will work wherever

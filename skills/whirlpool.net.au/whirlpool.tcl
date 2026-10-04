@@ -15,17 +15,17 @@
 # some other way (WebFetch, a browser --dump) parses the same.
 
 namespace eval wp {
-    # A desktop UA. The pages do not cloak on UA (verified), but a browser-ish
-    # string keeps the fetch indistinguishable from an ordinary read.
-    variable ua "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
+    # Not shown to work: on 2026-10-04 forums.whirlpool.net.au answered this and the
+    # previous Chrome 147 value alike with a Cloudflare challenge (HTTP 403).
+    variable UA "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
 }
 
 # Read a dump file, or fetch a URL with curl. Exits with a plain diagnostic
 # rather than letting a fetch failure surface as an empty parse.
 proc wp::load {src} {
-    variable ua
+    variable UA
     if {[regexp {^https?://} $src]} {
-        if {[catch {exec curl -sS -A $ua --compressed $src} body]} {
+        if {[catch {exec curl -sS -A $UA --compressed $src} body]} {
             puts stderr "whirlpool.tcl: fetch failed: $body"
             exit 1
         }

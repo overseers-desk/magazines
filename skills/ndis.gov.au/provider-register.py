@@ -33,8 +33,8 @@ import urllib.request
 BASE = "https://www.ndis.gov.au/sites/default/files/react_extract/provider_finder/build/"
 PROVIDERS_URL = BASE + "data/list-providers.json"
 POSTCODES_URL = BASE + "data/australian-postcodes.json"
-UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-      "(KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36")
+# Tested against www.ndis.gov.au on 2026-10-04.
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
 
 # Registration groups: Index -> (name, category). Index is the code stored in
 # each provider row's RegGroup array. Source: the finder's JS bundle, which

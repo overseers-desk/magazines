@@ -37,7 +37,8 @@ from pathlib import Path
 
 BASE = "https://interlinetravel.com.au"
 CRUISE_URL = "https://interlinetravel.com.au/cruise"
-UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+# Tested against interlinetravel.com.au on 2026-10-04.
+UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
 _COOKIE_FILE = Path(tempfile.gettempdir()) / "interline-travel-cookies.json"
 _COOKIE_MAX_AGE = 3600 * 2  # reuse session for 2 hours
 
