@@ -18,8 +18,12 @@ Everything below uses RENFE's two open data hosts, which are outside Akamai and 
 
 A plain Chrome-compatible User-Agent is enough for every endpoint below; nothing rotates per deploy. `--compressed` matters for `data.renfe.com` and `venta.renfe.com` (both gzip); the `gtfsrt.renfe.com` feeds are uncompressed JSON.
 
+```bash
+UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'  # tested against data.renfe.com, venta.renfe.com, ssl.renfe.com and gtfsrt.renfe.com on 2026-10-04
 ```
--H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'
+
+```
+-A "$UA"
 --compressed
 ```
 
@@ -35,7 +39,7 @@ The file is plain JavaScript (ISO-8859-1), not JSON. One JS array `estaciones` o
 
 ```bash
 curl -s --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://venta.renfe.com/vol/js2/estaciones.js'
 ```
 
@@ -53,7 +57,7 @@ The numeric codes (e.g. `60000`, `71801`) are the CIF station codes used as `sto
 
 ```bash
 curl -s --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://ssl.renfe.com/ftransit/Fichero_estaciones/estaciones.csv' \
   -o /tmp/renfe-stations.csv
 iconv -f ISO-8859-1 -t UTF-8 /tmp/renfe-stations.csv | head -5
@@ -63,7 +67,7 @@ Same data is queryable as paged JSON via the CKAN datastore when a smaller slice
 
 ```bash
 curl -s --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://data.renfe.com/api/3/action/datastore_search?resource_id=783e0626-6fa8-4ac7-a880-fa53144654ff&q=MADRID&limit=5'
 ```
 
@@ -75,7 +79,7 @@ A full GTFS zip (`agency`, `calendar`, `calendar_dates`, `routes`, `stops`, `sto
 
 ```bash
 curl -s \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://ssl.renfe.com/gtransit/Fichero_AV_LD/google_transit.zip' \
   -o /tmp/renfe-gtfs-ld.zip
 unzip -l /tmp/renfe-gtfs-ld.zip
@@ -144,7 +148,7 @@ Separate GTFS archive for the 11 Cercanías networks (Madrid, Barcelona/Rodalies
 
 ```bash
 curl -s \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://ssl.renfe.com/ftransit/Fichero_CER_FOMENTO/fomento_transit.zip' \
   -o /tmp/renfe-gtfs-cer.zip
 unzip -l /tmp/renfe-gtfs-cer.zip
@@ -154,7 +158,7 @@ unzip -l /tmp/renfe-gtfs-cer.zip
 
 ```bash
 curl -s \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://gtfsrt.renfe.com/trip_updates_LD.json'
 ```
 
@@ -168,7 +172,7 @@ Same schema as capability 5, different network:
 
 ```bash
 curl -s \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://gtfsrt.renfe.com/trip_updates.json'
 ```
 
@@ -176,7 +180,7 @@ curl -s \
 
 ```bash
 curl -s \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://gtfsrt.renfe.com/vehicle_positions_LD.json'
 ```
 
@@ -186,7 +190,7 @@ Per-entity shape: `vehicle: { trip: {tripId}, position: {latitude, longitude}, c
 
 ```bash
 curl -s \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://gtfsrt.renfe.com/alerts.json'
 ```
 
@@ -198,7 +202,7 @@ Catalogue of train types and their technical specs (AVE S-103, Avlo S-106, etc.)
 
 ```bash
 curl -s \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://data.renfe.com/dataset/d5524151-d959-40a0-a3ba-4546e7533b11/resource/4877096a-160f-4fb2-925d-d261b51a065f/download/informacion-trenes.csv'
 ```
 
@@ -206,10 +210,10 @@ curl -s \
 
 ```bash
 curl -s --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://data.renfe.com/api/3/action/package_list'
 curl -s --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   'https://data.renfe.com/api/3/action/package_show?id=<package-id>'
 ```
 

@@ -85,6 +85,10 @@ Token expires after ~1 hour. If a query returns 401, re-run the headless browser
 **Endpoint:** `https://supplier.getyourguide.com/graphql`
 
 **Required headers:**
+```bash
+UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'  # not retested on 2026-10-04 (needs a signed-in session); keep its version equal to the sec-ch-ua Chromium version
+```
+
 ```
 Authorization: Bearer <firebase-id-token>
 Content-Type: application/json
@@ -92,7 +96,7 @@ x-gyg-supplier-id: $SUPPLIER_ID
 Accept: application/json
 apollographql-client-name: supplier-portal
 sec-ch-ua: "Not-A.Brand";v="24", "Chromium";v="146"
-User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36
+User-Agent: $UA
 Origin: https://supplier.getyourguide.com
 Cookie: <cookies from step 2>
 ```
@@ -234,7 +238,7 @@ curl -s -X POST "https://supplier.getyourguide.com/graphql" \
   -H "Accept: application/json" \
   -H "apollographql-client-name: supplier-portal" \
   -H "sec-ch-ua: \"Not-A.Brand\";v=\"24\", \"Chromium\";v=\"146\"" \
-  -H "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36" \
+  -A "$UA" \
   -H "Origin: https://supplier.getyourguide.com" \
   -H "Cookie: $COOKIES" \
   -d '{

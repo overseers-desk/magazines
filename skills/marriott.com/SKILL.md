@@ -12,8 +12,12 @@ Marriott's public site is served behind Akamai and calls an Apollo GraphQL backe
 
 All GraphQL POSTs need this full set. Missing the `graphql-require-safelisting` or `apollographql-client-name` headers produces Akamai 403.
 
+```bash
+UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'  # not shown to work: on 2026-10-04 www.marriott.com answered this and the previous Chrome 146 value alike with Akamai Access Denied (HTTP 403)
 ```
--H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36'
+
+```
+-A "$UA"
 -H 'Accept: */*'
 -H 'Origin: https://www.marriott.com'
 -H 'Referer: https://www.marriott.com/'
@@ -36,7 +40,7 @@ Signatures rotate on Marriott front-end deploys (every few weeks). When a previo
 
 ```bash
 curl -sL --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
   -H 'Accept-Language: en-US,en;q=0.9' \
   -H 'Accept-Encoding: gzip, deflate, br' \
@@ -81,7 +85,7 @@ Operation: `phoenixShopSuggestedPlacesQuery`. Variable: `query: String!`. Return
 OP=phoenixShopSuggestedPlacesQuery
 SIG=70b3555c91797ca8945e4f4b1bdda42c3e37fa1f08fa99feafb73195702c1d34
 curl -sL --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   -H 'Accept: */*' -H 'Origin: https://www.marriott.com' -H 'Referer: https://www.marriott.com/' \
   -H 'Content-Type: application/json' \
   -H "graphql-operation-name: $OP" -H "graphql-operation-signature: $SIG" \
@@ -101,7 +105,7 @@ Operation: `phoenixShopSuggestedPlacesDetailsQuery`. Variable: `placeId: ID!`. R
 OP=phoenixShopSuggestedPlacesDetailsQuery
 SIG=0b89c8ea7a6a6408eaee651983d6c7ee168670b727cc5beea980b2d2edfdbe2b
 curl -sL --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   -H 'Accept: */*' -H 'Origin: https://www.marriott.com' -H 'Referer: https://www.marriott.com/' \
   -H 'Content-Type: application/json' \
   -H "graphql-operation-name: $OP" -H "graphql-operation-signature: $SIG" \
@@ -121,7 +125,7 @@ Operation: `phoenixLuxurySearchByGeoQueryList`. Required variables: `search.lati
 OP=phoenixLuxurySearchByGeoQueryList
 SIG=082d2f021ba4d85c80280e519f6052b7e5985a83cf97d6b6a7b410784cee4e57
 curl -sL --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   -H 'Accept: */*' -H 'Origin: https://www.marriott.com' -H 'Referer: https://www.marriott.com/' \
   -H 'Content-Type: application/json' \
   -H "graphql-operation-name: $OP" -H "graphql-operation-signature: $SIG" \
@@ -147,7 +151,7 @@ Operation: `phoenixLuxurySearchByGeoQueryMap`. Same variables as list view. The 
 OP=phoenixLuxurySearchByGeoQueryMap
 SIG=76c924cf9e864af810265c31bdad98a50161ec695b07029734e685c6e07ad8cd
 curl -sL --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   -H 'Accept: */*' -H 'Origin: https://www.marriott.com' -H 'Referer: https://www.marriott.com/' \
   -H 'Content-Type: application/json' \
   -H "graphql-operation-name: $OP" -H "graphql-operation-signature: $SIG" \
@@ -165,7 +169,7 @@ Operation: `phoenixLuxuryPropertyInfo`. Variable: `ids: [ID!]!`. Returns basic i
 OP=phoenixLuxuryPropertyInfo
 SIG=20c0e2cfa7a788ddefc68fe869feea481a3019fd57ddc628b36e094a4be682ed
 curl -sL --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   -H 'Accept: */*' -H 'Origin: https://www.marriott.com' -H 'Referer: https://www.marriott.com/' \
   -H 'Content-Type: application/json' \
   -H "graphql-operation-name: $OP" -H "graphql-operation-signature: $SIG" \
@@ -185,7 +189,7 @@ Operation: `PhoenixDestinationOffersSearchByGeolocation`. Required variables: `i
 OP=PhoenixDestinationOffersSearchByGeolocation
 SIG=2c4599862b62a6ca194111f18030d55811dc635e623be9c41e5d7953302def2b
 curl -sL --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   -H 'Accept: */*' -H 'Origin: https://www.marriott.com' -H 'Referer: https://www.marriott.com/' \
   -H 'Content-Type: application/json' \
   -H "graphql-operation-name: $OP" -H "graphql-operation-signature: $SIG" \
@@ -205,7 +209,7 @@ Operation: `phoenixShopAdvSearchInventoryDate`. No variables. Returns the last b
 OP=phoenixShopAdvSearchInventoryDate
 SIG=7d7f735313b7f2dda708c1c9b6dc51233434f78319639a70a0d8b20f508ca02b
 curl -sL --compressed \
-  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36' \
+  -A "$UA" \
   -H 'Accept: */*' -H 'Origin: https://www.marriott.com' -H 'Referer: https://www.marriott.com/' \
   -H 'Content-Type: application/json' \
   -H "graphql-operation-name: $OP" -H "graphql-operation-signature: $SIG" \
