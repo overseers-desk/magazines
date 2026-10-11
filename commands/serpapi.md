@@ -1,5 +1,5 @@
 ---
-description: "SerpApi (Google Flights/Search/Maps/Hotels): web search, local business lookup; secondary/verification source for flights and hotels — not primary for flight prices or hotel brand searches."
+description: "Google Maps places and review timelines; Google Flights or Hotels to cross-check an OTA price. Web search only when brave-search fails."
 argument-hint: <search request, e.g. maps \"restaurants near New York\", or leave empty to be prompted>
 allowed-tools: Bash, Read, Write
 ---
@@ -14,7 +14,9 @@ Search request (the command argument): **$ARGUMENTS**. Pick the matching subcomm
 
 **Hotels:** If a brand-specific skill or MCP exists (e.g. the ihg.com skill for IHG properties), use it in preference to SerpAPI Google Hotels. Brand skills query the hotel chain's own availability API and return accurate per-night pricing; SerpAPI aggregates and may miss IHG-member rates or loyalty discounts.
 
-**Web search and maps:** SerpAPI is the primary tool — no alternative skill covers these.
+**Web search:** brave-search comes first. Use SerpAPI Google Search only when brave-search returns an error or nothing usable; each search spends the monthly quota that Maps and Flights also draw on.
+
+**Maps:** SerpAPI is the primary tool for places and review timelines.
 
 ## Prerequisites
 
