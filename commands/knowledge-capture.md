@@ -117,7 +117,7 @@ The summary and the `problems` entries attribute any suspicion, allegation or pr
 
 ### 3.7 Check fidelity against the recording
 
-A fresh-context Sonnet reader receives the transcript as fetched in §3.1, the corrected transcript and the staging summary. It lists every changed assertion, dropped or added hedge, reattribution and altered figure, and every accusation, rebuttal or meaningful swearing that was dropped. The reader is a subagent, or `claude -p --model sonnet` where the run is itself a subagent and cannot spawn one; it is never the context that did the correction, which reads its own version as faithful. Correct each listed item back to what the fetched transcript says. An item the fetched text cannot settle becomes `[unclear]`. The capture commits only when the list is clear.
+A fresh-context Sonnet reader receives the transcript as fetched in §3.1, the corrected transcript, the staging summary and the correction index. It lists every changed assertion, dropped or added hedge, reattribution and altered figure, and every accusation, rebuttal or meaningful swearing that was dropped. A name, place or term corrected as the index records, or as §3.4's evidence supports, is the correction this command exists to make, and the reader leaves it alone; undoing it hides the meeting from a search for that person. The reader is a subagent, or `claude -p --model sonnet` where the run is itself a subagent and cannot spawn one; it is never the context that did the correction, which reads its own version as faithful. Correct each listed item back to what the fetched transcript says. An item the fetched text cannot settle becomes `[unclear]`. The capture commits only when the list is clear.
 
 ### 3.8 Return what was resolved to the glossary
 
