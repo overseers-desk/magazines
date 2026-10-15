@@ -17,6 +17,13 @@ Usage:
     # Google Maps reviews (review timeline, newest first)
     python3 search.py reviews "Joe's Diner Brooklyn" --max 5
 
+    # Google Hotels (list, then one property's prices)
+    python3 search.py hotels "Gold Coast Australia hotels" 2026-05-10 2026-05-11 --brands 17 --sort 3
+    python3 search.py hotels "Gold Coast Australia hotels" 2026-05-10 2026-05-11 --property-token <token>
+
+    # Searches used and left this month
+    python3 search.py account
+
 API key is read from SERPAPI_KEY env var or [serpapi] api_key in ~/.config/magazines/config.ini.
 
 Every response is saved under ~/.cache/magazines/serpapi/ and its path printed on
@@ -302,6 +309,61 @@ def cmd_maps(args):
         print()
 
 
+def cmd_hotels(args):
+    """Google Hotels: a destination's properties with rates, or one property's prices.
+
+    sort_by: 3 = lowest price, 8 = highest rating, 13 = most reviewed.
+    brands: comma-separated IDs (17 IHG, 28 Hilton, 33 Accor, 46 Marriott,
+    53 Wyndham). With --property-token (a search result's property_token) the
+    same engine returns that one property's rate options instead of a list.
+    """
+    params = {
+        "engine": "google_hotels",
+        "q": args.query,
+        "check_in_date": args.check_in,
+        "check_out_date": args.check_out,
+        "hl": "en",
+    }
+    for key, value in (("adults", args.adults), ("children", args.children),
+                       ("children_ages", args.children_ages), ("brands", args.brands),
+                       ("sort_by", args.sort), ("currency", args.currency),
+                       ("property_token", args.property_token)):
+        if value is not None:
+            params[key] = str(value)
+
+    data = serpapi_request(params, args.fresh)
+
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return
+
+    currency = (data.get("search_parameters") or {}).get("currency", "")
+    if args.property_token:
+        print(f"{data.get('name', '?')}  ({data.get('overall_rating', '?')}* / {data.get('reviews', '?')} reviews)")
+        for p in data.get("prices", []):
+            nightly = (p.get("rate_per_night") or {}).get("extracted_lowest", "?")
+            total = (p.get("total_rate") or {}).get("extracted_lowest", "?")
+            print(f"  {p.get('source', '?'):30s}  {currency} {nightly}/night  {currency} {total} total")
+        return
+
+    for p in data.get("properties", []):
+        nightly = (p.get("rate_per_night") or {}).get("extracted_lowest", "?")
+        total = (p.get("total_rate") or {}).get("extracted_lowest", "?")
+        print(f"  {p.get('name', '')}  ({p.get('overall_rating', '?')}* / {p.get('reviews', '?')} reviews)")
+        print(f"    {currency} {nightly}/night  {currency} {total} total")
+        print(f"    property_token {p.get('property_token', '')}")
+        print()
+
+
+def cmd_account(args):
+    """This month's searches used and left. The account endpoint is not a search."""
+    url = "https://serpapi.com/account.json?" + urllib.parse.urlencode({"api_key": get_api_key()})
+    with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as resp:
+        data = json.loads(resp.read())
+    print(f"Used: {data.get('this_month_usage', '?')}/{data.get('searches_per_month', '?')}, "
+          f"Left: {data.get('total_searches_left', '?')}")
+
+
 def resolve_data_id(query, fresh=False):
     """Resolve a place name to a (data_id, title) via the google_maps engine.
 
@@ -419,6 +481,22 @@ def main():
     rp.add_argument("--max", type=int, default=3,
                     help="Max review pages to fetch (default: 3; each page = 1 search)")
 
+    # hotels
+    hp = sub.add_parser("hotels", parents=[common], help="Google Hotels search or one property's prices")
+    hp.add_argument("query", help="Destination search, e.g. \"Gold Coast Australia hotels\"")
+    hp.add_argument("check_in", help="Check-in date YYYY-MM-DD")
+    hp.add_argument("check_out", help="Check-out date YYYY-MM-DD")
+    hp.add_argument("--adults", type=int)
+    hp.add_argument("--children", type=int)
+    hp.add_argument("--children-ages", help="Comma-separated ages 1-17, e.g. 5,8")
+    hp.add_argument("--brands", help="Brand IDs, comma-separated (17 IHG, 28 Hilton, 33 Accor, 46 Marriott, 53 Wyndham)")
+    hp.add_argument("--sort", type=int, choices=[3, 8, 13], help="3=lowest price 8=highest rating 13=most reviewed")
+    hp.add_argument("--currency")
+    hp.add_argument("--property-token", help="One property's prices, from a search result's property_token")
+
+    # account
+    sub.add_parser("account", help="Searches used and left this month (costs no search)")
+
     args = parser.parse_args()
 
     if args.command == "flights":
@@ -429,6 +507,10 @@ def main():
         cmd_maps(args)
     elif args.command == "reviews":
         cmd_reviews(args)
+    elif args.command == "hotels":
+        cmd_hotels(args)
+    elif args.command == "account":
+        cmd_account(args)
 
 
 if __name__ == "__main__":
