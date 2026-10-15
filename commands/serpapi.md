@@ -38,13 +38,28 @@ API key is read from one of:
 - Environment variable `SERPAPI_KEY`
 - `$HOME/.config/magazines/config.ini` under `[serpapi] api_key`
 
-Free plan allows 250 searches/month. Check usage with the reader from [`COMMAND-SURFACE.md`](../COMMAND-SURFACE.md), which keeps the key in the shell rather than routing it through the conversation:
+Free plan allows 250 searches/month. Check usage (costs no search):
 
 ```bash
-ini() { python3 -c 'import configparser,os,pathlib,sys;p=pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home()/".config")/"magazines/config.ini";c=configparser.ConfigParser(interpolation=None);c.read(p);print(c.get(sys.argv[1],sys.argv[2],fallback=""))' "$1" "$2"; }
-curl -s "https://serpapi.com/account.json?api_key=${SERPAPI_KEY:-$(ini serpapi api_key)}" |
-  python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Used: {d[\"this_month_usage\"]}/250, Left: {d[\"total_searches_left\"]}')"
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py account
 ```
+
+Every SerpApi call goes through `search.py`; a hand-built `curl` to serpapi.com is refused by the plugin's hook.
+
+## Saved results
+
+Every response is saved to `~/.cache/magazines/serpapi/`, and the script prints its path on stderr as `raw: <path>`. A field the formatted output leaves out (layovers, `price_insights`, amenities, a review's full record) is read from that file, not bought again with `--json`.
+
+An identical request is answered from the saved file while it is fresh enough, and says so: `cached: saved <time> (<age> ago)`. Pass `--fresh` when the answer must be current.
+
+| Search | Reused for |
+|---|---|
+| Flights, Hotels | 6 hours |
+| Maps reviews | 1 day |
+| Google Search | 3 days |
+| Maps places | 30 days |
+
+The store holds at most 50 MB, dropping the oldest first.
 
 ## Quick start
 
@@ -78,6 +93,13 @@ python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py maps "restaurants near 
 python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py reviews "<venue name> <suburb>" --max 5
 ```
 
+### Google Hotels (list, then one property's prices)
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py hotels "Gold Coast Australia hotels" 2026-04-10 2026-04-11 --brands 17 --sort 3 --currency AUD
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py hotels "Gold Coast Australia hotels" 2026-04-10 2026-04-11 --currency AUD --property-token <token>
+```
+
 ## Flight search arguments
 
 | Argument | Description |
@@ -92,6 +114,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py reviews "<venue name> <
 | --travel-class N | 1=Economy, 2=Premium economy, 3=Business, 4=First |
 | --max-price N | Price cap in chosen currency |
 | --json | Output raw JSON |
+| --fresh | Buy a new search even when a saved one is fresh enough (every subcommand) |
 
 ## API learnings (from testing)
 
@@ -121,6 +144,7 @@ These notes save future agents from trial-and-error:
 | --num N | Number of results (search only, default: 10) |
 | --location | Location string (search) or lat,lng (maps) |
 | --json | Raw JSON output |
+| --fresh | Buy a new search even when a saved one is fresh enough |
 
 ## Google Maps reviews (review timeline)
 
@@ -141,77 +165,30 @@ python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py reviews "0x...:0x..." -
 | --max N | Max review pages to fetch (default: 3; each page = 1 search) |
 | --json | Raw JSON: `{data_id, place, reviews[]}` |
 
-### The chain, by hand
+The raw responses behind the chain (the Maps lookup with its `data_id`, then each `google_maps_reviews` page with `iso_date`, `rating`, `snippet`, `user.name` and `serpapi_pagination.next_page_token`) are the saved files the script names on stderr.
 
-The subcommand wraps these two steps; run them manually only when you need the raw response.
+A full timeline needs many pages; each page is 1 search against the monthly quota, so a deep walk-back is expensive. Raise `--max` deliberately; pages already fetched come from the saved files.
 
-1. **Find the place and its `data_id`.** The `maps` subcommand with `--json` returns the raw API response, where `local_results[0]` carries `data_id` (plus `place_id`, `rating`, and the `reviews` count). A strong single match instead arrives as `place_results`.
+## Google Hotels
 
-   ```bash
-   python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py maps "<venue name> <suburb>" --json
-   # local_results[0].data_id  ->  0x...:0x...
-   ```
+For hotel searches (e.g. IHG availability) use the `hotels` subcommand. A search lists properties with nightly and total rate, rating, review count and `property_token`; passing a `property_token` back with `--property-token` returns that one hotel's prices by booking site. Its saved raw response also holds room types, amenities and nearby places.
 
-2. **Pull reviews via the reviews engine**, paginating for older reviews:
+| Argument | Description | Example |
+|---|---|---|
+| query | Search query (location + "hotels") | `"Gold Coast Australia hotels"` |
+| check_in | Check-in date, YYYY-MM-DD | `2026-04-10` |
+| check_out | Check-out date, YYYY-MM-DD | `2026-04-11` |
+| --adults N | Number of adults (SerpApi default 2) | `1` |
+| --children N | Number of children | `0` |
+| --children-ages | Comma-separated ages 1-17 | `5,8` |
+| --brands | Brand ID filter, comma-separated | `17` (IHG) |
+| --sort | `3` lowest price, `8` highest rating, `13` most reviewed | `3` |
+| --currency | Currency code | `AUD` |
+| --property-token | One property's prices | from a search result |
 
-   ```bash
-   SERPAPI_KEY="${SERPAPI_KEY:-$(ini serpapi api_key)}"   # ini() as defined under Setup
-   curl -s "https://serpapi.com/search.json?engine=google_maps_reviews&data_id=<data_id>&sort_by=newestFirst&api_key=$SERPAPI_KEY"
-   # reviews[] each with iso_date + rating + snippet + user.name
-   # serpapi_pagination.next_page_token  ->  pass as next_page_token= for the next (older) page
-   ```
+Brand IDs: 17 IHG, 28 Hilton, 33 Accor, 46 Marriott, 53 Wyndham. Omit `--brands` to search all.
 
-A full timeline needs many pages; each page is 1 search against the monthly quota, so a deep walk-back is expensive. Raise `--max` deliberately.
-
-## Google Hotels (curl-based)
-
-For hotel searches (e.g. IHG availability), use the SerpApi Google Hotels engine directly via curl. The API key is read from `~/.config/magazines/config.ini` (`[serpapi] api_key`).
-
-### Search for hotels
-
-```bash
-SERPAPI_KEY="${SERPAPI_KEY:-$(ini serpapi api_key)}"   # ini() as defined under Setup
-curl -s "https://serpapi.com/search.json?engine=google_hotels&q=${DESTINATION}+hotels&check_in_date=${CHECKIN}&check_out_date=${CHECKOUT}&adults=${ADULTS}&brands=17&sort_by=3&api_key=$SERPAPI_KEY"
-```
-
-#### Hotel search parameters
-
-| Parameter | Description | Example |
-|-----------|-------------|---------|
-| `q` | Search query (location + "hotels") | `Gold Coast Australia hotels` |
-| `check_in_date` | Check-in date, YYYY-MM-DD | `2026-04-10` |
-| `check_out_date` | Check-out date, YYYY-MM-DD | `2026-04-11` |
-| `adults` | Number of adults | `1` |
-| `children` | Number of children | `0` |
-| `children_ages` | Comma-separated ages 1-17 | `5,8` |
-| `brands` | Brand ID filter, comma-separated | `17` (IHG) |
-| `sort_by` | `3` lowest price, `8` highest rating, `13` most reviewed | `3` |
-| `currency` | Currency code | `AUD` |
-
-Brand IDs: 17 IHG, 28 Hilton, 33 Accor, 46 Marriott, 53 Wyndham. Omit `brands` to search all.
-
-#### Hotel response structure
-
-The `properties` array contains hotels. Each property has:
-- `name` — hotel name
-- `total_rate.extracted_lowest` — lowest nightly price (number)
-- `total_rate.currency` — currency
-- `overall_rating` — guest rating
-- `reviews` — number of reviews
-- `property_token` — token for property details lookup
-- `gps_coordinates` — lat/lng
-- `check_in_time`, `check_out_time`
-
-### Property details
-
-Use `property_token` from the search results to get detailed pricing for a specific hotel:
-
-```bash
-SERPAPI_KEY="${SERPAPI_KEY:-$(ini serpapi api_key)}"   # ini() as defined under Setup
-curl -s "https://serpapi.com/search.json?engine=google_hotels&property_token=${TOKEN}&check_in_date=${CHECKIN}&check_out_date=${CHECKOUT}&adults=${ADULTS}&api_key=$SERPAPI_KEY"
-```
-
-This returns room types, rate options, amenities, and nearby places for a single hotel. Format results as a table: hotel name, nightly price, rating, reviews.
+Format results as a table: hotel name, nightly price, rating, reviews.
 
 ## Typical workflows
 
