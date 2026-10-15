@@ -300,12 +300,15 @@ def cmd_maps(args):
         print(json.dumps(data, indent=2))
         return
 
-    for r in data.get("local_results", []):
+    # A strong single match arrives as place_results (an object), a list as local_results.
+    results = data.get("local_results") or ([data["place_results"]] if data.get("place_results") else [])
+    for r in results:
         rating = r.get("rating", "?")
         reviews = r.get("reviews", "?")
         print(f"  {r.get('title', '')}  ({rating}* / {reviews} reviews)")
         print(f"    {r.get('address', '')}")
-        print(f"    {r.get('type', '')}")
+        kind = r.get("type", "")
+        print(f"    {', '.join(kind) if isinstance(kind, list) else kind}")
         print()
 
 
