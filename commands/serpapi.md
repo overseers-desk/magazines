@@ -48,7 +48,7 @@ Every SerpApi call goes through `search.py`; a hand-built `curl` to serpapi.com 
 
 ## Saved results
 
-Every response is saved to `~/.cache/magazines/serpapi/`, and the script prints its path on stderr as `raw: <path>`. A field the formatted output leaves out (layovers, `price_insights`, amenities, a review's full record) is read from that file, not bought again with `--json`.
+Every response is saved to `~/.cache/magazines/serpapi/`, and the script prints its path on stderr as `raw: <path>`. A field the formatted output leaves out (layovers, `price_insights`, amenities, a review's full record) is read from that file rather than by running the search again with `--json`.
 
 An identical request is answered from the saved file while it is fresh enough, and says so: `cached: saved <time> (<age> ago)`. Pass `--fresh` when the answer must be current.
 
@@ -59,7 +59,7 @@ An identical request is answered from the saved file while it is fresh enough, a
 | Google Search | 3 days |
 | Maps places | 30 days |
 
-The store holds at most 50 MB, dropping the oldest first.
+Results past their window are deleted, and past 50 MB in all the oldest go first.
 
 ## Quick start
 
@@ -167,7 +167,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py reviews "0x...:0x..." -
 
 The raw responses behind the chain (the Maps lookup with its `data_id`, then each `google_maps_reviews` page with `iso_date`, `rating`, `snippet`, `user.name` and `serpapi_pagination.next_page_token`) are the saved files the script names on stderr.
 
-A full timeline needs many pages; each page is 1 search against the monthly quota, so a deep walk-back is expensive. Raise `--max` deliberately; pages already fetched come from the saved files.
+A full timeline needs many pages; each page is 1 search against the monthly quota, so a deep walk-back is expensive. Raise `--max` deliberately; pages fetched in the last day come from the saved files.
 
 ## Google Hotels
 

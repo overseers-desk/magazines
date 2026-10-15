@@ -50,7 +50,8 @@ CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "
 CACHE_CAP_BYTES = 50 * 1024 * 1024
 HOUR = 3600
 # How long a saved response answers an identical request: prices go stale in
-# hours, a place listing barely changes in a month.
+# hours, reviews arrive daily, web results drift over days, and a place
+# listing barely changes in a month.
 REUSE_SECONDS = {
     "google_flights": 6 * HOUR,
     "google_hotels": 6 * HOUR,
@@ -315,10 +316,8 @@ def cmd_maps(args):
 def cmd_hotels(args):
     """Google Hotels: a destination's properties with rates, or one property's prices.
 
-    sort_by: 3 = lowest price, 8 = highest rating, 13 = most reviewed.
-    brands: comma-separated IDs (17 IHG, 28 Hilton, 33 Accor, 46 Marriott,
-    53 Wyndham). With --property-token (a search result's property_token) the
-    same engine returns that one property's rate options instead of a list.
+    With --property-token (a search result's property_token) the same engine
+    returns that one property's rate options instead of a list.
     """
     params = {
         "engine": "google_hotels",

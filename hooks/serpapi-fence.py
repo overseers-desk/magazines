@@ -3,7 +3,7 @@
 
 The script saves every response and answers an identical request from the
 saved file, so a hand-built curl, an inline urllib call or a WebFetch of the
-API buys a search the store may already hold. A shell command naming
+API buys a search that may already be saved. A shell command naming
 serpapi.com together with the key (api_key or SERPAPI_KEY), or a WebFetch of
 the API endpoints, is denied with the script's path; serpapi.com's
 documentation pages, any other command, and malformed input pass silently.
