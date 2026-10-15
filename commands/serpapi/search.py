@@ -18,20 +18,39 @@ Usage:
     python3 search.py reviews "Joe's Diner Brooklyn" --max 5
 
 API key is read from SERPAPI_KEY env var or [serpapi] api_key in ~/.config/magazines/config.ini.
+
+Every response is saved under ~/.cache/magazines/serpapi/ and its path printed on
+stderr as "raw: <path>"; an identical request inside its engine's REUSE_SECONDS
+window is answered from that file instead of buying another search (--fresh buys one).
 """
 
 import argparse
 import configparser
+import hashlib
 import json
 import os
 import re
 import sys
+import time
 import urllib.request
 import urllib.parse
 from pathlib import Path
 
 # A Google Maps data_id looks like 0x<hex>:0x<hex>; anything else is a place name.
 DATA_ID_RE = re.compile(r"^0x[0-9a-f]+:0x[0-9a-f]+$", re.IGNORECASE)
+
+CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "magazines" / "serpapi"
+CACHE_CAP_BYTES = 50 * 1024 * 1024
+HOUR = 3600
+# How long a saved response answers an identical request: prices go stale in
+# hours, a place listing barely changes in a month.
+REUSE_SECONDS = {
+    "google_flights": 6 * HOUR,
+    "google_hotels": 6 * HOUR,
+    "google_maps_reviews": 24 * HOUR,
+    "google": 72 * HOUR,
+    "google_maps": 30 * 24 * HOUR,
+}
 
 
 def get_api_key():
@@ -48,13 +67,84 @@ def get_api_key():
     sys.exit("No API key found. Set SERPAPI_KEY or add api_key under [serpapi] in ~/.config/magazines/config.ini")
 
 
-def serpapi_request(params):
-    """Make a request to SerpApi and return parsed JSON."""
-    params["api_key"] = get_api_key()
-    url = "https://serpapi.com/search.json?" + urllib.parse.urlencode(params)
+def cache_path(params):
+    digest = hashlib.sha256(json.dumps(params, sort_keys=True).encode()).hexdigest()[:20]
+    return CACHE_DIR / f"{params['engine']}-{digest}.json"
+
+
+def describe_age(seconds):
+    if seconds < HOUR:
+        return f"{int(seconds // 60)} min"
+    if seconds < 24 * HOUR:
+        return f"{seconds / HOUR:.1f} h"
+    return f"{seconds / (24 * HOUR):.1f} days"
+
+
+def read_saved(path, window):
+    try:
+        with open(path) as f:
+            saved = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if time.time() - saved.get("saved_at", 0) >= window:
+        return None
+    return saved
+
+
+def prune_cache():
+    """Drop entries past their engine's window, then the oldest until under the cap."""
+    now = time.time()
+    kept = []
+    for path in CACHE_DIR.glob("*.json"):
+        try:
+            st = path.stat()
+            engine = path.name.rsplit("-", 1)[0]
+            if now - st.st_mtime >= REUSE_SECONDS.get(engine, 0):
+                path.unlink()
+            else:
+                kept.append((st.st_mtime, st.st_size, path))
+        except OSError:
+            continue
+    total = sum(size for _, size, _ in kept)
+    for _, size, path in sorted(kept):
+        if total <= CACHE_CAP_BYTES:
+            break
+        try:
+            path.unlink()
+            total -= size
+        except OSError:
+            pass
+
+
+def save_response(path, params, data):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    with open(tmp, "w") as f:
+        json.dump({"saved_at": time.time(), "params": params, "response": data}, f)
+    os.replace(tmp, path)
+    prune_cache()
+
+
+def serpapi_request(params, fresh=False):
+    """Return SerpApi's parsed JSON for params, answering from a saved identical
+    response while it is inside its engine's REUSE_SECONDS window."""
+    path = cache_path(params)
+    window = REUSE_SECONDS[params["engine"]]
+    saved = None if fresh else read_saved(path, window)
+    if saved is not None:
+        when = time.strftime("%Y-%m-%d %H:%M %Z", time.localtime(saved["saved_at"]))
+        age = describe_age(time.time() - saved["saved_at"])
+        print(f"cached: saved {when} ({age} ago); --fresh buys a new search", file=sys.stderr)
+        print(f"raw: {path}", file=sys.stderr)
+        return saved["response"]
+    url = "https://serpapi.com/search.json?" + urllib.parse.urlencode(dict(params, api_key=get_api_key()))
     req = urllib.request.Request(url)
     with urllib.request.urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read())
+        data = json.loads(resp.read())
+    if "error" not in data:
+        save_response(path, params, data)
+        print(f"raw: {path}", file=sys.stderr)
+    return data
 
 
 def cmd_flights(args):
@@ -120,7 +210,7 @@ def cmd_flights(args):
     if args.max_price:
         params["max_price"] = str(args.max_price)
 
-    data = serpapi_request(params)
+    data = serpapi_request(params, args.fresh)
 
     if args.json:
         print(json.dumps(data, indent=2))
@@ -173,7 +263,7 @@ def cmd_search(args):
     if args.location:
         params["location"] = args.location
 
-    data = serpapi_request(params)
+    data = serpapi_request(params, args.fresh)
 
     if args.json:
         print(json.dumps(data, indent=2))
@@ -197,7 +287,7 @@ def cmd_maps(args):
     if args.location:
         params["ll"] = args.location
 
-    data = serpapi_request(params)
+    data = serpapi_request(params, args.fresh)
 
     if args.json:
         print(json.dumps(data, indent=2))
@@ -212,14 +302,14 @@ def cmd_maps(args):
         print()
 
 
-def resolve_data_id(query):
+def resolve_data_id(query, fresh=False):
     """Resolve a place name to a (data_id, title) via the google_maps engine.
 
     A strong single match comes back as place_results (an object); a list of
     candidates comes back as local_results. The top hit carries data_id.
     Costs 1 search.
     """
-    data = serpapi_request({"engine": "google_maps", "q": query})
+    data = serpapi_request({"engine": "google_maps", "q": query}, fresh)
     results = data.get("local_results") or []
     if not results and data.get("place_results"):
         results = [data["place_results"]]
@@ -250,7 +340,7 @@ def cmd_reviews(args):
     if DATA_ID_RE.match(place):
         data_id, title = place, place
     else:
-        data_id, title = resolve_data_id(place)
+        data_id, title = resolve_data_id(place, args.fresh)
 
     all_reviews = []
     next_token = None
@@ -263,7 +353,7 @@ def cmd_reviews(args):
         }
         if next_token:
             params["next_page_token"] = next_token
-        data = serpapi_request(params)
+        data = serpapi_request(params, args.fresh)
         all_reviews.extend(data.get("reviews") or [])
         pages += 1
         next_token = (data.get("serpapi_pagination") or {}).get("next_page_token")
@@ -292,9 +382,13 @@ def cmd_reviews(args):
 def main():
     parser = argparse.ArgumentParser(description="SerpApi search wrapper")
     sub = parser.add_subparsers(dest="command", required=True)
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--json", action="store_true", help="Raw JSON output")
+    common.add_argument("--fresh", action="store_true",
+                        help="Buy a new search even when a recent identical response is saved")
 
     # flights
-    fp = sub.add_parser("flights", help="Google Flights search")
+    fp = sub.add_parser("flights", parents=[common], help="Google Flights search")
     fp.add_argument("origin", help="Departure IATA code (e.g. LHR)")
     fp.add_argument("destination", help="Arrival IATA code (e.g. BNE)")
     fp.add_argument("date", help="Outbound date YYYY-MM-DD")
@@ -304,30 +398,26 @@ def main():
     fp.add_argument("--stops", type=int, default=None, help="0=any, 1=nonstop, 2=≤1stop, 3=≤2stops")
     fp.add_argument("--travel-class", type=int, default=1, help="1=Economy 2=Premium 3=Business 4=First")
     fp.add_argument("--max-price", type=int, default=None)
-    fp.add_argument("--json", action="store_true", help="Raw JSON output")
 
     # search
-    sp = sub.add_parser("search", help="Google Search")
+    sp = sub.add_parser("search", parents=[common], help="Google Search")
     sp.add_argument("query", help="Search query")
     sp.add_argument("--num", type=int, default=10, help="Number of results")
     sp.add_argument("--location", help="Location for local results")
-    sp.add_argument("--json", action="store_true")
 
     # maps
-    mp = sub.add_parser("maps", help="Google Maps search")
+    mp = sub.add_parser("maps", parents=[common], help="Google Maps search")
     mp.add_argument("query", help="Search query")
     mp.add_argument("--location", help="Lat,lng (e.g. @36.68,-6.14,14z)")
-    mp.add_argument("--json", action="store_true")
 
     # reviews
-    rp = sub.add_parser("reviews", help="Google Maps reviews (review timeline)")
+    rp = sub.add_parser("reviews", parents=[common], help="Google Maps reviews (review timeline)")
     rp.add_argument("place", help="Place name (resolved via Maps) or a data_id (0x...:0x...)")
     rp.add_argument("--sort", default="newestFirst",
                     choices=["newestFirst", "mostRelevant", "highestRating", "lowestRating"],
                     help="Review ordering (default: newestFirst)")
     rp.add_argument("--max", type=int, default=3,
                     help="Max review pages to fetch (default: 3; each page = 1 search)")
-    rp.add_argument("--json", action="store_true", help="Raw JSON output")
 
     args = parser.parse_args()
 
