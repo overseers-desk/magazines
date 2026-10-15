@@ -1,5 +1,5 @@
 {
-  "description": "Plugin hook: block WebFetch against client-rendered hosts (YouTube, Reddit) and steer to a tool that works. The challenge-detector Stop hook is offline (see hooks/challenge-detector.py): a blocking Stop hook fires inside automated `claude -p` worker sessions and breaks them. Re-enable once it can gate to interactive sessions only.",
+  "description": "Plugin hooks: block WebFetch against client-rendered hosts (YouTube, Reddit) and steer to a tool that works; refuse a SerpApi call made outside commands/serpapi/search.py, which saves and reuses responses. The challenge-detector Stop hook is offline (see hooks/challenge-detector.py): a blocking Stop hook fires inside automated `claude -p` worker sessions and breaks them. Re-enable once it can gate to interactive sessions only.",
   "hooks": {
     "PreToolUse": [
       {
@@ -8,6 +8,16 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/block-spa-webfetch.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/serpapi-fence.py\"",
             "timeout": 10
           }
         ]
