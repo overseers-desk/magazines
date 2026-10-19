@@ -84,8 +84,9 @@ proc ihg::do_login {username password} {
 
     # Capture the Gigya accounts.login response so a failure reports its reason
     # (a credential mismatch, a temporary lockout and a risk block read alike in
-    # the page text but differ here).
-    ihg::try_eval {(function(){window.__gigya="";var ox=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){this.__gu=u+"";return ox.apply(this,arguments);};var os=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(){var x=this;x.addEventListener("load",function(){try{if(/accounts\.login|identity\.ihg\.com/.test(x.__gu||""))window.__gigya=(x.responseText||"").slice(0,700);}catch(e){}});return os.apply(this,arguments);};return "ok";})()}
+    # the page text but differ here). Only errorCode and errorMessage are kept:
+    # a slow but successful login's response carries UID and UIDSignature.
+    ihg::try_eval {(function(){window.__gigya="";var ox=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){this.__gu=u+"";return ox.apply(this,arguments);};var os=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(){var x=this;x.addEventListener("load",function(){try{if(/accounts\.login|identity\.ihg\.com/.test(x.__gu||"")){var r=JSON.parse(x.responseText||"{}");if(r.errorCode!==undefined)window.__gigya="errorCode="+r.errorCode+" errorMessage="+(r.errorMessage||"");}}catch(e){}});return os.apply(this,arguments);};return "ok";})()}
 
     # Let the widget finish hydrating before tagging, so the tagged elements are
     # the live ones (an early tag can be detached by a later re-render).
@@ -131,7 +132,7 @@ proc ihg::do_login {username password} {
     set title [eval {document.title}]
     if {[string first "sign-in" $u] >= 0 || [string match -nocase "*login*" $title]} {
         set gig [eval {window.__gigya||""}]
-        return "ERROR: login did not complete (url=$u title=$title) gigya=[string range $gig 0 300]"
+        return "ERROR: login did not complete (url=$u title=$title) gigya=$gig"
     }
     return ""
 }
