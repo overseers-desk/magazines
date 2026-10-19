@@ -264,8 +264,8 @@ if {[dict get $r emitted] ne "beforeafter"} {
 }
 puts "PASS an unpaired surrogate half is dropped"
 
-# --- the run line: a skill marked secret-args logs its argument count, not
-# --- its arguments; an unmarked one keeps its argv for a post-mortem.
+# --- LogArgs: a skill marked secret-args logs its argument count, not its
+# --- arguments; an unmarked one keeps its argv for a post-mortem.
 set logDir [file join $skillDir log]
 serialiser::setLogDir $logDir
 serialiser::Log run [serialiser::LogArgs [file join $skillDir secret-login.tcl] \

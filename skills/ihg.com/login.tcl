@@ -85,7 +85,8 @@ proc ihg::do_login {username password} {
     # Capture the Gigya accounts.login response so a failure reports its reason
     # (a credential mismatch, a temporary lockout and a risk block read alike in
     # the page text but differ here). Only errorCode and errorMessage are kept:
-    # a slow but successful login's response carries UID and UIDSignature.
+    # a successful login's response carries UID and UIDSignature, and one whose
+    # redirect takes over 20 s still reaches the ERROR line below.
     ihg::try_eval {(function(){window.__gigya="";var ox=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){this.__gu=u+"";return ox.apply(this,arguments);};var os=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.send=function(){var x=this;x.addEventListener("load",function(){try{if(/accounts\.login|identity\.ihg\.com/.test(x.__gu||"")){var r=JSON.parse(x.responseText||"{}");if(r.errorCode!==undefined)window.__gigya="errorCode="+r.errorCode+" errorMessage="+(r.errorMessage||"");}}catch(e){}});return os.apply(this,arguments);};return "ok";})()}
 
     # Let the widget finish hydrating before tagging, so the tagged elements are

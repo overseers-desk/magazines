@@ -119,9 +119,9 @@ proc serialiser::LogUrl {url} {
     return $m
 }
 
-# The skill args as a log line records them. A skill whose source carries the
-# line `# serialiser: secret-args` takes a password or PIN as an argument, so
-# only the count is recorded; so is it for a source that cannot be read.
+# The skill args as a log line records them: argv, or only argc for a skill
+# whose source carries `# serialiser: secret-args` (it takes a password or PIN)
+# or cannot be read.
 proc serialiser::LogArgs {skillPath skillArgs} {
     if {[catch {
         set f [open $skillPath r]
