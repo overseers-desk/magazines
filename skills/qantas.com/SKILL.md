@@ -18,7 +18,7 @@ Feature 1 (Classic Reward search) requires no login. Feature 2 (points balance) 
   pin = YOUR_PIN
   ```
 
-If Feature 2 is requested and the section is absent, pause and let the user know: "To read your Qantas points balance, add a `[qantas.com]` section with member_id, last_name, and pin to `$HOME/.config/magazines/config.ini`."
+For Feature 2, run the login without checking for the credentials first: when a key is unset it stops before opening the site and names the `[qantas.com]` key it lacks. Stop there and let the user know: "To read your Qantas points balance, add a `[qantas.com]` section with member_id, last_name, and pin to `$HOME/.config/magazines/config.ini`."
 
 The skill has two independent features. Run whichever the user asked for; do not chain them.
 
@@ -64,8 +64,6 @@ browser-serialiser qantas.com/login "${CRED[@]}"            # human-readable
 browser-serialiser qantas.com/login "${CRED[@]}" --json     # JSON
 browser-serialiser qantas.com/login --check                 # open the form, do not submit
 ```
-
-An empty value back from `ini` means the key is unset; report the missing prerequisite rather than submitting a blank form.
 
 `--check` opens the sign-in form and reports it ready without submitting; it needs no credentials. The submit is supervised — this skill types and clicks once, and a live run sends the real credentials.
 

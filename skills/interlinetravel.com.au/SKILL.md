@@ -19,7 +19,7 @@ This skill requires staff travel credentials to access industry rates.
   password = yourpassword
   ```
 
-If the section is absent, pause and let the user know: "To search Interline Travel staff rates, add an `[interlinetravel.com.au]` section with your email and password to `$HOME/.config/magazines/config.ini`."
+Run `search.py` without checking for the credentials first: when they are missing it exits naming the `[interlinetravel.com.au]` keys to add. Stop there and pass that message to the user.
 
 ## Capabilities
 
@@ -138,7 +138,7 @@ The auth endpoint returns 429 if hit too frequently. The script caches session c
 
 | Error | Cause | Fix |
 |---|---|---|
-| Login failed | Wrong credentials or account locked | Check `~/.config/magazines/config.ini` credentials |
+| Login failed | Wrong credentials or account locked | Ask the user to check the `[interlinetravel.com.au]` email and password |
 | HTTP 429 | Too many auth requests | Wait a few minutes; session caching should prevent this |
 | HTTP 403 on all endpoints | Cloudflare blocking | Add a standard Chrome-compatible User-Agent (the script already does this) |
 | 0 results | Filters too narrow or no cruises match | Broaden filters or check available options with `options` |

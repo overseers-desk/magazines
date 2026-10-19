@@ -392,6 +392,18 @@ proc serialiser_run {skillArgs} {
         }
     }
 
+    # An unset config.ini key arrives as "": name it rather than submit a blank form.
+    if {!$check && [llength $positional] >= 3} {
+        set missing {}
+        foreach key {member_id last_name pin} val [lrange $positional 0 2] {
+            if {$val eq ""} { lappend missing $key }
+        }
+        if {[llength $missing]} {
+            emit [qf::sv_error $json_out "~/.config/magazines/config.ini has no \[qantas.com\] [join $missing {, }]"]
+            return
+        }
+    }
+
     nav $qf::LOGIN_URL --wait 5
     if {[dict get [state] terminal] ne ""} {
         emit [qf::sv_error $json_out "sign-in page redirected to a wall ([dict get [state] terminal])"]

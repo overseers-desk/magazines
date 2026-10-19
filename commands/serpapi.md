@@ -30,7 +30,7 @@ This skill requires a SerpApi key (free plan: 250 searches/month, sign up at ser
   api_key = your_key_here
   ```
 
-If neither is present, pause and let the user know: "To use SerpApi, set the SERPAPI_KEY environment variable or add `api_key` under `[serpapi]` in `$HOME/.config/magazines/config.ini`. Sign up at serpapi.com for a free key."
+Run the script without checking for the key first: when neither is set it exits with a message naming both places a key can go. Stop there and pass that message to the user, adding that serpapi.com gives a free key.
 
 ## Setup
 

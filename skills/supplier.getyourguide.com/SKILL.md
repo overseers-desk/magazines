@@ -15,11 +15,12 @@ This skill requires a GetYourGuide supplier account and fresh authentication tok
   ```bash
   ini() { python3 -c 'import configparser,os,pathlib,sys;p=pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home()/".config")/"magazines/config.ini";c=configparser.ConfigParser(interpolation=None);c.read(p);print(c.get(sys.argv[1],sys.argv[2],fallback=""))' "$1" "$2"; }
   SUPPLIER_ID="$(ini supplier.getyourguide.com supplier_id)"
+  [ -n "$SUPPLIER_ID" ] || echo "~/.config/magazines/config.ini has no [supplier.getyourguide.com] supplier_id" >&2
   ```
 
 - **Tokens:** Firebase Bearer token + Cloudflare cookies extracted from a live browser session (see "Authentication" section below)
 
-If you do not have a GetYourGuide supplier account, this skill does not apply. If the supplier ID is absent from `~/.config/magazines/config.ini`, pause and let the user know: "Add your supplier ID to `~/.config/magazines/config.ini` under `[supplier.getyourguide.com] supplier_id`. This file is not part of the shared aesop repository - create it locally."
+If you do not have a GetYourGuide supplier account, this skill does not apply. If the snippet reports no `supplier_id`, stop there and let the user know: "Add your supplier ID to `~/.config/magazines/config.ini` under `[supplier.getyourguide.com] supplier_id`. This file is not part of the shared aesop repository - create it locally."
 
 ## Capabilities
 

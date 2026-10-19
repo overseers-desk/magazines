@@ -34,7 +34,7 @@ browser-serialiser ihg.com/login "${CRED[@]}" --stays    # + stays and points-ac
 browser-serialiser ihg.com/login --check                 # probe the sign-in form, do not submit
 ```
 
-The reader disables ConfigParser interpolation, without which a literal `%` in the password raises `InterpolationSyntaxError` and silently yields an empty one. An empty value back from `ini` means the key is unset; report the missing prerequisite rather than submitting a blank form.
+The reader disables ConfigParser interpolation, without which a literal `%` in the password raises `InterpolationSyntaxError` and silently yields an empty one. A key `ini` finds unset arrives as an empty argument, and the skill then stops before opening the site and names the `[ihg.com]` key it lacks; pass that to the user as the missing prerequisite.
 
 The account summary emits the IHG One Rewards member number on its own `Member #:` line (parsed from the account-mgmt home page's "Member #" label), then the raw page-text dump that carries name, tier and points balance.
 

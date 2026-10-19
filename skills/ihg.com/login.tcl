@@ -188,6 +188,15 @@ proc serialiser_run {skillArgs} {
         return
     }
     lassign $positional username password
+    # An unset config.ini key arrives as "": name it rather than submit a blank form.
+    set missing {}
+    foreach key {username password} val [list $username $password] {
+        if {$val eq ""} { lappend missing $key }
+    }
+    if {[llength $missing]} {
+        emit "ERROR: ~/.config/magazines/config.ini has no \[ihg.com\] [join $missing {, }]"
+        return
+    }
 
     set err [ihg::do_login $username $password]
     if {$err ne ""} { emit $err; return }
