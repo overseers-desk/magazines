@@ -54,11 +54,12 @@ if [ -z "$KEY" ] || [ "$KEY" = "<API-KEY>" ]; then
   exit 3
 fi
 
+# The token header goes in on stdin, so ps never shows it in curl's argv.
 curl -s -m 25 --get "https://api.search.brave.com/res/v1/web/search" \
   --data-urlencode "q=$Q" \
   --data-urlencode "count=$N" \
   -H "Accept: application/json" \
-  -H "X-Subscription-Token: $KEY" \
+  -H @- <<<"X-Subscription-Token: $KEY" \
 | Q="$Q" python3 -c "
 import sys,os,json,re,html
 q=os.environ.get('Q','')
