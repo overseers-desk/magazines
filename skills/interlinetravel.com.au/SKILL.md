@@ -87,7 +87,7 @@ The search API does not distinguish domestic from international cruises. Many Au
 
 ## Authentication
 
-The script authenticates automatically using credentials from `~/.config/magazines/config.ini` (`[interlinetravel.com.au]` email / password). Auth flow: CSRF token → login with email/password → session cookies with JWT. Sessions are cached for 2 hours in `/tmp/interline-travel-cookies.json` to avoid rate limiting on the auth endpoint.
+The script authenticates automatically using credentials from `~/.config/magazines/config.ini` (`[interlinetravel.com.au]` email / password). Auth flow: CSRF token → login with email/password → session cookies with JWT. Sessions are cached for 2 hours in `~/.cache/magazines/interlinetravel.com.au/cookies.json`, readable by the owner only, to avoid rate limiting on the auth endpoint.
 
 ## API details
 

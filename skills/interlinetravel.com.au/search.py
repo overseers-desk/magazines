@@ -31,7 +31,7 @@ Search options:
     --json                   Output raw JSON
 """
 
-import sys, json, os, argparse, urllib.request, urllib.parse, http.cookiejar, tempfile, time
+import sys, json, os, argparse, urllib.request, urllib.parse, http.cookiejar, time
 import configparser
 from pathlib import Path
 
@@ -39,7 +39,7 @@ BASE = "https://interlinetravel.com.au"
 CRUISE_URL = "https://interlinetravel.com.au/cruise"
 # Tested against interlinetravel.com.au on 2026-10-04.
 UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
-_COOKIE_FILE = Path(tempfile.gettempdir()) / "interline-travel-cookies.json"
+_COOKIE_FILE = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "magazines" / "interlinetravel.com.au" / "cookies.json"
 _COOKIE_MAX_AGE = 3600 * 2  # reuse session for 2 hours
 
 def _load_creds():
@@ -76,7 +76,11 @@ def _save_cookies(cj):
     for c in cj:
         cookies.append({"name": c.name, "value": c.value, "domain": c.domain,
                          "path": c.path, "expires": c.expires})
-    _COOKIE_FILE.write_text(json.dumps({"time": time.time(), "cookies": cookies}))
+    _COOKIE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(_COOKIE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(json.dumps({"time": time.time(), "cookies": cookies}))
 
 def _load_cookies(cj):
     if not _COOKIE_FILE.exists():
