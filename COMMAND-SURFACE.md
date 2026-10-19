@@ -62,7 +62,10 @@ process argument list without an agent reading it. An agent that opens
 `config.ini` instead, or prints a value and retypes it, copies the credential
 into the conversation and out to the model provider, where the file's own
 permissions no longer protect it. Absent key or absent section yields the
-empty string, which a skill reports as a missing prerequisite.
+empty string, which a skill reports as a missing prerequisite. A skill taking
+a password or PIN this way carries the line `# serialiser: secret-args`, so the
+diagnostics log, which any local user can read, records only how many
+arguments it got.
 
 Two properties of the reader carry weight. `interpolation=None` keeps a literal
 `%` in a password from raising `InterpolationSyntaxError` and silently yielding

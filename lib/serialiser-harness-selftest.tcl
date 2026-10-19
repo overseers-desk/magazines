@@ -144,6 +144,10 @@ foreach {name body} {
             emit "no-error"
         }
     }
+    secret-login {
+        # serialiser: secret-args
+        proc serialiser_run {skillArgs} { emit ok }
+    }
     api-drift {
         # A covering nav on the granted site, then an api naming another site.
         proc serialiser_run {skillArgs} {
@@ -259,6 +263,26 @@ if {[dict get $r emitted] ne "beforeafter"} {
     fail "an unpaired surrogate half should be dropped, got [dict get $r emitted]"
 }
 puts "PASS an unpaired surrogate half is dropped"
+
+# --- the run line: a skill marked secret-args logs its argument count, not
+# --- its arguments; an unmarked one keeps its argv for a post-mortem.
+set logDir [file join $skillDir log]
+serialiser::setLogDir $logDir
+serialiser::Log run [serialiser::LogArgs [file join $skillDir secret-login.tcl] \
+    {fake.member@example.org FAKE-PASSWORD-123 --stays}]
+serialiser::Log run [serialiser::LogArgs [file join $skillDir nav-each.tcl] \
+    {https://example.org/q}]
+serialiser::setLogDir ""
+set ch [open [file join $logDir skill.log] r]
+set logged [read $ch]
+close $ch
+if {[string first FAKE-PASSWORD-123 $logged] >= 0 || [string first argc=3 $logged] < 0} {
+    fail "a secret-args skill's arguments reached the log: $logged"
+}
+if {[string first argv=https://example.org/q $logged] < 0} {
+    fail "an unmarked skill's argv is missing from the log: $logged"
+}
+puts "PASS a secret-args skill logs its argument count, not its arguments"
 
 file delete -force $skillDir
 puts "all serialiser-harness confinement cases passed"

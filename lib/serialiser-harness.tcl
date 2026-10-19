@@ -119,6 +119,20 @@ proc serialiser::LogUrl {url} {
     return $m
 }
 
+# The skill args as a log line records them. A skill whose source carries the
+# line `# serialiser: secret-args` takes a password or PIN as an argument, so
+# only the count is recorded; so is it for a source that cannot be read.
+proc serialiser::LogArgs {skillPath skillArgs} {
+    if {[catch {
+        set f [open $skillPath r]
+        set src [read $f]
+        close $f
+    }] || [regexp -line {^\s*# serialiser: secret-args\s*$} $src]} {
+        return "argc=[llength $skillArgs]"
+    }
+    return "argv=[join $skillArgs { }]"
+}
+
 # Resolve a skill reference to an absolute .tcl path inside the trusted skill
 # tree, refusing anything that escapes it.
 #

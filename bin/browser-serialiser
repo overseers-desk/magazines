@@ -785,7 +785,7 @@ proc run_standalone {skillRef skillArgs} {
     set launchPid ""
     set rc 0
     set out ""
-    serialiser::Log run "ref=$skillRef port=$port udd=$udd argv=[join $skillArgs { }]"
+    serialiser::Log run "ref=$skillRef port=$port udd=$udd [serialiser::LogArgs $skillPath $skillArgs]"
     tray::init
     tray::waiting "queued for browser"
     if {[catch {

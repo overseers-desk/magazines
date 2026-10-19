@@ -15,6 +15,8 @@
 # The safe interp cannot read config.ini, so credentials arrive as skill args;
 # the caller reads ~/.config/magazines/config.ini [ihg.com] and passes them.
 # Note: usernames may be a member number, an email, or a username.
+#
+# serialiser: secret-args
 
 package require json
 

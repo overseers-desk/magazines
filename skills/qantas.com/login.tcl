@@ -17,6 +17,8 @@ exec "$(command -v tclsh9.0 || command -v tclsh)" "$0" "$@"
 #   - Direct tclsh (legacy, CDP_WS_URL from the harness/overseer relay),
 #     credentials from ~/.config/magazines/config.ini:
 #         browser-serialiser qantas.com/login [--json|--check]
+#
+# serialiser: secret-args
 
 package require json
 
