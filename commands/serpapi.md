@@ -1,5 +1,5 @@
 ---
-description: "Google Maps places and review timelines; Google Flights or Hotels to cross-check an OTA price. Web search only when brave-search fails."
+description: "Google Maps places and a third party's review timeline; Google Flights or Hotels to cross-check an OTA price. Web search only when brave-search fails."
 argument-hint: <search request, e.g. maps \"restaurants near New York\", or leave empty to be prompted>
 allowed-tools: Bash, Read, Write
 ---
@@ -16,7 +16,7 @@ Search request (the command argument): **$ARGUMENTS**. Pick the matching subcomm
 
 **Web search:** brave-search comes first. Use SerpAPI Google Search only when brave-search returns an error or nothing usable; each search spends the monthly quota that Maps and Flights also draw on.
 
-**Maps:** SerpAPI is the primary tool for places and review timelines.
+**Maps:** SerpAPI is the primary tool for places and a third party's review timeline. Your own business's reviews, and replies to them, are `crude-business-profile` (the crude command).
 
 ## Prerequisites
 

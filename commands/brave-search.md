@@ -24,4 +24,4 @@ The subscription token is read from `${XDG_CONFIG_HOME:-$HOME/.config}/magazines
 
 - One invocation is one API request against the monthly quota; the free plan allows 2,000 requests per month at 1 request per second. Space bulk sweeps accordingly and watch for HTTP 429.
 - Quote the whole query as a single argument. Brave supports `site:` and quoted-phrase operators.
-- For Google-specific verticals (Flights, Maps, Hotels, review timelines) use the serpapi command instead.
+- For Google-specific verticals (Flights, Maps, Hotels, a third party's review timeline) use the serpapi command instead; your own business's reviews are the crude command.
