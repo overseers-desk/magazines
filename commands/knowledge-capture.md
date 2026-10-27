@@ -21,9 +21,11 @@ This command orchestrates; it does not drive a browser itself.
 
 If the recording platform's skill is unavailable, halt and report a setup issue rather than improvising with raw browser commands.
 
-## Model routing
+## Model routing and parallelism
 
-Classification, correction and entity resolution want Sonnet. Under Opus or any non-Sonnet main session, delegate the whole run to a Sonnet subagent, passing the capture scope and a pointer to this command so the subagent reads these steps and runs them. Escalations to `find-person` are the subagent's to make.
+Recordings are independent of each other until they reach shared state, so each recording's §3.1–3.6 runs in its own Sonnet subagent, all of them launched in one message. Classification, correction and entity resolution want Sonnet whatever model the launching session runs. Pass each subagent the recording id, the precis set from Step 1, the titles and dates of the batch's other recordings, and a pointer to this command so it reads these steps. It writes its two files and returns the file stem, the owning business, the glossary entries it proposes under §3.7, and its lines for the Step 4 report. Escalations to `find-person` are the subagent's to make.
+
+The launching session keeps Steps 1, 2 and 4 and the shared-state tail, §3.7–3.9, which it applies one recording at a time as subagents return: the glossary is one file per repo and a commit takes the repo's index lock, so concurrent writers collide. Before committing, it links any reference a subagent left unmatched where it names another recording of the same batch, whose stem is now known.
 
 ## Step 1 — discover the businesses
 
@@ -35,11 +37,13 @@ List recordings at page size 100. Keep those whose `created_at` falls inside the
 
 ## Step 3 — per recording
 
+§3.1–3.6 run in the recording's subagent and §3.7–3.9 in the launching session (see Model routing and parallelism).
+
 ### 3.1 Fetch and classify
 
 Fetch the transcript. Read it against the precis set and decide the single owning business, applying the subject-versus-context rule each precis carries: the business the meeting is *about* owns it, even where another appears as a venue or as a speaker's other venture.
 
-No business matches (school, medical, family, or no business at all): skip, writing and renaming nothing, and report it as not business. Exactly one: proceed. Two or more co-equal subjects: ask the user which owns it; unattended, take the most central subject and record the secondary business in the staging frontmatter and the report.
+No business matches (school, medical, family, or no business at all): skip, writing and renaming nothing, and report it as not business. Exactly one: proceed. Two or more co-equal subjects: take the most central subject and record the secondary business in the staging frontmatter and the report. The launching session puts the choice to the user before committing when the user is present.
 
 ### 3.2 Already-captured check
 
@@ -119,7 +123,7 @@ The summary and the `problems` entries attribute any suspicion, allegation or pr
 
 The glossary is loaded whole into every later capture, so it is a working reference and not a register of everyone the business has met. An entity earns a line by being likely to recur: a colleague, a supplier or counterparty the business deals with repeatedly, someone influential, a term the speakers use often. A customer named once, an entity the transcript can barely identify, and a mishearing that arose from one speaker stumbling over a word all stay out, however confidently resolved — they cost every future capture context and buy nothing back.
 
-An entity that clears the bar goes into the owning repo's `capture-correction-index.md`, in the section its type belongs to, carrying the mishearings this transcript produced and a short note of what confirmed it. The next capture then gets it from rung zero. Add only confirmed entities; a term still uncertain stays in the run report.
+The subagent judges the bar and proposes the entries; the launching session writes them. An entity that clears the bar goes into the owning repo's `capture-correction-index.md`, in the section its type belongs to, carrying the mishearings this transcript produced and a short note of what confirmed it. The next capture then gets it from rung zero. Add only confirmed entities; a term still uncertain stays in the run report.
 
 ### 3.8 Commit
 
