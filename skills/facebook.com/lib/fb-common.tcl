@@ -165,13 +165,16 @@ proc fb::main_region {html} {
 }
 
 # True when the document is Facebook's answer for a reference it has no page
-# for: the signed-in shell whose content region holds only the notice. The
-# title does not tell, since a rendered timeline also captures with the bare
-# "Facebook" title, and a post whose attachment is gone carries its own
-# "isn't available at the moment" line, which is not this.
+# for: the signed-in shell whose content region holds the notice with its
+# Go to Feed / Go back buttons. The title does not tell, since a rendered
+# timeline also captures with the bare "Facebook" title; and the notice alone
+# does not either, since a post whose attachment is gone carries the same
+# "isn't available at the moment" line inside a live timeline, without the
+# buttons.
 proc fb::page_absent {html} {
     set main [fb::main_region $html]
-    return [regexp {This (?:page|content) isn.t available(?: right now)?<} $main]
+    if {![regexp {This (?:page|content) isn.t available} $main]} { return 0 }
+    return [regexp {>Go (?:to Feed|back)<} $main]
 }
 
 # A JSON string value as text: \uXXXX with surrogate pairs joined, \/ and
@@ -236,6 +239,50 @@ proc fb::call_number {html} {
     if {[regexp {"ProfileActionCall","phone_number":\{"display_number":"((?:[^"\\]|\\.)*)"} $html -> n]} {
         return [fb::json_text $n]
     }
+    return ""
+}
+
+# Let a timeline settle before it is dumped: the posts hydrate after the load
+# event, so a fixed post-nav wait captures zero or one post. Polls until the
+# first post marker appears, scrolls until the marker count stops growing (or
+# max_rounds), then expands the posts' own "See more" buttons so the dump
+# carries full text. Serialiser path only: it speaks the eval/dwell verbs.
+# Returns the settled post count.
+proc fb::settle_posts {{max_rounds 6}} {
+    set js {(function(){return document.querySelectorAll('div[data-ad-preview="message"]').length})()}
+    set n 0
+    for {set i 0} {$i < 6} {incr i} {
+        if {![catch {eval $js} v] && [string is integer -strict $v] && $v > 0} { set n $v; break }
+        dwell 1.5
+    }
+    set last $n
+    set stable 0
+    for {set r 0} {$r < $max_rounds} {incr r} {
+        catch {eval {(function(){window.scrollTo(0,document.body.scrollHeight);return 1})()}}
+        dwell 1.5
+        if {[catch {eval $js} n] || ![string is integer -strict $n]} { set n $last }
+        if {$n == $last} {
+            incr stable
+            if {$stable >= 2} break
+        } else {
+            set stable 0
+            set last $n
+        }
+    }
+    set expanded 0
+    catch {set expanded [eval {(function(){var n=0;document.querySelectorAll('div[role="button"]').forEach(function(b){if(b.textContent==='See more'){b.click();n++}});return n})()}]}
+    if {[string is integer -strict $expanded] && $expanded > 0} { dwell 1 }
+    return $n
+}
+
+# The owner a profile reference names: the numeric id where the ref carries
+# one, the handle otherwise. What the caller asked for is the page the
+# report is about, so self-links are excluded against it.
+proc fb::owner_from_ref {ref} {
+    set u [fb::profile_url $ref]
+    if {[regexp {profile\.php\?id=(\d+)} $u -> id]} { return $id }
+    if {[regexp {facebook\.com/(\d+)(?:[/?#]|$)} $u -> id]} { return $id }
+    if {[regexp {facebook\.com/([A-Za-z0-9.]+)} $u -> h]} { return $h }
     return ""
 }
 

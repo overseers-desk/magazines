@@ -85,7 +85,7 @@ proc keyword_search_html {html keywords} {
     set ncp [llength $cps]
 
     puts "Profile: [fb::name_from_title $title]"
-    puts "HTML size: [fb::commafy $ncp] bytes"
+    puts "Content region: [fb::commafy $ncp] bytes"
     puts ""
 
     set found_any 0
@@ -169,6 +169,7 @@ proc serialiser_run {skillArgs} {
         emit [envelope_fault "login_wall: Facebook session expired. Log in via a Chrome-compatible browser first."]
         return
     }
+    fb::settle_posts
     set html [dump]
     emit [fb::report out { keyword_search_html $html $keywords }]
 }

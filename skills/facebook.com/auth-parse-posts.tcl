@@ -40,12 +40,15 @@ proc parse_posts_html {html owner_id} {
     }
 
     puts "Profile: $name"
-    puts "HTML size: [fb::commafy [fb::cp_length $html]] bytes"
+    puts "Content region: [fb::commafy [fb::cp_length $main]] bytes"
 
+    set html $main
+    # The guess is for the legacy file path, whose caller named no owner; the
+    # serialiser path passes the owner its target ref names. Guessed from the
+    # content region, where the chrome's own profile links cannot win the count.
     if {$owner_id eq ""} {
         set owner_id [detect_owner_id $html]
     }
-    set html $main
     if {$owner_id ne ""} {
         puts "Owner ID: $owner_id"
     }
@@ -351,11 +354,13 @@ proc serialiser_run {skillArgs} {
         emit [envelope_fault "Usage: facebook.com/auth-parse-posts <handle|profile-url> \[--owner-id ID\]"]
         return
     }
+    if {$owner_id eq ""} { set owner_id [fb::owner_from_ref $target] }
     nav [fb::profile_url $target] --wait 5
     if {[dict get [state] terminal] ne ""} {
         emit [envelope_fault "login_wall: Facebook session expired. Log in via a Chrome-compatible browser first."]
         return
     }
+    fb::settle_posts
     set html [dump]
     emit [fb::report out { parse_posts_html $html $owner_id }]
 }
