@@ -30,15 +30,17 @@ Before invoking any DM-content script (§9, and any future script whose filename
 
 The internal refusal gate inside §9 is a backstop. A run without prior disclosure violates the policy even if the script would have refused anyway.
 
-## 1-2. Search via the topsearch JSON endpoint
+## 1-2. Search accounts, hashtags and places
 
-Instagram's rendered search page (`/explore/search/keyword/?q=...`) is GraphQL-hydrated and stays empty within a reasonable time budget. The internal endpoint `/web/search/topsearch/?query=...`, authenticated, returns clean JSON directly. The script navigates there, reads the JSON body, and prints the parsed report in one step:
+The script types the terms into the search page's box and reads the type-ahead results the page itself fetches, then prints the parsed report in one step:
 
 ```bash
 browser-serialiser instagram.com/auth-parse-search SEARCH TERMS
 ```
 
-Pass terms as plain arguments (the script URL-encodes them). The topsearch response contains `users[]`, `hashtags[]`, and `places[]`. Each user includes `username`, `full_name`, `is_verified`, `is_private`, and (where applicable) `social_context` listing mutual followers — useful signal for disambiguation. The output is a ranked list of candidate handles with display name, verified/private flags, profile URL, and mutual-followers context.
+Pass terms as plain arguments. The type-ahead response contains `users[]`, `hashtags[]`, and `places[]`. Each user includes `username`, `full_name`, `is_verified`, and (where applicable) a mutual-followers line, a useful signal for disambiguation. The output is a ranked list of candidate handles with display name, verified flag, profile URL, and mutual-followers context. Instagram's type-ahead matches handles more readily than spaced phrases: "summerlandcamels" finds `@summerlandcamels`, while "summerland camels" returned no users (2026-10-29). A run where the box fetched nothing is a fault, not an empty result.
+
+The REST route `/web/search/topsearch/` answers Instagram's "Page Not Found" page (observed 2026-10-29), and the keyword results page (`/explore/search/keyword/`) lists posts, its accounts unit arriving empty.
 
 ## 3-4. Fetch and parse a profile
 

@@ -1,17 +1,19 @@
 #!/usr/bin/env tclsh
-# Parse Instagram topsearch JSON response.
+# Search Instagram accounts, hashtags and places, and report them.
 #
 # Serialiser path (see SKILL.md §1-2): browser-serialiser instagram.com/auth-parse-search <search terms>
-#   navigates to /web/search/topsearch/, dumps the JSON body, and emits the report.
+#   types the terms into the search page's box and reports the type-ahead
+#   results the page itself fetches.
 # Direct path (legacy, file-fed): tclsh auth-parse-search.tcl <json-file>
 #
-# Instagram's web search page is GraphQL-hydrated and does not populate results
-# in a headless DOM dump within a reasonable virtual-time budget. The internal
-# endpoint /web/search/topsearch/?query=X, when fetched with an authenticated
-# session, returns clean JSON directly and is the primitive this script expects.
+# The search box's type-ahead query (xdt_api__v1__fbsearch__topsearch_connection)
+# carries users[], hashtags[] and places[] in the shape the old REST route
+# /web/search/topsearch/ returned; that route answers Instagram's "Page Not
+# Found" page (observed 2026-10-29). The keyword results page
+# (/explore/search/keyword/) carries posts, and its accounts unit arrives empty.
 #
-# The file may be pure JSON or HTML-wrapped (headless --dump-dom wraps the JSON
-# body in <html><body><pre>...). This script handles both.
+# The legacy file may be pure JSON or HTML-wrapped (headless --dump-dom wraps a
+# JSON body in <html><body><pre>...). This script handles both.
 
 package require json
 
@@ -155,17 +157,32 @@ proc serialiser_run {skillArgs} {
         emit [envelope_fault "Usage: instagram.com/auth-parse-search <search terms>"]
         return
     }
-    set q [string map {" " %20} $terms]
-    nav "https://www.instagram.com/web/search/topsearch/?query=$q" --wait 4
+    capture "https://www.instagram.com/explore/search/" --seconds 6 --match {*graphql*}
     if {[dict get [state] terminal] ne ""} {
         emit [envelope_fault "login_wall: the session redirected to /accounts/login/. Log in via a Chrome-compatible browser first."]
         return
     }
-    set raw [dump]
-    set diag {}
-    set data [parse_payload $raw [list lappend diag]]
+    # Focus by script: a click on the box leaves the typed text unplaced.
+    set focused [eval {(() => { const i = document.querySelector('input[type=text]');
+        if (!i) return false; i.focus(); return document.activeElement === i; })()}]
+    if {$focused ne "true"} {
+        emit [envelope_fault "the search page offered no search box to type into"]
+        return
+    }
+    type $terms
+    set conn xdt_api__v1__fbsearch__topsearch_connection
+    set data ""
+    for {set i 0} {$i < 4 && $data eq ""} {incr i} {
+        dwell 2
+        foreach r [harvest --match {*graphql*}] {
+            set body [lindex $r 2]
+            if {[string first $conn $body] < 0} continue
+            if {[catch {json::json2dict $body} d]} continue
+            if {[dict exists $d data $conn]} { set data [dict get $d data $conn] }
+        }
+    }
     if {$data eq ""} {
-        emit [envelope_fault "the search payload did not parse: [join $diag {; }]"]
+        emit [envelope_fault "the search box fetched no results for \"$terms\""]
         return
     }
     emit [envelope_ok [dict create result [json::write string [render_search_report $data]]]]
