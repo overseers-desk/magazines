@@ -680,11 +680,18 @@ proc serialiser_delegate {skillRef skillArgs} {
         set f [dict get $resp fault]
         set shape [expr {[dict exists $f shape] ? [dict get $f shape] : "skill"}]
         set detail [expr {[dict exists $f detail] ? [dict get $f detail] : ""}]
-        if {$shape eq "terminal"} {
-            if {$detail in {logged-out checkpoint}} {
-                die_no_session [file dirname $skillRef] $detail
+        # The overseer names the fault's kind; each kind keeps its documented exit
+        # code, so a caller can tell a browser that never came up (78) or a
+        # signed-out site (77) from the skill's own error (65).
+        switch -- $shape {
+            terminal {
+                if {$detail in {logged-out checkpoint}} {
+                    die_no_session [file dirname $skillRef] $detail
+                }
+                die 66 "terminal $detail"
             }
-            die 66 "terminal $detail"
+            signed-out { die_no_session [file dirname $skillRef] logged-out }
+            launch     { die 78 "browser launch failed: $detail" }
         }
         die 65 "overseer skill fault: $detail"
     }
