@@ -81,6 +81,12 @@ python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py flights LHR BNE 2026-05
 python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py search "best noise cancelling headphones 2026"
 ```
 
+Without `--gl`, Google answers as google.com, whatever `--location` says. For the results a buyer in a given country sees, pass the country and its domain:
+
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/commands/serpapi/search.py search "ride on mower" --location "Gold Coast, Queensland, Australia" --gl au --domain google.com.au
+```
+
 ### Google Maps
 
 ```bash

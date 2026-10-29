@@ -270,6 +270,10 @@ def cmd_search(args):
     }
     if args.location:
         params["location"] = args.location
+    if args.gl:
+        params["gl"] = args.gl
+    if args.domain:
+        params["google_domain"] = args.domain
 
     data = serpapi_request(params, args.fresh)
 
@@ -468,6 +472,8 @@ def main():
     sp.add_argument("query", help="Search query")
     sp.add_argument("--num", type=int, default=10, help="Number of results")
     sp.add_argument("--location", help="Location for local results")
+    sp.add_argument("--gl", help="Country code for the results (e.g. au); without it Google answers as google.com")
+    sp.add_argument("--domain", help="Google domain to query (e.g. google.com.au)")
 
     # maps
     mp = sub.add_parser("maps", parents=[common], help="Google Maps search")
