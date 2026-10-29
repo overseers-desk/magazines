@@ -52,7 +52,7 @@ proc serialiser_run {skillArgs} {
     }
     set user_id $uid
 
-    set items [ig::sv_fetch_feed $user_id $limit]
+    set items [ig::sv_fetch_feed $handle $limit]
     if {![llength $items]} {
         emit [envelope_ok [dict create result [ig::render_posts_result \
             [dict create handle $handle user_id $user_id post_count 0 \

@@ -155,8 +155,8 @@ proc render_expand {input_handles posts_per_handle candidates} {
 # ---------------------------------------------------------------------------
 # Serialiser entry: walk each handle over the policed surface, reusing the
 # library's sv_resolve_user_id / sv_fetch_feed, and the shared accumulate/rank
-# helpers. nav to the IG home is the session check; each handle's profile nav is
-# the covering view for that handle's feed api (inside sv_resolve_user_id).
+# helpers. nav to the IG home is the session check; each handle's posts come from
+# its own profile page (sv_fetch_feed).
 # ---------------------------------------------------------------------------
 
 proc sv_expand_handles {handles posts_per_handle} {
@@ -171,8 +171,7 @@ proc sv_expand_handles {handles posts_per_handle} {
             puts stderr "  skipped: [dict get $uid error]"
             continue
         }
-        set user_id $uid
-        set items [ig::sv_fetch_feed $user_id $posts_per_handle]
+        set items [ig::sv_fetch_feed $handle $posts_per_handle]
         set posts [ig::parse_media_items $items]
         puts stderr "  fetched [llength $posts] posts"
         accumulate_post_signals candidates $input_lower $handle $posts

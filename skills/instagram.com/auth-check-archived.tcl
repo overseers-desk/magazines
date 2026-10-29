@@ -2,7 +2,7 @@
 # check-archived: decide whether one or more Instagram posts are ARCHIVED.
 #
 # An archived Instagram post is removed from the owner's public profile grid
-# (the feed/user listing) yet stays reachable at its permalink by the logged-in
+# yet stays reachable at its permalink by the logged-in
 # owner, who sees it only in the Archive section. So neither signal alone is
 # enough: the permalink DOM of an archived post renders just like a live one,
 # and the grid simply omits it (indistinguishable from a deleted or
@@ -29,8 +29,8 @@
 # "absent from grid + permalink renders = archived" inference only holds when
 # absence means "not in the listing", not "beyond how far we paged". So the grid
 # is paged to exhaustion by default (--grid-limit is a high safety ceiling, not
-# the normal stop). The output carries grid_complete: when true (paging hit
-# more_available=false), an absent-yet-rendering post is reported archived=true;
+# the normal stop). The output carries grid_complete: when true (the timeline
+# reported no next page), an absent-yet-rendering post is reported archived=true;
 # when false (an account so large the ceiling was reached first), such a post is
 # reported archived=null (inconclusive) rather than risk a false positive, and
 # the caller may raise --grid-limit. grid_count and grid_oldest_iso are reported
@@ -144,8 +144,9 @@ proc ca_verdict {shortcode gridIdx gridOldest html} {
     # Permalink renders but absent from grid: the archived signature, UNLESS the
     # post predates the fetched grid depth, in which case "absent" is just beyond
     # reach and the verdict is inconclusive. We cannot read the permalink's own
-    # taken_at from the DOM cheaply, so we gate on grid reach: if the grid hit no
-    # more_available (its oldest is the true oldest) the absence is authoritative.
+    # taken_at from the DOM cheaply, so we gate on grid reach: if the timeline
+    # reported no next page (its oldest is the true oldest) the absence is
+    # authoritative.
     return [dict create shortcode $shortcode archived 1 \
         permalink_exists 1 in_grid 0 grid_taken_at_iso "" \
         reason "permalink renders for owner but shortcode absent from grid (archived)"]
@@ -184,9 +185,8 @@ proc ca_render {handle gridCount gridOldest gridComplete rows} {
 
 # ---------------------------------------------------------------------------
 # Serialiser entry: resolve the handle, fetch the grid once, then nav each
-# permalink and dump its DOM. View-before-fetch is satisfied: sv_resolve_user_id
-# navs the profile (covering the feed api), and each permalink nav covers its own
-# dump.
+# permalink and dump its DOM. The grid is the profile page's own (sv_fetch_feed
+# captures it), and each permalink nav covers its own dump.
 # ---------------------------------------------------------------------------
 
 proc serialiser_run {skillArgs} {
@@ -217,14 +217,14 @@ proc serialiser_run {skillArgs} {
         emit [envelope_fault [dict get $uid error]]
         return
     }
-    set gridItems [ig::sv_fetch_feed $uid $grid_limit]
+    set gridItems [ig::sv_fetch_feed $handle $grid_limit gridMore]
     set gridPosts [ig::parse_media_items $gridItems]
     set gi [ca_grid_index $gridPosts]
     set gridIdx [dict get $gi set]
     set gridOldest [dict get $gi oldest]
     # The grid is complete (its absence is authoritative for ANY age) only when
-    # paging stopped on exhaustion, not on the limit cap.
-    set gridComplete [expr {[llength $gridItems] < $grid_limit}]
+    # the timeline reported no next page, not on the limit cap or a stalled scroll.
+    set gridComplete [expr {!$gridMore}]
 
     set rows {}
     foreach code $codes {

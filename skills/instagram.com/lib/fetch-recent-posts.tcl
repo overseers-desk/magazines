@@ -707,8 +707,7 @@ proc ig::api_headers {} {
 }
 
 # Resolve a handle to its numeric user_id over the policed surface: nav to the
-# profile (the covering view for the feed api), then read the id out of the
-# page the nav already fetched. Returns the user_id string or a dict {error ...}.
+# profile, then read the id out of the page the nav already fetched. Returns the user_id string or a dict {error ...}.
 #
 # Two fields in that page look alike and only one is the profile's. A bare
 # "user_id" in an inline script belongs to the SIGNED-IN VIEWER, so matching it
@@ -770,36 +769,51 @@ proc ig::sv_resolve_user_id {handle} {
     return [dict create error "Could not determine user_id for @$handle"]
 }
 
-# Page the user feed over the policed api verb (the harness paces and bounds it),
-# returning the raw items list, identical in shape to the legacy paginator.
-proc ig::sv_fetch_feed {user_id limit} {
+# Page a profile's grid the way the profile page does: capture the page, whose
+# own GraphQL query (xdt_api__v1__feed__user_timeline_graphql_connection) carries
+# twelve items in the REST item shape, then scroll for each further page while
+# the connection reports one. The REST feed, /api/v1/feed/user/<id>/, answers
+# Instagram's HTML 404 page (observed 2026-10-29; last JSON 2026-09-20). Returns
+# the raw items list; $moreVar, when named, is set to whether the timeline still
+# reported a next page where reading stopped (1 also when scrolling stalled).
+proc ig::sv_fetch_feed {handle limit {moreVar ""}} {
+    if {$moreVar ne ""} { upvar 1 $moreVar more }
     set items {}
-    set max_id ""
-    set page_num 0
-    while {[llength $items] < $limit} {
-        incr page_num
-        set params "count=12"
-        if {$max_id ne ""} { append params "&max_id=$max_id" }
-        set body [api "/api/v1/feed/user/$user_id/" \
-            --params $params --headers [ig::api_headers]]
-        if {[catch {json::json2dict $body} page]} {
-            puts stderr "Page $page_num: response was not JSON; stopping."
-            break
-        }
-        set page_items [ig::dget $page items {}]
-        if {![llength $page_items]} {
-            puts stderr "Page $page_num returned no items; stopping."
-            break
-        }
-        foreach it $page_items { lappend items $it }
-        puts stderr "Page $page_num: [llength $page_items] items (cumulative [llength $items])"
-        if {[ig::dget $page more_available false] ne "true"} { break }
-        set max_id [ig::dget $page next_max_id ""]
-        if {$max_id eq ""} { break }
-        if {[llength $items] >= $limit} { break }
+    set more [ig::sv_take_timeline \
+        [capture "https://www.instagram.com/$handle/" --seconds 8 --match {*graphql*}] items 0]
+    set idle 0
+    while {[llength $items] < $limit && $more && $idle < 3} {
+        eval {window.scrollTo(0, document.body.scrollHeight)}
+        dwell 2
+        set n [llength $items]
+        set more [ig::sv_take_timeline [harvest --match {*graphql*}] items $more]
+        if {[llength $items] == $n} { incr idle } else { set idle 0 }
     }
-    if {[llength $items] > $limit} {
-        set items [lrange $items 0 [expr {$limit - 1}]]
+    if {[llength $items] > $limit} { set more 1 }
+    log "feed @$handle: [llength $items] items, more=$more"
+    return [lrange $items 0 [expr {$limit - 1}]]
+}
+
+# Append the nodes of every timeline page among captured {url status body}
+# triples to the caller's $itemsVar, skipping a pk already held. Returns the
+# last page's has_next_page, or $more when no timeline page was among them.
+proc ig::sv_take_timeline {captured itemsVar more} {
+    upvar 1 $itemsVar items
+    set seen {}
+    foreach it $items { dict set seen [ig::dget $it pk ""] 1 }
+    foreach r $captured {
+        set body [lindex $r 2]
+        if {[string first user_timeline_graphql_connection $body] < 0} continue
+        if {[catch {json::json2dict $body} d]} continue
+        set conn [ig::dget [ig::dget $d data {}] xdt_api__v1__feed__user_timeline_graphql_connection {}]
+        foreach e [ig::dget $conn edges {}] {
+            set node [ig::dget $e node {}]
+            set pk [ig::dget $node pk ""]
+            if {$pk eq "" || [dict exists $seen $pk]} continue
+            dict set seen $pk 1
+            lappend items $node
+        }
+        set more [expr {[ig::dget [ig::dget $conn page_info {}] has_next_page false] eq "true"}]
     }
-    return $items
+    return $more
 }

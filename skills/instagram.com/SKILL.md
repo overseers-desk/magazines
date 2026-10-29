@@ -79,7 +79,7 @@ browser-serialiser instagram.com/auth-fetch-recent-posts posts HANDLE
 browser-serialiser instagram.com/auth-fetch-recent-posts posts HANDLE --limit 50
 ```
 
-Default limit is 12. Pagination via the feed API's `next_max_id` cursor happens automatically when `--limit` exceeds 12. The script navigates to the profile page once (the covering view), resolves the user_id from the `web_profile_info` API keyed on the username, falling back to profile-scoped inline JSON, then reads `/api/v1/feed/user/<user_id>/` via the policed `api` verb in a loop until the limit is reached or `more_available` is false.
+Default limit is 12. The posts come from the profile page's own GraphQL timeline query, twelve to a page: the script captures the profile and, when `--limit` exceeds 12, scrolls for further pages until the limit is reached or the timeline reports no next page. The REST feed `/api/v1/feed/user/<user_id>/` answers Instagram's HTML 404 page (observed 2026-10-29).
 
 (`--raw-out PATH`, which writes the unparsed feed items to a file, is a direct-tclsh-only option; the serialiser path's safe interpreter has no file access, so the parsed JSON on stdout is the only output there.)
 
@@ -214,13 +214,13 @@ Operational notes:
 
 ## 12. Archived-post check
 
-Decides whether one or more posts are ARCHIVED. An archived Instagram post is removed from the owner's public profile grid (the `feed/user` listing) but stays reachable at its permalink by the logged-in owner, who sees it only in the Archive section. Neither signal alone is enough: an archived post's permalink DOM renders just like a live one, and the grid omits it the same way it omits a deleted post. The discriminator is the cross-check — a post is archived when its permalink still renders the post AND its shortcode is absent from the grid feed.
+Decides whether one or more posts are ARCHIVED. An archived Instagram post is removed from the owner's public profile grid but stays reachable at its permalink by the logged-in owner, who sees it only in the Archive section. Neither signal alone is enough: an archived post's permalink DOM renders just like a live one, and the grid omits it the same way it omits a deleted post. The discriminator is the cross-check — a post is archived when its permalink still renders the post AND its shortcode is absent from the grid feed.
 
 ```bash
 browser-serialiser instagram.com/auth-check-archived HANDLE SHORTCODE[,SHORTCODE...] [--grid-limit N]
 ```
 
-The shortcode list is comma-separated; a full permalink (`.../reel/<code>/` or `/p/<code>/`) is also accepted and reduced to its shortcode. The grid is fetched ONCE per run and reused for every shortcode, so checking N posts costs one feed pagination plus N permalink navigations. The script resolves the handle to its user_id and pages `feed/user` the same way §6 does, then navigates each permalink and reads its rendered DOM (`dump`).
+The shortcode list is comma-separated; a full permalink (`.../reel/<code>/` or `/p/<code>/`) is also accepted and reduced to its shortcode. The grid is fetched ONCE per run and reused for every shortcode, so checking N posts costs one feed pagination plus N permalink navigations. The script reads the grid the same way §6 does, then navigates each permalink and reads its rendered DOM (`dump`).
 
 Per-post output fields:
 
@@ -230,7 +230,7 @@ Per-post output fields:
 - `grid_taken_at_iso` — the post's timestamp when it is in the grid, else null.
 - `reason` — a human sentence behind the verdict.
 
-Top-level fields: `grid_count`, `grid_oldest_iso`, and `grid_complete`. **Authoritative absence requires `grid_complete: true`** (paging reached `more_available=false`), because "absent from grid = archived" only holds when absence means "not in the listing", not "beyond how far we paged". So the grid pages to exhaustion by default; `--grid-limit` is a high safety ceiling for an account too large to exhaust in one session, not the normal stop. When the ceiling is hit first (`grid_complete: false`), an absent-yet-rendering post reports `archived: null` rather than risk a false positive — raise `--grid-limit` and re-run.
+Top-level fields: `grid_count`, `grid_oldest_iso`, and `grid_complete`. **Authoritative absence requires `grid_complete: true`** (the timeline reported no next page), because "absent from grid = archived" only holds when absence means "not in the listing", not "beyond how far we paged". So the grid pages to exhaustion by default; `--grid-limit` is a high safety ceiling for an account too large to exhaust in one session, not the normal stop. When the ceiling is hit first (`grid_complete: false`), an absent-yet-rendering post reports `archived: null` rather than risk a false positive — raise `--grid-limit` and re-run.
 
 The script does not write or modify any Instagram state.
 
