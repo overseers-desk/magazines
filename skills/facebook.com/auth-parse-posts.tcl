@@ -19,7 +19,10 @@ source [file join [file dirname [info script]] lib fb-common.tcl]
 # Parse from in-memory HTML (the serialiser path) instead of a file, so the
 # byte-identical extraction below has one home. The legacy file path reads the
 # file then calls this; the serialiser path dumps the DOM then calls this.
-proc parse_posts_html {html owner_id} {
+# $stamps is one {label permalink} per rendered post marker, in document
+# order (fb::post_stamps); empty on the legacy file path, where the dump's
+# obfuscated timestamp text cannot be read.
+proc parse_posts_html {html owner_id {stamps {}}} {
     set title [fb::title $html "NOT FOUND"]
     if {[fb::title_is_login $title]} {
         puts "ERROR: Facebook session expired. Log in via a Chrome-compatible browser first."
@@ -97,6 +100,12 @@ proc parse_posts_html {html owner_id} {
     foreach post $posts {
         incr i
         puts "=== POST $i ==="
+        set stamp [lindex $stamps [expr {$i - 1}]]
+        if {[llength $stamp]} {
+            lassign $stamp label iso url
+            if {$iso ne ""} { puts "  Date: $iso ($label)" }
+            if {$url ne ""} { puts "  Permalink: $url" }
+        }
         set content [dict get $post content]
         if {$content ne ""} {
             puts "  Content: $content"
@@ -361,8 +370,9 @@ proc serialiser_run {skillArgs} {
         return
     }
     fb::settle_posts
+    set stamps [fb::post_stamps]
     set html [dump]
-    emit [fb::report out { parse_posts_html $html $owner_id }]
+    emit [fb::report out { parse_posts_html $html $owner_id $stamps }]
 }
 
 # Direct-tclsh entry (legacy, file-fed). Skipped when sourced as a serialiser skill.

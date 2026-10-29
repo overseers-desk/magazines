@@ -275,6 +275,85 @@ proc fb::settle_posts {{max_rounds 6}} {
     return $n
 }
 
+# Each rendered post's timestamp, in document order, as the browser shows
+# it: the timestamp's DOM text is obfuscated with hidden characters, so the
+# visible text is read in the page rather than from the dump. Anchors are
+# gathered climbing out from the post's text marker, each level adding only
+# its own anchors, until one carries a date-looking label; the climb stops
+# at an ancestor holding a second post, whose dates belong to a neighbour.
+# The first label that resolves to a day wins. One row per post marker:
+# {label isoDate url}, all empty when no anchor label resolves. Serialiser
+# path only (speaks eval).
+proc fb::post_stamps {} {
+    set js {(function(){
+        var dateish=/^(\d+\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|wk|wks|week|weeks)\b|[A-Z][a-z]+ \d{1,2}\b|\d{1,2} [A-Z][a-z]+|Yesterday\b|Just now$)/;
+        var out=[];
+        document.querySelectorAll('div[data-ad-preview="message"]').forEach(function(p){
+            var root=p.parentElement, prev=p, cands=[], done=false;
+            for (var i=0; i<12 && root && !done; i++) {
+                if (root.querySelectorAll('div[data-ad-preview="message"]').length > 1) break;
+                var as=root.querySelectorAll('a[href]');
+                for (var j=0; j<as.length && cands.length<20; j++) {
+                    if (prev.contains(as[j])) continue;
+                    var t=(as[j].innerText||"").trim();
+                    if (!t || t.length>40) continue;
+                    cands.push({t:t,u:as[j].href});
+                    if (dateish.test(t)) { done=true; break }
+                }
+                prev=root;
+                root=root.parentElement;
+            }
+            out.push(cands);
+        });
+        return JSON.stringify(out);
+    })()}
+    if {[catch {eval $js} v]} { return {} }
+    if {[catch {json::json2dict $v} posts]} { return {} }
+    set out {}
+    foreach cands $posts {
+        set row [list "" "" ""]
+        foreach c $cands {
+            set t ""; set u ""
+            catch {set t [dict get $c t]}
+            catch {set u [dict get $c u]}
+            set iso [fb::date_from_label $t]
+            if {$iso ne ""} { set row [list $t $iso $u]; break }
+        }
+        lappend out $row
+    }
+    return $out
+}
+
+# A timestamp label as an ISO day: absolute forms with or without a year, in
+# either day-month order, and the relative forms a timeline shows. "" when
+# the label is no date. English month names; the session locale is what the
+# page renders in.
+proc fb::date_from_label {label {now ""}} {
+    if {$now eq ""} { set now [clock seconds] }
+    set l [string trim $label]
+    set months {january 1 february 2 march 3 april 4 may 5 june 6 july 7
+                august 8 september 9 october 10 november 11 december 12}
+    if {[regexp -nocase {^just now$|^now$} $l]} { return [clock format $now -format %Y-%m-%d] }
+    if {[regexp -nocase {^(\d+)\s*(?:m|min|mins|minutes?)(?:\s|$)} $l -> n]} { return [clock format [expr {$now - $n*60}] -format %Y-%m-%d] }
+    if {[regexp -nocase {^(\d+)\s*(?:h|hrs?|hours?)(?:\s|$)} $l -> n]} { return [clock format [expr {$now - $n*3600}] -format %Y-%m-%d] }
+    if {[regexp -nocase {^(\d+)\s*(?:d|days?)(?:\s|$)} $l -> n]} { return [clock format [expr {$now - $n*86400}] -format %Y-%m-%d] }
+    if {[regexp -nocase {^(\d+)\s*(?:w|wks?|weeks?)(?:\s|$)} $l -> n]} { return [clock format [expr {$now - $n*604800}] -format %Y-%m-%d] }
+    if {[regexp -nocase {^yesterday} $l]} { return [clock format [expr {$now - 86400}] -format %Y-%m-%d] }
+    set d ""; set mon ""; set y ""
+    if {[regexp -nocase {^(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?} $l -> d mon y]} {
+    } elseif {[regexp -nocase {^([A-Za-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?} $l -> mon d y]} {
+    } else { return "" }
+    if {$d eq "" || ![dict exists $months [string tolower $mon]]} { return "" }
+    set m [dict get $months [string tolower $mon]]
+    if {$y eq ""} {
+        set y [clock format $now -format %Y]
+        set cand [clock scan "$y-[format %02d $m]-[format %02d $d]" -format %Y-%m-%d]
+        if {$cand > $now + 86400} { incr y -1 }
+    }
+    if {[catch {clock scan "$y-[format %02d $m]-[format %02d $d]" -format %Y-%m-%d}]} { return "" }
+    return "$y-[format %02d $m]-[format %02d $d]"
+}
+
 # The owner a profile reference names: the numeric id where the ref carries
 # one, the handle otherwise. What the caller asked for is the page the
 # report is about, so self-links are excluded against it.
