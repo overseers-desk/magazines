@@ -10,6 +10,8 @@ marketplace that lists this plugin sits in a separate repo,
 
 **Before any web-access work** (writing a new browser skill, or repairing one that broke), read the diagnosis methodology at [`../aesop/webworks/`](../aesop/webworks/README.md). It is the standing antidote to the firemaning, the premature commitment to "profile corrupt / fingerprint detected / we are rate-limited", that derails this work; the procedure and the case studies (`STORY.md`) live there.
 
+**Reading the overseer's `wire.log`, or any tool output from a signed-in browser session**, extract the field you need (a timestamp, a fault line, a count) with a filter; keep whole CDP `Network.response*` frames and DOM dumps out of your output. Those frames carry the session's cookies and auth tokens, so dumping them writes live credentials into the transcript and trips the safety classifier mid-reply. The log is meant to hold full frames — it is the overseer's diagnostic record — so the care is in how it is read. Skill stdout is already safe: the canonical-envelope invariant holds that path.
+
 ## Conventions
 
 - The harness (`bin/browser-serialiser`) and the policed command surface for
