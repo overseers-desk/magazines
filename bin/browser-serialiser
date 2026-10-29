@@ -906,6 +906,33 @@ proc render_parse_timeout {args} {
     return [dict create secs $secs rest $rest]
 }
 
+# A session keeps the plugin copy its PATH named when it started, so after a
+# plugin update it goes on running the old code, fixes and all missing. When this
+# copy sits in Claude Code's plugin cache (<plugins>/cache/<marketplace>/<plugin>/
+# <version>) and the install record names another copy of the same plugin, say so
+# once on stderr and carry on. A checkout is outside the cache and never flagged;
+# an unreadable record says nothing, the line being advice.
+proc note_stale_copy {} {
+    set parts [file split $::Root]
+    if {[llength $parts] < 5 || [lindex $parts end-3] ne "cache"} return
+    set plugins [file join {*}[lrange $parts 0 end-4]]
+    if {[catch {
+        set ch [open [file join $plugins installed_plugins.json] r]
+        set rec [json::json2dict [read $ch]]
+        close $ch
+    }]} return
+    set here [file dirname $::Root]
+    dict for {id entries} [dict get $rec plugins] {
+        foreach e $entries {
+            if {![dict exists $e installPath]} continue
+            set p [dict get $e installPath]
+            if {[file dirname $p] ne $here || $p eq $::Root} continue
+            puts stderr "browser-serialiser: this is [lindex $parts end-1] [lindex $parts end], not the installed copy; current: [file join $p bin browser-serialiser] (restart the session, or call that path)"
+            return
+        }
+    }
+}
+
 proc print_usage {chan} {
     puts $chan "Usage:"
     puts $chan "  browser-serialiser <skill-ref> \[skill args...\]"
@@ -930,6 +957,7 @@ proc main {} {
     fconfigure stderr -encoding utf-8
     global argv
     if {[llength $argv] < 1} { usage }
+    note_stale_copy
 
     # Direct render modes (--dump / --pdf): no skill, no policing surface; run in
     # this trusted interpreter. They share the standalone lock/launch/teardown.
