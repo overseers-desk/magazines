@@ -776,17 +776,36 @@ proc ig::sv_resolve_user_id {handle} {
 # Instagram's HTML 404 page (observed 2026-10-29; last JSON 2026-09-20). Returns
 # the raw items list; $moreVar, when named, is set to whether the timeline still
 # reported a next page where reading stopped (1 also when scrolling stalled).
+#
+# No items is a result only for an account with no posts. A private account
+# throws {IG FEED private}, and a public page that loaded no timeline throws
+# {IG FEED missing}, so a caller never reports either as an empty account. Both
+# facts come from the page's own user query (is_private, media_count), which is
+# locale-agnostic.
 proc ig::sv_fetch_feed {handle limit {moreVar ""}} {
     if {$moreVar ne ""} { upvar 1 $moreVar more }
+    set conn xdt_api__v1__feed__user_timeline_graphql_connection
     set items {}
-    set more [ig::sv_take_timeline \
-        [capture "https://www.instagram.com/$handle/" --seconds 8 --match {*graphql*}] items 0]
+    set captured [capture "https://www.instagram.com/$handle/" --seconds 8 --match {*graphql*}]
+    set more [ig::sv_take_connection $captured $conn items]
+    if {![llength $items]} {
+        set user [ig::sv_profile_user $captured $handle]
+        if {[ig::truthy [ig::dget $user is_private false]]} {
+            throw {IG FEED private} "@$handle is private; its posts are not visible to this account"
+        }
+        if {$more eq "" && [ig::dget $user media_count ""] ne "0"} {
+            throw {IG FEED missing} "the profile page of @$handle loaded no post timeline"
+        }
+        set more 0
+        return {}
+    }
     set idle 0
     while {[llength $items] < $limit && $more && $idle < 3} {
         eval {window.scrollTo(0, document.body.scrollHeight)}
         dwell 2
         set n [llength $items]
-        set more [ig::sv_take_timeline [harvest --match {*graphql*}] items $more]
+        set m [ig::sv_take_connection [harvest --match {*graphql*}] $conn items]
+        if {$m ne ""} { set more $m }
         if {[llength $items] == $n} { incr idle } else { set idle 0 }
     }
     if {[llength $items] > $limit} { set more 1 }
@@ -794,26 +813,41 @@ proc ig::sv_fetch_feed {handle limit {moreVar ""}} {
     return [lrange $items 0 [expr {$limit - 1}]]
 }
 
-# Append the nodes of every timeline page among captured {url status body}
-# triples to the caller's $itemsVar, skipping a pk already held. Returns the
-# last page's has_next_page, or $more when no timeline page was among them.
-proc ig::sv_take_timeline {captured itemsVar more} {
+# Append the nodes of every page of GraphQL connection $conn among captured
+# {url status body} triples to the caller's $itemsVar, skipping a pk already
+# held. Returns the last page's has_next_page (0 or 1), or "" when no page of
+# $conn was among them.
+proc ig::sv_take_connection {captured conn itemsVar} {
     upvar 1 $itemsVar items
     set seen {}
     foreach it $items { dict set seen [ig::dget $it pk ""] 1 }
+    set more ""
     foreach r $captured {
         set body [lindex $r 2]
-        if {[string first user_timeline_graphql_connection $body] < 0} continue
+        if {[string first $conn $body] < 0} continue
         if {[catch {json::json2dict $body} d]} continue
-        set conn [ig::dget [ig::dget $d data {}] xdt_api__v1__feed__user_timeline_graphql_connection {}]
-        foreach e [ig::dget $conn edges {}] {
+        set c [ig::dget [ig::dget $d data {}] $conn {}]
+        foreach e [ig::dget $c edges {}] {
             set node [ig::dget $e node {}]
             set pk [ig::dget $node pk ""]
             if {$pk eq "" || [dict exists $seen $pk]} continue
             dict set seen $pk 1
             lappend items $node
         }
-        set more [expr {[ig::dget [ig::dget $conn page_info {}] has_next_page false] eq "true"}]
+        set more [expr {[ig::dget [ig::dget $c page_info {}] has_next_page false] eq "true"}]
     }
     return $more
+}
+
+# The profile page's own user query for $handle (data.user, carrying
+# is_private and media_count) among captured triples, or {} when absent.
+proc ig::sv_profile_user {captured handle} {
+    foreach r $captured {
+        set body [lindex $r 2]
+        if {[string first {"user":} $body] < 0} continue
+        if {[catch {json::json2dict $body} d]} continue
+        set u [ig::dget [ig::dget $d data {}] user {}]
+        if {[string equal -nocase [ig::dget $u username ""] $handle]} { return $u }
+    }
+    return {}
 }

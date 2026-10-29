@@ -140,43 +140,55 @@ proc candidate_node {e} {
         sources [ig::n_strarr [dict get $e sources]]]]
 }
 
-# Render the full expand result (indent=2). Field order matches Python:
-# input_handles, posts_per_handle, candidates, candidate_count.
-proc render_expand {input_handles posts_per_handle candidates} {
+# Render the full expand result (indent=2): input_handles, posts_per_handle,
+# candidates, candidate_count, then skipped, the input handles whose posts were
+# not read, each with its reason ({handle reason} pairs).
+proc render_expand {input_handles posts_per_handle candidates {skipped {}}} {
     set candElems {}
     foreach e $candidates { lappend candElems [candidate_node $e] }
+    set skipElems {}
+    foreach {h why} $skipped {
+        lappend skipElems [ig::n_obj [list handle [ig::n_str $h] reason [ig::n_str $why]]]
+    }
     return [ig::jenc [ig::n_obj [list \
         input_handles [ig::n_strarr $input_handles] \
         posts_per_handle [ig::n_int $posts_per_handle] \
         candidates [ig::n_arr $candElems] \
-        candidate_count [ig::n_int [llength $candidates]]]]]
+        candidate_count [ig::n_int [llength $candidates]] \
+        skipped [ig::n_arr $skipElems]]]]
 }
 
 # ---------------------------------------------------------------------------
 # Serialiser entry: walk each handle over the policed surface, reusing the
 # library's sv_resolve_user_id / sv_fetch_feed, and the shared accumulate/rank
 # helpers. nav to the IG home is the session check; each handle's posts come from
-# its own profile page (sv_fetch_feed).
+# its own profile page (sv_fetch_feed). Returns {candidates skipped}, skipped
+# naming each handle whose posts were not read and why.
 # ---------------------------------------------------------------------------
 
 proc sv_expand_handles {handles posts_per_handle} {
     set input_lower {}
     foreach h $handles { dict set input_lower [string tolower $h] 1 }
     set candidates [dict create]
+    set skipped {}
 
     foreach handle $handles {
-        puts stderr "\n=== $handle ==="
         set uid [ig::sv_resolve_user_id $handle]
         if {[ig::dget $uid error ""] ne ""} {
-            puts stderr "  skipped: [dict get $uid error]"
+            lappend skipped $handle [dict get $uid error]
             continue
         }
-        set items [ig::sv_fetch_feed $handle $posts_per_handle]
+        try {
+            set items [ig::sv_fetch_feed $handle $posts_per_handle]
+        } trap {IG FEED} {msg} {
+            lappend skipped $handle $msg
+            continue
+        }
         set posts [ig::parse_media_items $items]
-        puts stderr "  fetched [llength $posts] posts"
+        log "collab @$handle: [llength $posts] posts"
         accumulate_post_signals candidates $input_lower $handle $posts
     }
-    return [finalise_candidates $candidates]
+    return [list [finalise_candidates $candidates] $skipped]
 }
 
 # De-dupe a handle list preserving order, case-insensitively. Single home for
@@ -232,8 +244,8 @@ proc serialiser_run {skillArgs} {
         return
     }
 
-    set candidates [sv_expand_handles $handles $posts_per_handle]
-    emit [envelope_ok [dict create result [render_expand $handles $posts_per_handle $candidates]]]
+    lassign [sv_expand_handles $handles $posts_per_handle] candidates skipped
+    emit [envelope_ok [dict create result [render_expand $handles $posts_per_handle $candidates $skipped]]]
 }
 
 proc main {} {

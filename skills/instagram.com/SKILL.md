@@ -81,6 +81,8 @@ browser-serialiser instagram.com/auth-fetch-recent-posts posts HANDLE --limit 50
 
 Default limit is 12. The posts come from the profile page's own GraphQL timeline query, twelve to a page: the script captures the profile and, when `--limit` exceeds 12, scrolls for further pages until the limit is reached or the timeline reports no next page. The REST feed `/api/v1/feed/user/<user_id>/` answers Instagram's HTML 404 page (observed 2026-10-29).
 
+`post_count: 0` means the account has no posts. A private account the session cannot see into returns `is_private: true` with a `note`; a public profile page that loaded no timeline is a fault, not an empty result.
+
 (`--raw-out PATH`, which writes the unparsed feed items to a file, is a direct-tclsh-only option; the serialiser path's safe interpreter has no file access, so the parsed JSON on stdout is the only output there.)
 
 Each post entry includes:
@@ -105,7 +107,7 @@ browser-serialiser instagram.com/auth-collab-expand expand handle1,handle2 --pos
 
 Walks a list of input handles, fetches recent posts for each (paginated via §6's helpers), and accumulates the union of `tagged_users`, `coauthors`, `sponsors`, and caption `mentions` across all posts. (The legacy `--from <file>` seed-list option is direct-tclsh-only; pass the CSV positional under the serialiser.) Outputs candidate handles NOT already in the input set, ranked by explicit-collab signal first (tagged + coauthor + sponsor counts) and then by caption-mention count and breadth of source handles.
 
-Each candidate row carries the four per-signal counts, a `total`, and a sorted `sources` list of input handles whose posts surfaced the candidate. Multi-source candidates (handles surfaced by several different input accounts) rank higher than single-source ones at equal signal strength.
+Each candidate row carries the four per-signal counts, a `total`, and a sorted `sources` list of input handles whose posts surfaced the candidate. `skipped` lists each input handle whose posts were not read (unresolvable, private, or no timeline loaded) with its `reason`. Multi-source candidates (handles surfaced by several different input accounts) rank higher than single-source ones at equal signal strength.
 
 This is single-level expansion. For "spider" behaviour (recursively expanding), feed the top N candidates as input to a second run.
 
@@ -230,7 +232,7 @@ Per-post output fields:
 - `grid_taken_at_iso` — the post's timestamp when it is in the grid, else null.
 - `reason` — a human sentence behind the verdict.
 
-Top-level fields: `grid_count`, `grid_oldest_iso`, and `grid_complete`. **Authoritative absence requires `grid_complete: true`** (the timeline reported no next page), because "absent from grid = archived" only holds when absence means "not in the listing", not "beyond how far we paged". So the grid pages to exhaustion by default; `--grid-limit` is a high safety ceiling for an account too large to exhaust in one session, not the normal stop. When the ceiling is hit first (`grid_complete: false`), an absent-yet-rendering post reports `archived: null` rather than risk a false positive — raise `--grid-limit` and re-run.
+Top-level fields: `grid_count`, `grid_oldest_iso`, and `grid_complete`. A private account, or a profile page that loads no timeline, is a fault: without the grid no post can be judged archived. **Authoritative absence requires `grid_complete: true`** (the timeline reported no next page), because "absent from grid = archived" only holds when absence means "not in the listing", not "beyond how far we paged". So the grid pages to exhaustion by default; `--grid-limit` is a high safety ceiling for an account too large to exhaust in one session, not the normal stop. When the ceiling is hit first (`grid_complete: false`), an absent-yet-rendering post reports `archived: null` rather than risk a false positive — raise `--grid-limit` and re-run.
 
 The script does not write or modify any Instagram state.
 

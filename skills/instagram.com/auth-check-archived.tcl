@@ -217,7 +217,15 @@ proc serialiser_run {skillArgs} {
         emit [envelope_fault [dict get $uid error]]
         return
     }
-    set gridItems [ig::sv_fetch_feed $handle $grid_limit gridMore]
+    # Without the grid an archive verdict cannot be reached: a private account or
+    # a page that loaded no timeline is a fault, never an empty grid that would
+    # make every rendering post read as archived.
+    try {
+        set gridItems [ig::sv_fetch_feed $handle $grid_limit gridMore]
+    } trap {IG FEED} {msg} {
+        emit [envelope_fault "grid not readable: $msg"]
+        return
+    }
     set gridPosts [ig::parse_media_items $gridItems]
     set gi [ca_grid_index $gridPosts]
     set gridIdx [dict get $gi set]

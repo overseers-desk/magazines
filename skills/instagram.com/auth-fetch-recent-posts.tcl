@@ -52,12 +52,21 @@ proc serialiser_run {skillArgs} {
     }
     set user_id $uid
 
-    set items [ig::sv_fetch_feed $handle $limit]
+    try {
+        set items [ig::sv_fetch_feed $handle $limit]
+    } trap {IG FEED private} {msg} {
+        emit [envelope_ok [dict create result [ig::render_posts_result \
+            [dict create handle $handle user_id $user_id is_private true \
+                post_count 0 note $msg posts {}]]]]
+        return
+    } trap {IG FEED missing} {msg} {
+        emit [envelope_fault $msg]
+        return
+    }
     if {![llength $items]} {
         emit [envelope_ok [dict create result [ig::render_posts_result \
             [dict create handle $handle user_id $user_id post_count 0 \
-                note "Feed returned no items. Account may be private or feed empty." \
-                posts {}]]]]
+                note "The account has no posts." posts {}]]]]
         return
     }
     set posts [ig::parse_media_items $items]
