@@ -658,10 +658,14 @@ proc serialiser::FoldSurrogates {s} {
 }
 
 # dwell <seconds>  -- a deliberate human-ish pause the skill may request (e.g.
-# reading-time between page views). The harness owns timing, so a skill asks for
-# a dwell rather than calling `after` itself. Returns "".
+# reading-time between page views, or while a scroll or keystroke makes the page
+# fetch). The harness owns timing, so a skill asks for a dwell rather than calling
+# `after` itself. The pause reads the browser's events as they arrive and parks
+# them for `harvest`: left unread on the socket, they would be discarded by the
+# next unbuffered call (type, click). Returns "".
 proc serialiser::Verb_dwell {seconds} {
-    serialiser::Sleep [expr {int($seconds * 1000)}]
+    variable Cdp
+    $Cdp drainEvents $seconds
     return ""
 }
 
@@ -937,15 +941,19 @@ proc serialiser::DoFetch {path params headersList statusVar} {
 proc serialiser::Harvest {match} {
     variable Cdp
     variable MaxBodyBytes
+    # Take the parked events and clear at once; the body fetches below park any
+    # event that arrives meanwhile, so it waits for the next harvest.
+    set evts [$Cdp events]
+    $Cdp clearEvents
     set out {}
-    foreach evt [$Cdp events] {
+    foreach evt $evts {
         if {![dict exists $evt method]} continue
         if {[dict get $evt method] ne "Network.responseReceived"} continue
         set resp [dict get $evt params response]
         set url [dict get $resp url]
         if {![string match $match $url]} continue
         set reqId [dict get $evt params requestId]
-        set bodyResp [$Cdp cdp Network.getResponseBody [dict create requestId $reqId]]
+        set bodyResp [$Cdp cdpBuffered Network.getResponseBody [dict create requestId $reqId]]
         set body ""
         if {[dict exists $bodyResp result body]} {
             set body [dict get $bodyResp result body]
@@ -955,7 +963,6 @@ proc serialiser::Harvest {match} {
         }
         lappend out [list $url [dict get $resp status] $body]
     }
-    $Cdp clearEvents
     return $out
 }
 

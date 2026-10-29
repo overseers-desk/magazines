@@ -62,15 +62,24 @@ puts "PASS SiteOf folds host spellings to the registrable site"
 namespace eval fakecdp {
     variable Url ""
     variable Redirects {}
+    variable Arriving {}
+    variable Parked {}
 }
-proc fakecdp::reset {redirects} {
+proc fakecdp::reset {redirects {arriving {}}} {
     variable Url
     variable Redirects
+    variable Arriving
+    variable Parked
     set Url ""
     set Redirects $redirects
+    set Arriving $arriving
+    set Parked {}
 }
+# $Arriving holds events the browser sends while the skill waits: drainEvents
+# parks them, as the real client does, and events/clearEvents read the park.
 proc fakecdp {method args} {
-    upvar #0 fakecdp::Url Url fakecdp::Redirects Redirects
+    upvar #0 fakecdp::Url Url fakecdp::Redirects Redirects \
+        fakecdp::Arriving Arriving fakecdp::Parked Parked
     switch -- $method {
         cdp - cdpBuffered {
             lassign $args cdpMethod params
@@ -86,7 +95,10 @@ proc fakecdp {method args} {
             if {$js eq {document.title}} { return "A quiet page" }
             return ""
         }
-        drainEvents - events - clearEvents - close { return {} }
+        drainEvents { lappend Parked {*}$Arriving; set Arriving {}; return {} }
+        events      { return $Parked }
+        clearEvents { set Parked {}; return {} }
+        close       { return {} }
     }
     error "fakecdp: unexpected method '$method'"
 }
@@ -152,6 +164,15 @@ foreach {name body} {
             emit ok
         }
     }
+    dwell-harvest {
+        # A response that arrives during a dwell reaches the next harvest.
+        proc serialiser_run {skillArgs} {
+            dwell 0
+            set urls {}
+            foreach r [harvest --match {*graphql*}] { lappend urls [lindex $r 0] }
+            emit $urls
+        }
+    }
     secret-login {
         # serialiser: secret-args
         proc serialiser_run {skillArgs} { emit ok }
@@ -179,8 +200,8 @@ foreach {name body} {
 # dict: ok (1 emitted result returned, 0 raised), out (result or error
 # message), code (the -errorcode), emitted (what the skill emitted, read from
 # the harness state even when run raised past the return).
-proc runprobe {skill redirects navArgs {site ""}} {
-    fakecdp::reset $redirects
+proc runprobe {skill redirects navArgs {site ""} {arriving {}}} {
+    fakecdp::reset $redirects $arriving
     set path [file join $::skillDir $skill.tcl]
     if {$site eq ""} {
         set ok [expr {![catch {serialiser::run $path fakecdp $navArgs} out opts]}]
@@ -289,6 +310,18 @@ if {$::hostStderr ne {{stderr {diag line}} {-nonewline stderr open}}} {
     fail "a skill's stderr bypassed the host's puts: $::hostStderr"
 }
 puts "PASS a skill's puts stderr reaches the host's puts"
+
+# --- dwell parks what arrives meanwhile for harvest: the real client reads the
+# --- browser's events only while something drains the socket, and an event left
+# --- unread was discarded by the next unbuffered call (an instagram search typed
+# --- into its box, then dwelled, harvested nothing).
+set arriving [list [dict create method Network.responseReceived params [dict create \
+    requestId r1 response [dict create url https://www.instagram.com/api/graphql status 200]]]]
+set r [runprobe dwell-harvest {} {} "" $arriving]
+if {![dict get $r ok] || [dict get $r emitted] ne "https://www.instagram.com/api/graphql"} {
+    fail "a response arriving during dwell did not reach harvest: $r"
+}
+puts "PASS a response arriving during a dwell reaches the next harvest"
 
 # --- LogArgs: a skill marked secret-args logs its argument count, not its
 # --- arguments; an unmarked one keeps its argv for a post-mortem.

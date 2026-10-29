@@ -110,7 +110,7 @@ with `dwell` instead.
 | `key` | `key <keyname>` | "" | Dispatch a trusted key press to the focused element (`Input.dispatchKeyEvent`). Needed where a rich-text editor ignores a synthetic event, e.g. a send-on-Enter message composer with no Send button. Known keys: `Enter`, `Backspace`. Paced. |
 | `state` | `state` | dict | The harness's view of the run: `terminal` (""/`rate-limited`/`logged-out`/`checkpoint`/`off-site`), `lastNav`, `pages`. `off-site` arises where a hosting overseer confined the run to its granted site and a landing fell outside it. A skill reads `terminal` to stop gracefully. |
 | `emit` | `emit <result>` | "" | The skill's single output. The harness returns it as the run result. |
-| `dwell` | `dwell <seconds>` | "" | A deliberate human-ish pause the skill may request (reading time between views). The harness owns timing. |
+| `dwell` | `dwell <seconds>` | "" | A deliberate human-ish pause the skill may request (reading time between views, or while a scroll or keystroke makes the page fetch). The harness owns timing, and parks the responses that arrive during the pause for `harvest`. |
 | `log` | `log <message>` | "" | A diagnostic line to the hosting process's stderr, the only channel besides `emit`; standalone that is the caller's terminal, delegated it is the overseer's. |
 
 `capture`/`harvest` are one verb pair and `dwell`/`log` are documented together,
@@ -123,7 +123,7 @@ drives it with `click`/`type`/`eval`, and then calls `harvest` collects nothing,
 however long it dwells: nothing was listening while the page fetched. To observe
 traffic a page issues in response to in-page action, enter the page through
 `capture` (`--match "__none__"` when the arming, not the bodies, is the point),
-act, then `harvest` the matches.
+act, `dwell` while the page fetches, then `harvest` the matches.
 
 ## Wall handling
 
