@@ -288,7 +288,7 @@ proc fb::is_noise {text} {
 # ---------------------------------------------------------------------------
 
 # Run $script, capturing everything its body `puts` to stdout (or explicit
-# stdout) into $bodyVar; `puts stderr ...` passes through to the shared stderr.
+# stdout) into $bodyVar; `puts stderr ...` passes through to stderr.
 # Returns the canonical envelope, ready to hand to `emit`.
 proc fb::report {bodyVar script} {
     upvar 1 $bodyVar captured

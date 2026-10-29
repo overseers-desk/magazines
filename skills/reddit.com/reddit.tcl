@@ -361,7 +361,7 @@ proc reddit::cmd_thread {data limit {fetcher ""} {more 0} {dwellCmd ""}} {
 # Lives here, not in each driver, to keep the fetch logic single-sourced.
 # Capture everything the byte-identical render/print procs `puts` to stdout while
 # $body runs, returning the captured text. A `puts stderr ...` (diagnostics) is
-# passed through to the shared stderr untouched; only default-channel and
+# passed through to stderr untouched; only default-channel and
 # explicit-stdout writes are buffered. This lets the drivers reuse the legacy
 # printers (reddit::render_post, reddit::cmd_thread, reddit::print_saved) verbatim
 # under the serialiser, where the run's one output is the emitted string.

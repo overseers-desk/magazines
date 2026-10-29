@@ -144,6 +144,14 @@ foreach {name body} {
             emit "no-error"
         }
     }
+    puts-stderr {
+        # Diagnostics the legacy way, then a result.
+        proc serialiser_run {skillArgs} {
+            puts stderr "diag line"
+            puts -nonewline stderr "open"
+            emit ok
+        }
+    }
     secret-login {
         # serialiser: secret-args
         proc serialiser_run {skillArgs} { emit ok }
@@ -263,6 +271,24 @@ if {[dict get $r emitted] ne "beforeafter"} {
     fail "an unpaired surrogate half should be dropped, got [dict get $r emitted]"
 }
 puts "PASS an unpaired surrogate half is dropped"
+
+# --- a skill's bare puts stderr goes through the host's puts: an overseer
+# --- renames puts to send stderr to its log, its fd 2 being a terminal that may
+# --- be gone (a write there killed a live instagram run with EIO).
+set ::hostStderr {}
+rename puts ::_selftest_real_puts
+proc puts {args} {
+    if {[lindex $args end-1] eq "stderr"} { lappend ::hostStderr $args; return }
+    ::_selftest_real_puts {*}$args
+}
+set r [runprobe puts-stderr {} {}]
+rename puts {}
+rename ::_selftest_real_puts puts
+if {![dict get $r ok] || [dict get $r emitted] ne "ok"} { fail "puts-stderr run: $r" }
+if {$::hostStderr ne {{stderr {diag line}} {-nonewline stderr open}}} {
+    fail "a skill's stderr bypassed the host's puts: $::hostStderr"
+}
+puts "PASS a skill's puts stderr reaches the host's puts"
 
 # --- LogArgs: a skill marked secret-args logs its argument count, not its
 # --- arguments; an unmarked one keeps its argv for a post-mortem.

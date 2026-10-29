@@ -267,7 +267,7 @@ proc serialiser::run {skillPath cdp skillArgs {site ""}} {
         # whole auto_path drags in /usr/share/tcltk (ttkthemes) and the Tk lib dir,
         # whose pkgIndex files call pwd / file normalize / file isdirectory — all
         # forbidden in a safe interp — so the `package require json` below scans
-        # them and (because stderr is shared) logs "error reading package index
+        # them and (through the child's puts stderr) logs "error reading package index
         # file" on every run. Whitelist the access path instead, and mirror it as
         # -autoPath: a custom access path alone only auto-loads dirs already in the
         # master's auto_path, which silently drops json. The core lib stays at
@@ -301,13 +301,14 @@ proc serialiser::run {skillPath cdp skillArgs {site ""}} {
             ::safe::interpConfigure $interp -accessPath $acc
         }
 
-        # The Safe Base removes stdin/stdout/stderr from the child, but a skill's
-        # diagnostics (the `log` verb, and bare `puts stderr` in skills carried
-        # over from the unsandboxed CDP path) expect stderr to exist. Share only
-        # stderr in (read-write), so diagnostic writes reach the real channel
-        # while stdout stays the harness's alone (emit is the skill's one result
-        # channel). File/exec/socket capability is still removed.
-        interp share {} stderr $interp
+        # The Safe Base removes stdin/stdout/stderr from the child. A bare `puts
+        # stderr` in a skill (carried over from the unsandboxed CDP path) goes
+        # through the harness's own puts rather than a shared channel, so the
+        # line lands wherever the host sends stderr: an overseer sends it to its
+        # log, its fd 2 being the terminal it started from, which may be long
+        # closed. stdout stays the harness's alone (emit is the skill's one
+        # result channel).
+        interp alias $interp puts {} serialiser::ChildPuts
 
         serialiser::InjectVerbs $interp
         serialiser::InjectEnvelope $interp
@@ -673,6 +674,21 @@ proc serialiser::Verb_log {message} {
     dict lappend Run log $message
     puts stderr "  \[skill\] $message"
     return ""
+}
+
+# The child's puts: stderr only, written by the harness's puts so a host's
+# redirect of stderr covers skill code too. Any other channel is refused as the
+# Safe Base would refuse it, the child holding no other.
+proc serialiser::ChildPuts {args} {
+    set nonewline [expr {[lindex $args 0] eq "-nonewline"}]
+    if {$nonewline} { set args [lrange $args 1 end] }
+    if {[llength $args] == 1} { set args [list stdout [lindex $args 0]] }
+    if {[llength $args] != 2} {
+        error {wrong # args: should be "puts ?-nonewline? ?channelId? string"}
+    }
+    lassign $args ch str
+    if {$ch ne "stderr"} { error "can not find channel named \"$ch\"" }
+    if {$nonewline} { puts -nonewline stderr $str } else { puts stderr $str }
 }
 
 # ---------------------------------------------------------------------------
