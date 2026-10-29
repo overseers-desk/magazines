@@ -7,26 +7,27 @@
 #
 # Pipeline:
 #   1. Resolve target user_id.
-#   2. Verify logged-in identity (some data is target-account only).
-#   3. Pull feed posts where target is tagged since --since (permanent).
+#   2. Read the logged-in identity (some data is target-account only).
+#   3. Pull posts where target is tagged since --since (the Tagged tab).
 #   4. Pull activity-inbox story-mention notifications (retention limited).
-#   5. Pull target's currently-live story tray (<24h).
-#   6. If logged in as target, pull own story archive since --since.
-#   7. Cross-reference each tag against own stories; report unreshared items.
+#   5. If logged in as target, pull own story archive since --since.
+#   6. Cross-reference each tag against own stories; report unreshared items.
 #
 # Data-window reality:
-#   - Tagged feed posts: full coverage since --since.
+#   - Tagged posts: full coverage since --since.
 #   - Story tag notifications: Instagram retains roughly the last 14-30 days in
 #     the activity inbox. Anything older is unrecoverable.
 #   - Customer-side stories: gone 24h after posting regardless.
-#   - Own story archive: only readable when logged in AS the target account.
+#   - Own stories: only readable when logged in AS the target account, through
+#     its story archive. Another account's live stories are not read: opening a
+#     story records a view on it.
 #
 # Invoked by reference through the serialiser (see SKILL.md §11):
 #     browser-serialiser instagram.com/auth-audit-tag-reshares audit <handle> --since YYYY-MM-DD
 #
-# The serialiser path navigates to the IG home (session) and the target profile
-# (covering view), then reads the declared private endpoints via the policed `api`
-# verb. The reshare-match heuristic inspects reshared_reel.id, imported_taken_at,
+# The serialiser path navigates to the IG home (session) and the target profile,
+# captures the Tagged tab's own GraphQL, and reads the activity inbox and the
+# story archive via the policed `api` verb. The reshare-match heuristic inspects reshared_reel.id, imported_taken_at,
 # and reel_mentions[].user_id and is best-effort.
 
 package require json
@@ -34,6 +35,7 @@ package require json
 # Shared IG helpers (ig::dget, ig::truthy, ig::seconds_to_iso, the typed-JSON
 # encoder, sv_resolve_user_id, api_headers) live in the keystone library.
 source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
+source [file join [file dirname [info script]] ig-canonical.tcl]
 
 namespace eval audit {}
 
@@ -41,80 +43,76 @@ namespace eval audit {}
 # Audit-specific API helpers. Each does one fetch over the policed `api` verb.
 # ---------------------------------------------------------------------------
 
-# Return {username <u> user_id <id>} of the logged-in viewer, or {error ...}.
+# Return {user_id <id>} of the logged-in viewer, from the ds_user_id cookie
+# (ig_viewer_id), or {error ...}. /api/v1/accounts/current_user/ answers the
+# app's HTML page instead of JSON (observed 2026-10-29).
 proc audit::viewer_identity {} {
-    set body [api "/api/v1/accounts/current_user/" --params "edit=true" \
-        --headers [ig::api_headers]]
-    if {[catch {json::json2dict $body} j]} {
-        return [dict create error "current_user response was not JSON"]
-    }
-    if {[ig::dget $j error ""] ne ""} { return [dict create error [dict get $j error]] }
-    set u [ig::dget $j user {}]
-    set pk [ig::dget $u pk ""]
-    if {$pk eq ""} { set pk [ig::dget $u id ""] }
-    return [dict create username [ig::dget $u username ""] user_id $pk]
+    set id [ig_viewer_id]
+    if {$id eq ""} { return [dict create error "no ds_user_id cookie: the session names no viewer"] }
+    return [dict create user_id $id]
 }
 
-# Paginate /api/v1/usertags/<user_id>/feed/ until items predate $since_ts.
-# Returns a list of tagged-post dicts (the Python field shape).
-proc audit::fetch_tagged_feed {user_id since_ts} {
+# Posts tagging the target since $since_ts, read the way the profile's Tagged tab
+# does: its own GraphQL query (xdt_api__v1__usertags__user_id__feed_connection),
+# twelve to a page, scrolled for more until a page reaches back past $since_ts.
+# /api/v1/usertags/<id>/feed/ answers Instagram's HTML 404 page (observed
+# 2026-10-29). A tagged node carries no taken_at, so the time comes from its media
+# id (ig::pk_time). Returns {items <tagged-post dicts> complete 0|1}, complete
+# being whether reading reached back past $since_ts or the end, or {error ...}.
+proc audit::fetch_tagged_feed {handle since_ts} {
+    set conn xdt_api__v1__usertags__user_id__feed_connection
+    set raw {}
+    set more [ig::sv_take_connection \
+        [capture "https://www.instagram.com/$handle/tagged/" --seconds 8 --match {*graphql*}] \
+        $conn raw]
+    if {$more eq ""} {
+        return [dict create error "the Tagged tab of @$handle loaded no tagged-post query"]
+    }
+    set idle 0
+    while {$more && $idle < 3 && [audit::oldest_time $raw] >= $since_ts} {
+        eval {window.scrollTo(0, document.body.scrollHeight)}
+        dwell 2
+        set n [llength $raw]
+        set m [ig::sv_take_connection [harvest --match {*graphql*}] $conn raw]
+        if {$m ne ""} { set more $m }
+        if {[llength $raw] == $n} { incr idle } else { set idle 0 }
+    }
+    set complete [expr {!$more || [audit::oldest_time $raw] < $since_ts}]
+    log "tagged @$handle: [llength $raw] posts read, complete=$complete"
+
     set items {}
-    set max_id ""
-    set page 0
-    while {1} {
-        incr page
-        set params "count=18"
-        if {$max_id ne ""} { append params "&max_id=$max_id" }
-        set body [api "/api/v1/usertags/$user_id/feed/" --params $params \
-            --headers [ig::api_headers]]
-        if {[catch {json::json2dict $body} data]} {
-            puts stderr "tagged-feed page $page: response was not JSON"
-            break
-        }
-        if {[ig::dget $data error ""] ne ""} {
-            puts stderr "tagged-feed page $page: [dict get $data error]"
-            break
-        }
-        set raw_items [ig::dget $data items {}]
-        if {![llength $raw_items]} break
-        set oldest_on_page ""
-        foreach it $raw_items {
-            set ts [ig::dget $it taken_at 0]
-            if {$oldest_on_page eq "" || $ts < $oldest_on_page} { set oldest_on_page $ts }
-            set owner [ig::dget $it user {}]
-            set short [ig::dget $it code ""]
-            if {$short eq ""} { set short [ig::dget $it shortcode ""] }
-            set owner_id [ig::dget $owner pk ""]
-            if {$owner_id eq ""} { set owner_id [ig::dget $owner id ""] }
-            set media_id [ig::dget $it pk ""]
-            if {$media_id eq ""} { set media_id [ig::dget $it id ""] }
-            set captionNode [ig::dget $it caption {}]
-            set caption "\x00null"
-            if {[llength $captionNode]} { set caption [ig::dget $captionNode text ""] }
-            lappend items [dict create \
-                media_id $media_id \
-                shortcode $short \
-                taken_at $ts \
-                taken_at_iso [audit::iso_or_null $ts] \
-                owner_username [audit::str_or_null [ig::dget $owner username "\x00null"]] \
-                owner_id $owner_id \
-                media_type [audit::media_type_label [ig::dget $it media_type ""]] \
-                url [expr {$short ne "" ? "https://www.instagram.com/p/$short/" : "\x00null"}] \
-                caption $caption]
-        }
-        puts stderr "tagged-feed page $page: [llength $raw_items] items (cum [llength $items])"
-        if {$oldest_on_page ne "" && $oldest_on_page < $since_ts} break
-        if {[ig::dget $data more_available false] ne "true"} break
-        set max_id [ig::dget $data next_max_id ""]
-        if {$max_id eq ""} break
+    foreach it $raw {
+        set media_id [ig::dget $it pk ""]
+        set ts [ig::pk_time $media_id]
+        if {$ts eq "" || $ts < $since_ts} continue
+        set owner [ig::dget $it user {}]
+        set short [ig::dget $it code ""]
+        set captionNode [ig::dget $it caption {}]
+        set caption "\x00null"
+        if {[llength $captionNode] > 1} { set caption [ig::dget $captionNode text ""] }
+        lappend items [dict create \
+            media_id $media_id \
+            shortcode $short \
+            taken_at $ts \
+            taken_at_iso [audit::iso_or_null $ts] \
+            owner_username [audit::str_or_null [ig::dget $owner username "\x00null"]] \
+            owner_id [ig::dget $owner pk ""] \
+            media_type [audit::media_type_label [ig::dget $it media_type ""]] \
+            url [expr {$short ne "" ? "https://www.instagram.com/p/$short/" : "\x00null"}] \
+            caption $caption]
     }
-    # Keep only items at or after since_ts with a real taken_at.
-    set out {}
-    foreach x $items {
-        set ts [dict get $x taken_at]
-        if {$ts ne "" && $ts != 0 && $ts >= $since_ts} { lappend out $x }
+    return [dict create items $items complete $complete]
+}
+
+# The oldest media-id time among raw tagged nodes; now when there are none, so
+# an empty first page still scrolls.
+proc audit::oldest_time {raw} {
+    set oldest [clock seconds]
+    foreach it $raw {
+        set t [ig::pk_time [ig::dget $it pk ""]]
+        if {$t ne "" && $t < $oldest} { set oldest $t }
     }
-    return $out
+    return $oldest
 }
 
 # Pull /api/v1/news/inbox/ and filter for story-mention + post-tag rows.
@@ -189,20 +187,6 @@ proc audit::fetch_activity_inbox {since_ts} {
 # Sort notifications newest-first by timestamp (Python sorted(reverse=True)).
 proc audit::notif_ts_desc {a b} {
     return [expr {[dict get $b timestamp] - [dict get $a timestamp]}]
-}
-
-# Fetch the target's currently-active stories (<24h). Returns a list of story
-# items with reshare metadata, or {error ...}.
-proc audit::fetch_live_story_tray {user_id} {
-    set body [api "/api/v1/feed/user/$user_id/story/" --headers [ig::api_headers]]
-    if {[catch {json::json2dict $body} data]} {
-        return [dict create error "story tray response was not JSON"]
-    }
-    if {[ig::dget $data error ""] ne ""} { return [dict create error [dict get $data error]] }
-    set reel [ig::dget $data reel {}]
-    set out {}
-    foreach it [ig::dget $reel items {}] { lappend out [audit::extract_story_item $it] }
-    return $out
 }
 
 # Pull own story archive day-shells back to $since_ts. Only works when the viewer
@@ -406,25 +390,36 @@ proc audit::run_audit {handle since_iso} {
     }
     set user_id $uid
 
-    set tagged_posts [audit::fetch_tagged_feed $user_id $since_ts]
+    set tagged [audit::fetch_tagged_feed $handle $since_ts]
+    set tagged_err [ig::dget $tagged error ""]
+    set tagged_posts [ig::dget $tagged items {}]
+    set tagged_cov [expr {$tagged_err ne "" ? "failed: $tagged_err" \
+        : ([dict get $tagged complete] ? "full" : "partial: reading stopped before --since")}]
 
-    set activity [audit::fetch_activity_inbox $since_ts]
+    # The activity inbox is the logged-in account's own: read as another account
+    # it would count that account's story mentions as the target's.
+    if {[dict get $viewer user_id] ne $user_id} {
+        set activity [dict create error "not_target_inbox"]
+    } else {
+        set activity [audit::fetch_activity_inbox $since_ts]
+    }
     set activity_err [expr {[audit::dict_err $activity] ? [ig::dget $activity error ""] : ""}]
     set activity_list [expr {$activity_err eq "" ? $activity : {}}]
-
-    set live_stories [audit::fetch_live_story_tray $user_id]
-    set live_err [expr {[audit::dict_err $live_stories] ? [ig::dget $live_stories error ""] : ""}]
-    set live_list [expr {$live_err eq "" ? $live_stories : {}}]
 
     set archive [audit::fetch_own_story_archive [dict get $viewer user_id] $user_id $since_ts]
     set archive_err [expr {[audit::dict_err $archive] ? [ig::dget $archive error ""] : ""}]
     set archive_list [expr {$archive_err eq "" ? $archive : {}}]
 
-    set own_stories [concat $live_list $archive_list]
+    set own_stories $archive_list
 
+    # With the target's own stories unread, no reshare can be confirmed or ruled
+    # out: such tags are unverified, not missed.
+    set verifiable [expr {$archive_err eq ""}]
     set missed_post_reshares {}
     set matched_post_reshares {}
+    set unverified_post_tags {}
     foreach p $tagged_posts {
+        if {!$verifiable} { lappend unverified_post_tags $p; continue }
         set tag [dict create media_id [dict get $p media_id] \
             owner_id [dict get $p owner_id] taken_at [dict get $p taken_at]]
         if {[audit::match_reshare $tag $own_stories] ne ""} {
@@ -437,7 +432,7 @@ proc audit::run_audit {handle since_iso} {
     set missed_story_tags {}
     set matched_story_tags {}
     foreach n $activity_list {
-        if {[dict get $n kind] ne "story_mention"} continue
+        if {[dict get $n kind] ne "story_mention" || !$verifiable} continue
         set tag [dict create media_id [dict get $n media_id] \
             actor_id [dict get $n actor_id] timestamp [dict get $n timestamp]]
         if {[audit::match_reshare $tag $own_stories] ne ""} {
@@ -450,12 +445,19 @@ proc audit::run_audit {handle since_iso} {
     set now_ts [clock seconds]
     set notes {}
     if {$archive_err eq "archive_not_accessible"} {
-        lappend notes "Story archive unreadable: session is logged in as @[dict get $viewer username], not @$handle. Reshare evidence older than 24h is not visible. To get a complete audit, log in as @$handle and re-run."
+        lappend notes "Own stories unreadable: the session is logged in as account [dict get $viewer user_id], not @$handle ($user_id). Its story archive is closed to another account, and its live stories are not opened, since opening a story records a view. No reshare can be confirmed or ruled out, so the tagged posts are listed under unverified_post_tags. To get a real audit, log in as @$handle and re-run."
     } elseif {$archive_err ne ""} {
         lappend notes "Story archive fetch failed: $archive_err"
     }
-    if {$activity_err ne ""} {
+    if {$activity_err eq "not_target_inbox"} {
+        lappend notes "Story-mention notifications unread: the activity inbox belongs to the logged-in account, not @$handle."
+    } elseif {$activity_err ne ""} {
         lappend notes "Activity inbox fetch failed: $activity_err"
+    }
+    if {$tagged_err ne ""} {
+        lappend notes "Tagged posts unread: $tagged_err"
+    } elseif {![dict get $tagged complete]} {
+        lappend notes "Tagged posts are partial: the Tagged tab stopped loading before --since."
     }
     lappend notes "Activity inbox typically retains story-mention notifications for roughly 14-30 days. Tags older than that window are unrecoverable and not counted in 'story_tags_*' figures."
     lappend notes "Customer-side stories expire 24h after posting. The audit can only confirm a tag existed if Instagram still shows the notification."
@@ -467,26 +469,26 @@ proc audit::run_audit {handle since_iso} {
         target_handle [ig::n_str $handle] \
         target_user_id [ig::n_str $user_id] \
         viewer [ig::n_obj [list \
-            username [ig::n_str [dict get $viewer username]] \
             user_id [ig::n_str [dict get $viewer user_id]]]] \
         since [ig::n_str $since_iso] \
         since_ts [ig::n_int $since_ts] \
         as_of_iso [ig::n_str [ig::seconds_to_iso $now_ts]] \
         coverage [ig::n_obj [list \
-            tagged_posts [ig::n_str "full"] \
-            story_tag_notifications [ig::n_str [expr {$activity_err eq "" ? "limited_to_instagram_retention" : "failed"}]] \
-            own_live_stories [ig::n_str [expr {$live_err eq "" ? "ok" : "failed: $live_err"}]] \
+            tagged_posts [ig::n_str $tagged_cov] \
+            story_tag_notifications [ig::n_str [expr {$activity_err eq "" ? "limited_to_instagram_retention" \
+                : ($activity_err eq "not_target_inbox" ? "not_target_inbox" : "failed: $activity_err")}]] \
             own_story_archive [ig::n_str [expr {$archive_err eq "" ? "ok" : $archive_err}]]]] \
         summary [ig::n_obj [list \
             tagged_posts_total [ig::n_int [llength $tagged_posts]] \
-            tagged_posts_reshared [ig::n_int [llength $matched_post_reshares]] \
-            tagged_posts_missed [ig::n_int [llength $missed_post_reshares]] \
-            story_tags_in_activity_total [ig::n_int $story_mentions_total] \
-            story_tags_reshared [ig::n_int [llength $matched_story_tags]] \
-            story_tags_missed [ig::n_int [llength $missed_story_tags]]]] \
+            tagged_posts_reshared [expr {$verifiable ? [ig::n_int [llength $matched_post_reshares]] : [ig::n_null]}] \
+            tagged_posts_missed [expr {$verifiable ? [ig::n_int [llength $missed_post_reshares]] : [ig::n_null]}] \
+            story_tags_in_activity_total [expr {$activity_err eq "" ? [ig::n_int $story_mentions_total] : [ig::n_null]}] \
+            story_tags_reshared [expr {$activity_err eq "" && $verifiable ? [ig::n_int [llength $matched_story_tags]] : [ig::n_null]}] \
+            story_tags_missed [expr {$activity_err eq "" && $verifiable ? [ig::n_int [llength $missed_story_tags]] : [ig::n_null]}]]] \
         missed_post_reshares [audit::post_arr $missed_post_reshares] \
         missed_story_tags [audit::notif_arr $missed_story_tags] \
         matched_post_reshares [audit::post_arr $matched_post_reshares] \
+        unverified_post_tags [audit::post_arr $unverified_post_tags] \
         matched_story_tags [audit::notif_arr $matched_story_tags] \
         notes [ig::n_strarr $notes]]]
 }

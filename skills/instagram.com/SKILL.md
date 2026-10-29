@@ -199,18 +199,19 @@ The reshare-match heuristic (which inspects `reshared_reel.id`, `imported_taken_
 
 What the script pulls:
 
-- **Tagged feed posts** — `/api/v1/usertags/<user_id>/feed/`, paginated until items predate `--since`. Permanent data, full coverage.
-- **Activity-inbox story-mention notifications** — `/api/v1/news/inbox/`, filtered to story-mention rows. Instagram retains these for roughly 14-30 days only; older story tags are unrecoverable.
-- **Currently-live story tray** — `/api/v1/feed/user/<user_id>/story/`, for stories posted in the last 24h.
-- **Own story archive** — `/api/v1/archive/reel/day_shells/` + `seen_media`, walked back to `--since`. Only readable if the logged-in viewer IS the target account. If the viewer is a different account, the script reports `archive_not_accessible` in `coverage` and lists the implication in `notes`.
+- **Tagged posts** — the profile's Tagged tab, read from its own GraphQL query and scrolled until items predate `--since`. A tagged post's time comes from its media id, since the query carries no `taken_at`. Permanent data; `coverage.tagged_posts` says `full`, or `partial` when the tab stopped loading first.
+- **Activity-inbox story-mention notifications** — `/api/v1/news/inbox/`, filtered to story-mention rows. The inbox is the logged-in account's own, so it is read only when the viewer IS the target; otherwise `coverage` reports `not_target_inbox`. Instagram retains these for roughly 14-30 days only; older story tags are unrecoverable.
+- **Own story archive** — `/api/v1/archive/reel/day_shells/` + `seen_media`, walked back to `--since`. Only readable if the logged-in viewer IS the target account. If the viewer is a different account, the script reports `archive_not_accessible` in `coverage` and lists the implication in `notes`. Another account's live stories are not read at all, because opening a story records a view.
+
+The viewer is named by its account id (the `ds_user_id` cookie).
 
 Reshare matching: for each tag (post or story), the script looks for a target-side story that either (a) carries a `reshared_media_id` equal to the tag's media id, or (b) has a `reel_mentions` entry pointing at the tag's actor within 24 hours of the tag timestamp.
 
-Output is a JSON object with `summary` (counts), `missed_post_reshares`, `missed_story_tags`, `matched_*` lists, a `coverage` block (per source), and a `notes` array listing every applicable caveat. Always read `notes` and `coverage` before quoting a count — the same audit run can give very different numbers depending on whether the archive was reachable.
+Output is a JSON object with `summary` (counts), `missed_post_reshares`, `missed_story_tags`, `matched_*` lists, `unverified_post_tags` (tags no reshare could be checked for), a `coverage` block (per source), and a `notes` array listing every applicable caveat. Always read `notes` and `coverage` before quoting a count — the same audit run can give very different numbers depending on whether the archive was reachable.
 
 Operational notes:
 
-- For a complete historical audit, the user must log in as the brand account in Chromium before running. A personal-account session can only see live (<24h) stories on the brand side.
+- For a real audit, the user must log in as the brand account in Chromium before running. A personal-account session reads only the tagged posts and lists them under `unverified_post_tags`, with the reshared and missed counts null.
 - To build an ongoing audit trail, schedule the script daily and append the output to a log. Combined with the activity-inbox retention window, this captures every story tag before Instagram drops the notification.
 - The script does not write or modify any Instagram state. All endpoints are read-only fetches.
 

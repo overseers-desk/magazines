@@ -839,6 +839,15 @@ proc ig::sv_take_connection {captured conn itemsVar} {
     return $more
 }
 
+# The creation time, in epoch seconds, that an Instagram media id encodes: its
+# top bits are milliseconds since Instagram's epoch (1314220021721 ms,
+# 2011-08-24). It matched taken_at within 5 seconds on all 14 timeline posts
+# checked on 2026-10-29. "" for a non-numeric id.
+proc ig::pk_time {pk} {
+    if {![string is digit -strict $pk]} { return "" }
+    return [expr {(($pk >> 23) + 1314220021721) / 1000}]
+}
+
 # The profile page's own user query for $handle (data.user, carrying
 # is_private and media_count) among captured triples, or {} when absent.
 proc ig::sv_profile_user {captured handle} {
