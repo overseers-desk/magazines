@@ -577,8 +577,9 @@ proc overseer_stream_read {} {
 
 # One line of the streamed response. Skip the HTTP status line and headers until the
 # blank line; after that each non-blank line is one ndjson frame. A frame tagged
-# "type" is a progress or heartbeat keepalive - reset the watchdog and keep waiting.
-# An untagged frame is the terminal {result,fault} envelope; capture it and stop.
+# "type" is a progress or heartbeat keepalive - reset the watchdog and keep waiting -
+# or a hold, which ends the run (overseer_hold). An untagged frame is the terminal
+# {result,fault} envelope; capture it and stop.
 proc overseer_stream_line {line} {
     if {!$::ovsd(inbody)} {
         if {[string match "HTTP/*" $line]} {
@@ -592,33 +593,44 @@ proc overseer_stream_line {line} {
     if {$line eq ""} return
     overseer_wd_reset
     if {[catch {json::json2dict $line} obj]} { return }
-    if {[dict exists $obj type]} { overseer_report_hold $obj; return }
+    if {[dict exists $obj type]} { overseer_hold $obj; return }
     set ::ovsd(env) $obj
     set ::ovsd(done) terminal
 }
 
-# A lane or jobCode frame says why a parked run is not moving: the site is held
-# (challenged, or signed out for authenticated work), or this skill is tripped
-# after consecutive errors and waits for a retry on the overseer's job board.
-# Say it once per change, so whoever reads the wait sees a hold, not a slow
-# queue. Progress and heartbeat frames stay quiet.
-proc overseer_report_hold {obj} {
+# A lane or jobCode frame says the run is held and will not start: the site is
+# signed out or challenged, or this skill is tripped after consecutive errors and
+# waits for a retry on the overseer's job board. The run ends here rather than
+# waiting on a hold only a person can lift; exiting closes the socket, and the
+# overseer drops the waiter without touching the breaker. Progress and heartbeat
+# frames pass.
+proc overseer_hold {obj} {
     switch -- [dict get $obj type] {
         lane {
-            set since [dict get $obj since]
-            if {[string is wide -strict $since]} {
-                set since [clock format $since -format {%Y-%m-%dT%H:%M:%S}]
+            set site [dict get $obj site]
+            switch -- [dict get $obj state] {
+                signedOut  { die_no_session $site logged-out }
+                challenged { die_no_session $site checkpoint }
             }
-            set msg "waiting: [dict get $obj site] is [dict get $obj state] since $since ([dict get $obj detail])"
         }
         jobCode {
-            set msg "waiting: [dict get $obj jobCode] tripped after [dict get $obj count] consecutive errors since [dict get $obj since] (last: [dict get $obj detail]); it runs once retried on the overseer's job board"
+            die 65 "held: [dict get $obj jobCode] tripped after [dict get $obj count] consecutive errors since [dict get $obj since] (last: [dict get $obj detail]); it runs again once retried on the overseer's job board"
         }
-        default return
     }
-    if {$msg eq $::ovsd(hold)} return
-    set ::ovsd(hold) $msg
-    puts stderr "browser-serialiser: $msg"
+}
+
+# The run cannot proceed without a person at the browser: $site is signed out
+# (logged-out) or challenging this browser (checkpoint). Notify, then exit 77.
+proc die_no_session {site kind} {
+    if {$kind eq "checkpoint"} {
+        tray::notify "Browser skill stopped" \
+            "$site served a challenge. Open it in Chromium and clear it."
+        die 77 "checkpoint: $site is challenging this browser"
+    }
+    tray::notify "Browser skill stopped" \
+        "Log in to $site in Chromium, then retry."
+    set who [expected_account $site]
+    die 77 "session missing: $site[expr {$who ne "" ? ", expected $who" : ""}]"
 }
 
 # Try to run the skill via the overseer broker. Returns {delegated 1 result <emit>}
@@ -645,7 +657,7 @@ proc serialiser_delegate {skillRef skillArgs} {
     set bodyBytes [encoding convertto utf-8 $body]
     if {[catch {socket 127.0.0.1 $port} sock]} { die 65 "overseer /run connect failed: $sock" }
     array unset ::ovsd
-    array set ::ovsd {buf "" inbody 0 done "" env "" code "" wd "" hold ""}
+    array set ::ovsd {buf "" inbody 0 done "" env "" code "" wd ""}
     set ::ovsd(sock) $sock
     fconfigure $sock -blocking 0 -buffering none -translation binary
     set req "POST /run HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
@@ -670,16 +682,7 @@ proc serialiser_delegate {skillRef skillArgs} {
         set detail [expr {[dict exists $f detail] ? [dict get $f detail] : ""}]
         if {$shape eq "terminal"} {
             if {$detail in {logged-out checkpoint}} {
-                set site [file dirname $skillRef]
-                if {$detail eq "checkpoint"} {
-                    tray::notify "Browser skill stopped" \
-                        "$site served a challenge. Open it in Chromium and clear it."
-                    die 77 "checkpoint: $site is challenging this browser"
-                }
-                tray::notify "Browser skill stopped" \
-                    "Log in to $site in Chromium, then retry."
-                set who [expected_account $site]
-                die 77 "session missing: $site[expr {$who ne "" ? ", expected $who" : ""}]"
+                die_no_session [file dirname $skillRef] $detail
             }
             die 66 "terminal $detail"
         }
