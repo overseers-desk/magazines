@@ -90,8 +90,8 @@ Default limit is 12. The posts come from the profile page's own GraphQL timeline
 Each post entry includes:
 
 - `post_id`, `shortcode`, `url`, `post_type` (image/video/carousel/reel), `taken_at_iso`
-- `like_count`, `comment_count`, `play_count`, `ig_play_count`, `fb_play_count`, `view_count`, `media_repost_count`, `fb_like_count`, `fb_comment_count` (play/view/reshare null on stills; the `fb_*` are null unless the post was cross-posted to Facebook)
-- `video_duration` (seconds, null on stills), `like_and_view_counts_disabled` (the creator hid metrics)
+- `like_count` (null where the creator hid likes: Instagram then serves a placeholder, 3 on every hidden reel checked), `comment_count`, `like_and_view_counts_disabled`
+- `view_count`, `media_repost_count`, `fb_like_count`, `fb_comment_count`: the grid query selects these, and `view_count` was null on every post read on 2026-11-05.
 - `caption`, `hashtags` (regex-extracted from caption), `mentions` (regex-extracted from caption)
 - `tagged_users` (the "tag people" feature on the post; aggregated across carousel slides)
 - `coauthors` (the dual-author collab-post feature)

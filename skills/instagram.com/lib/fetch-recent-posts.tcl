@@ -204,18 +204,16 @@ proc ig::parse_media_items {items} {
         dict set post url "https://www.instagram.com/p/$code/"
         dict set post post_type [ig::post_type $item]
         dict set post taken_at_iso [ig::seconds_to_iso [ig::dget $item taken_at 0]]
-        dict set post like_count [ig::dget $item like_count 0]
+        # Where the creator hid likes, like_count is a placeholder (3 on every
+        # hidden reel checked, 2026-11-05), so it is no count at all.
+        set hidden [ig::truthy [ig::dget $item like_and_view_counts_disabled false]]
+        dict set post like_count [expr {$hidden ? "\x00null" : [ig::dget $item like_count 0]}]
         dict set post comment_count [ig::dget $item comment_count 0]
-        dict set post play_count [ig::dget_null $item play_count]
-        dict set post ig_play_count [ig::dget_null $item ig_play_count]
-        dict set post fb_play_count [ig::dget_null $item fb_play_count]
         dict set post view_count [ig::dget_null $item view_count]
         dict set post media_repost_count [ig::dget_null $item media_repost_count]
         dict set post fb_like_count [ig::dget_null $item fb_like_count]
         dict set post fb_comment_count [ig::dget_null $item fb_comment_count]
-        dict set post video_duration [ig::dget_null $item video_duration]
-        dict set post like_and_view_counts_disabled \
-            [ig::truthy [ig::dget $item like_and_view_counts_disabled false]]
+        dict set post like_and_view_counts_disabled $hidden
         dict set post caption $caption_text
         dict set post hashtags [ig::extract_hashtags $caption_text]
         dict set post mentions [ig::extract_mentions $caption_text]
