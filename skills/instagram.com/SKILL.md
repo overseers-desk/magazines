@@ -1,6 +1,6 @@
 ---
 name: instagram
-description: "Search Instagram accounts, read profiles, and enumerate a profile's followers or following; find someone by name or handle. Also audits brand-account tag-reshare compliance."
+description: "Find Instagram accounts by name or handle; read profiles, posts, and reels with view, like and comment counts; enumerate followers or following; audit brand tag-reshare compliance."
 argument-hint: <name, handle, or search terms>
 ---
 
@@ -91,7 +91,7 @@ Each post entry includes:
 
 - `post_id`, `shortcode`, `url`, `post_type` (image/video/carousel/reel), `taken_at_iso`
 - `like_count` (null where the creator hid likes: Instagram then serves a placeholder, 3 on every hidden reel checked), `comment_count`, `like_and_view_counts_disabled`
-- `view_count`, `media_repost_count`, `fb_like_count`, `fb_comment_count`: the grid query selects these, and `view_count` was null on every post read on 2026-11-05.
+- `view_count`, `media_repost_count`, `fb_like_count`, `fb_comment_count`: the grid query selects these, and `view_count` was null on every post read on 2026-11-05. A reel's play count is not on the grid; §6a reads it.
 - `caption`, `hashtags` (regex-extracted from caption), `mentions` (regex-extracted from caption)
 - `tagged_users` (the "tag people" feature on the post; aggregated across carousel slides)
 - `coauthors` (the dual-author collab-post feature)
@@ -99,6 +99,16 @@ Each post entry includes:
 - `is_paid_partnership`, `location`
 
 The five handle-bearing fields above (`mentions`, `tagged_users`, `coauthors`, `sponsors`, plus paid-partnership context) are what the collab-expansion script in §7 walks to find candidates.
+
+## 6a. Reels with play counts
+
+```bash
+browser-serialiser instagram.com/auth-fetch-reels reels HANDLE [--limit N] [--since YYYY-MM-DD]
+```
+
+Reads the profile's Reels tab from the tab's own query, the source of the play count printed on each tile. The count is exact (202423 where the tile reads "202K") and is given even where the creator hid likes. Default is the tab's first dozen reels; `--since` reads back to that date (a ceiling of 500 still applies unless `--limit` sets one). `hasMore` says whether older reels remain.
+
+Each reel carries `shortcode`, `url`, `post_id`, `owner`, `taken_at_iso`, `play_count`, `like_count` (null when hidden, as in §6), `comment_count`, `like_and_view_counts_disabled` and `pinned`. `taken_at_iso` is decoded from the media id, since the tab's query carries no timestamp. The tab also lists collab reels hosted by another account, which the grid of §6 did not list on the account checked; `owner` names the host (3 of 25 and 12 of 64 reels on two accounts, 2026-11-05). A reel's `shortcode` joins it to its §6 row for caption and tags.
 
 ## 7. Collab partner expansion (multi-handle spider)
 

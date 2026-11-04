@@ -811,6 +811,119 @@ proc ig::sv_fetch_feed {handle limit {moreVar ""}} {
     return [lrange $items 0 [expr {$limit - 1}]]
 }
 
+# Page a profile's Reels tab the way the tab does: capture /<handle>/reels/,
+# whose own user query (data.fetch__XDTUserDict, id = $user_id) carries
+# clips_connection, about a dozen reels on the first page and five per scroll.
+# Its media nodes carry play_count, the number the tab prints on each tile, which
+# the grid query does not select. Paging stops at $limit reels, or at the first
+# unpinned reel older than $since (epoch seconds, 0 for none), or when the
+# connection reports no next page; a pinned reel older than $since is dropped.
+# The tab also lists collab reels another account hosts. Returns the raw media list; $moreVar as in
+# ig::sv_fetch_feed. Throws {IG REELS private} and {IG REELS missing} as
+# sv_fetch_feed does for the grid.
+proc ig::sv_fetch_reels {handle user_id limit since {moreVar ""}} {
+    if {$moreVar ne ""} { upvar 1 $moreVar more }
+    set items {}
+    set captured [capture "https://www.instagram.com/$handle/reels/" --seconds 10 --match {*graphql*}]
+    set more [ig::sv_take_clips $captured $user_id items]
+    if {$more eq ""} {
+        set user [ig::sv_profile_user $captured $handle]
+        if {[ig::truthy [ig::dget $user is_private false]]} {
+            throw {IG REELS private} "@$handle is private; its reels are not visible to this account"
+        }
+        throw {IG REELS missing} "the reels tab of @$handle loaded no reels connection"
+    }
+    set idle 0
+    while {$more && $idle < 3 && [llength $items] < $limit
+           && ![ig::reels_past_since $items $since]} {
+        eval {window.scrollTo(0, document.body.scrollHeight)}
+        dwell 2
+        set n [llength $items]
+        set m [ig::sv_take_clips [harvest --match {*graphql*}] $user_id items]
+        if {$m ne ""} { set more $m }
+        if {[llength $items] == $n} { incr idle } else { set idle 0 }
+    }
+    set kept {}
+    foreach m $items {
+        if {[llength $kept] >= $limit} { set more 1; break }
+        if {$since && [ig::pk_time [ig::dget $m pk ""]] < $since} {
+            if {[ig::reel_pinned $m]} continue
+            set more 0; break
+        }
+        lappend kept $m
+    }
+    log "reels @$handle: [llength $kept] of [llength $items] read, more=$more"
+    return $kept
+}
+
+# Append the media of every clips_connection page for user $user_id among
+# captured triples to the caller's $itemsVar, skipping a pk already held.
+# Returns the last page's has_next_page (0 or 1), or "" when none was captured.
+proc ig::sv_take_clips {captured user_id itemsVar} {
+    upvar 1 $itemsVar items
+    set seen {}
+    foreach it $items { dict set seen [ig::dget $it pk ""] 1 }
+    set more ""
+    foreach r $captured {
+        set body [lindex $r 2]
+        if {[string first clips_connection $body] < 0} continue
+        if {[catch {json::json2dict $body} d]} continue
+        set u [ig::dget [ig::dget $d data {}] fetch__XDTUserDict {}]
+        if {[ig::dget $u id ""] ne $user_id} continue
+        set c [ig::dget $u clips_connection {}]
+        foreach e [ig::dget $c edges {}] {
+            set m [ig::dget [ig::dget $e node {}] media {}]
+            set pk [ig::dget $m pk ""]
+            if {$pk eq "" || [dict exists $seen $pk]} continue
+            dict set seen $pk 1
+            lappend items $m
+        }
+        set more [expr {[ig::dget [ig::dget $c page_info {}] has_next_page false] eq "true"}]
+    }
+    return $more
+}
+
+# A reel the owner pinned to the top of the tab sits out of date order.
+proc ig::reel_pinned {m} {
+    return [expr {[llength [ig::dget $m clips_tab_pinned_user_ids {}]] > 0}]
+}
+
+# Whether the reels held already reach back past $since, so paging can stop.
+proc ig::reels_past_since {items since} {
+    if {!$since} { return 0 }
+    foreach m [lreverse $items] {
+        if {[ig::reel_pinned $m]} continue
+        return [expr {[ig::pk_time [ig::dget $m pk ""]] < $since}]
+    }
+    return 0
+}
+
+# Reel media from ig::sv_fetch_reels as typed JSON nodes, for ig::jenc.
+proc ig::reel_nodes {items} {
+    set out {}
+    foreach m $items {
+        set code [ig::dget $m code ""]
+        set hidden [ig::truthy [ig::dget $m like_and_view_counts_disabled false]]
+        lappend out [ig::n_obj [list \
+            post_id [ig::n_str [ig::dget $m id ""]] \
+            shortcode [ig::n_str $code] \
+            url [ig::n_str "https://www.instagram.com/reel/$code/"] \
+            owner [ig::n_str [ig::dget [ig::dget $m user {}] username ""]] \
+            taken_at_iso [ig::n_str [ig::seconds_to_iso [ig::pk_time [ig::dget $m pk ""]]]] \
+            play_count [ig::count_node [ig::dget $m play_count null]] \
+            like_count [expr {$hidden ? [ig::n_null] : [ig::count_node [ig::dget $m like_count null]]}] \
+            comment_count [ig::count_node [ig::dget $m comment_count null]] \
+            like_and_view_counts_disabled [ig::n_bool $hidden] \
+            pinned [ig::n_bool [ig::reel_pinned $m]]]]
+    }
+    return $out
+}
+
+proc ig::count_node {v} {
+    if {[string is integer -strict $v]} { return [ig::n_int $v] }
+    return [ig::n_null]
+}
+
 # Append the nodes of every page of GraphQL connection $conn among captured
 # {url status body} triples to the caller's $itemsVar, skipping a pk already
 # held. Returns the last page's has_next_page (0 or 1), or "" when no page of
