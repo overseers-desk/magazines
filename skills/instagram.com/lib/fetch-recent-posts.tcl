@@ -207,8 +207,8 @@ proc ig::parse_media_items {items} {
         # Where the creator hid likes, like_count is a placeholder (3 on every
         # hidden reel checked, 2026-11-05), so it is no count at all.
         set hidden [ig::truthy [ig::dget $item like_and_view_counts_disabled false]]
-        dict set post like_count [expr {$hidden ? "\x00null" : [ig::dget $item like_count 0]}]
-        dict set post comment_count [ig::dget $item comment_count 0]
+        dict set post like_count [expr {$hidden ? "\x00null" : [ig::dget_null $item like_count]}]
+        dict set post comment_count [ig::dget_null $item comment_count]
         dict set post view_count [ig::dget_null $item view_count]
         dict set post media_repost_count [ig::dget_null $item media_repost_count]
         dict set post fb_like_count [ig::dget_null $item fb_like_count]

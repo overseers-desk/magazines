@@ -98,7 +98,7 @@ proc parse_comments_response {data} {
         set pk [ig::dget $c pk ""]
         if {$pk eq ""} { set pk [ig::dget $c id ""] }
         set created [ig::dget $c created_at_utc ""]
-        if {$created eq ""} { set created [ig::dget $c created_at 0] }
+        if {$created eq ""} { set created [ig::dget $c created_at ""] }
         lappend rows [dict create \
             username [ig::dget $user username ""] \
             full_name [ig::dget $user full_name ""] \
@@ -114,10 +114,9 @@ proc parse_comments_response {data} {
 }
 
 proc comment_like_count {c} {
-    set v [ig::dget $c comment_like_count 0]
-    if {$v eq "" || $v eq "null"} { return 0 }
+    set v [ig::dget $c comment_like_count ""]
     if {[string is integer -strict $v]} { return $v }
-    return 0
+    return ""
 }
 
 # Fetch first-page comments for a single post. Returns the result dict.
@@ -169,8 +168,8 @@ proc comment_node {r} {
         has_default_avatar [ig::n_bool [dict get $r has_default_avatar]] \
         text [ig::n_str [dict get $r text]] \
         text_length_words [ig::n_int [dict get $r text_length_words]] \
-        comment_like_count [ig::n_int [dict get $r comment_like_count]] \
-        created_at [ig::n_int [dict get $r created_at]] \
+        comment_like_count [ig::count_node [dict get $r comment_like_count]] \
+        created_at [ig::count_node [dict get $r created_at]] \
         comment_id [ig::n_str [dict get $r comment_id]]]]
 }
 
