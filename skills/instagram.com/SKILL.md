@@ -1,6 +1,6 @@
 ---
 name: instagram
-description: "Find Instagram accounts by name or handle; read profiles, posts, and reels with view, like and comment counts; enumerate followers or following; audit brand tag-reshare compliance."
+description: "Find Instagram accounts by name; read profiles, posts and reels with views, likes, comments, and the followers each of our own posts gained; list followers or following; audit tag reshares."
 argument-hint: <name, handle, or search terms>
 ---
 
@@ -111,6 +111,14 @@ browser-serialiser instagram.com/auth-fetch-reels reels HANDLE [--limit N] [--si
 Reads the profile's Reels tab from the tab's own query, the source of the play count printed on each tile. The count is exact (202423 where the tile reads "202K") and is given even where the creator hid likes. Default is the tab's first dozen reels; `--since` reads back to that date (a ceiling of 500 still applies unless `--limit` sets one). `hasMore` says whether older reels remain.
 
 Each reel carries `shortcode`, `url`, `post_id`, `owner`, `taken_at_iso`, `play_count`, `like_count` (null when hidden, as in §6), `comment_count`, `like_and_view_counts_disabled` and `pinned`. `taken_at_iso` is decoded from the media id, since the tab's query carries no timestamp. The tab also lists collab reels hosted by another account, which the grid of §6 did not list on the account checked; `owner` names the host (3 of 25 and 12 of 64 reels on two accounts, 2026-11-05). A reel's `shortcode` joins it to its §6 row for caption and tags.
+
+## 6b. Insights on the signed-in account's own posts
+
+```bash
+browser-serialiser instagram.com/auth-fetch-post-insights insights REF[,REF...]
+```
+
+A REF is a shortcode, a permalink, a post_id or a media id; §6 and §6a list them. Reads the page Instagram opens at "View insights" on a post, `/insights/media/<media_id>/`, from that page's own query. Each post carries `ref`, `media_id`, `follows` (accounts that followed from this post), `profile_visits`, `views`, `viewers`, `interactions`, `accounts_engaged`, `likes`, `comments`, `saves`, `shares` and `facebook_views`. Insights belong to the post's owner: a post the signed-in account does not own lands in `skipped`, since Instagram answers it with "this page isn't available". Works for reels, photos and carousels; one page view per post.
 
 ## 7. Collab partner expansion (multi-handle spider)
 
