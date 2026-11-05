@@ -455,8 +455,8 @@ proc post_json {item} {
         caption        [j_str $capText] \
         post_type      [j_str [post_type $item]] \
         location       [j_str $locName] \
-        like_count     [j_intornull [dnum $item like_count 0]] \
-        comment_count  [j_intornull [dnum $item comment_count 0]] \
+        like_count     [j_intornull [expr {[dbool $item like_and_view_counts_disabled] ? "" : [dstr $item like_count]}]] \
+        comment_count  [j_intornull [dstr $item comment_count]] \
         play_count     [j_intornull [dnum $item play_count null]] \
         view_count     [j_intornull [dnum $item view_count null]] \
         media_repost_count [j_intornull [dnum $item media_repost_count null]] \
