@@ -260,13 +260,13 @@ proc ig::shortcode_to_media_id {shortcode} {
 proc ig::is_digits {s} {
     return [expr {$s ne "" && [regexp {^\d+$} $s]}]
 }
+proc ig::is_post_id {s} {
+    return [regexp {^\d+_\d+$} $s]
+}
 proc ig::resolve_post_ref {post_ref} {
     regexp {/(?:p|reels?|tv)/([A-Za-z0-9_-]+)} $post_ref -> post_ref
-    if {[string first "_" $post_ref] >= 0} {
-        set head [lindex [split $post_ref "_"] 0]
-        if {[ig::is_digits $head]} { return $head }
-        error "post_ref looks like post_id but head is not numeric: $post_ref"
-    }
+    # A shortcode's alphabet includes "_", so only digits_digits is a post_id.
+    if {[ig::is_post_id $post_ref]} { return [lindex [split $post_ref "_"] 0] }
     if {[ig::is_digits $post_ref]} { return $post_ref }
     return [ig::shortcode_to_media_id $post_ref]
 }

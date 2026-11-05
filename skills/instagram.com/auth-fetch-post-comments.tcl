@@ -158,7 +158,7 @@ proc render_comments {result} {
 # /p/<code>/ page; a bare post_id/media_id has no permalink we can form locally,
 # so the IG home is the covering view in that case.
 proc sv_cover_url {post_ref} {
-    if {[string first "_" $post_ref] < 0 && ![ig::is_digits $post_ref]} {
+    if {![ig::is_post_id $post_ref] && ![ig::is_digits $post_ref]} {
         return "https://www.instagram.com/p/$post_ref/"
     }
     return "https://www.instagram.com/"
