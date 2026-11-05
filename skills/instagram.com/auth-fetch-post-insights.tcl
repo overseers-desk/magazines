@@ -47,6 +47,34 @@ proc metric_node {m key} {
     return [ig::count_node [ig::dget [lindex $results 0] total_value null]]
 }
 
+# A breakdown metric as a dict, dimension value -> total.
+proc metric_dims {m key} {
+    set out {}
+    foreach res [ig::dget [ig::dget [ig::dget $m $key {}] value {}] results {}] {
+        dict set out [lindex [ig::dget $res dimension_values {}] 0] [ig::dget $res total_value 0]
+    }
+    return $out
+}
+
+# Follower and non-follower parts of a follow-type breakdown, as the page
+# shows them: dimension 1 is followers, 2 non-followers, each a percentage of
+# all dimensions (0, the rest, is a handful). The base is Instagram's own views
+# or interactions; a Facebook cross-post's are outside it. Matched to the
+# page's percentages on a reel (17.9% / 82.1%), 2026-11-05.
+proc follow_split {m key prefix} {
+    set d [metric_dims $m $key]
+    set total 0
+    dict for {k v} $d { incr total $v }
+    if {!$total} {
+        return [list ${prefix}_followers [ig::n_null] ${prefix}_non_followers [ig::n_null] \
+            ${prefix}_non_follower_pct [ig::n_null]]
+    }
+    set non [expr {[dict exists $d 2] ? [dict get $d 2] : 0}]
+    return [list ${prefix}_followers [ig::n_int [expr {[dict exists $d 1] ? [dict get $d 1] : 0}]] \
+        ${prefix}_non_followers [ig::n_int $non] \
+        ${prefix}_non_follower_pct [list rawjson [format %.1f [expr {100.0 * $non / $total}]]]]
+}
+
 proc serialiser_run {skillArgs} {
     set usage "Usage: instagram.com/auth-fetch-post-insights insights <shortcode|permalink|media_id>\[,...\]"
     if {[lindex $skillArgs 0] ne "insights" || [llength $skillArgs] < 2} { emit [envelope_fault $usage]; return }
@@ -83,6 +111,8 @@ proc serialiser_run {skillArgs} {
         }
         set pairs [list ref [ig::n_str $ref] media_id [ig::n_str $mid]]
         foreach {field key} $::INSIGHT_FIELDS { lappend pairs $field [metric_node $m $key] }
+        lappend pairs {*}[follow_split $m umapi_content_views_count_follow_type_breakdowns views]
+        lappend pairs {*}[follow_split $m umapi_total_interactions_breakdowns_follow_type_breakdowns interactions]
         lappend rows [ig::n_obj $pairs]
     }
     emit [envelope_ok [dict create result [ig::jenc [ig::n_obj [list \
