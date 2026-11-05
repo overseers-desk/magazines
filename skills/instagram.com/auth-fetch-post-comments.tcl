@@ -25,43 +25,6 @@
 source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
 
 # ---------------------------------------------------------------------------
-# Shortcode <-> media_id (Instagram's base64 encoding; pure local conversion).
-# Tcl's expr handles arbitrary-precision integers, so the bignum math is exact.
-# ---------------------------------------------------------------------------
-
-set SHORTCODE_ALPHABET "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-
-proc shortcode_to_media_id {shortcode} {
-    global SHORTCODE_ALPHABET
-    set result 0
-    foreach ch [split $shortcode ""] {
-        set idx [string first $ch $SHORTCODE_ALPHABET]
-        if {$idx < 0} {
-            error "shortcode contains invalid char: $ch"
-        }
-        set result [expr {$result * 64 + $idx}]
-    }
-    return $result
-}
-
-# Accept a shortcode, a full post_id (id_userid), or a bare media_id. Return the
-# bare media_id string. Raises on a malformed post_id. Digit checks use a regex
-# (mirroring Python str.isdigit) so 19-digit media ids are not truncated the way
-# Tcl's native-int `string is integer` would.
-proc is_digits {s} {
-    return [expr {$s ne "" && [regexp {^\d+$} $s]}]
-}
-proc resolve_post_ref {post_ref} {
-    if {[string first "_" $post_ref] >= 0} {
-        set head [lindex [split $post_ref "_"] 0]
-        if {[is_digits $head]} { return $head }
-        error "post_ref looks like post_id but head is not numeric: $post_ref"
-    }
-    if {[is_digits $post_ref]} { return $post_ref }
-    return [shortcode_to_media_id $post_ref]
-}
-
-# ---------------------------------------------------------------------------
 # Comment parsing.
 # ---------------------------------------------------------------------------
 
@@ -121,7 +84,7 @@ proc comment_like_count {c} {
 
 # Fetch first-page comments for a single post. Returns the result dict.
 proc cmd_comments {c post_ref limit} {
-    if {[catch {resolve_post_ref $post_ref} media_id]} {
+    if {[catch {ig::resolve_post_ref $post_ref} media_id]} {
         return [dict create error $media_id]
     }
 
@@ -195,7 +158,7 @@ proc render_comments {result} {
 # /p/<code>/ page; a bare post_id/media_id has no permalink we can form locally,
 # so the IG home is the covering view in that case.
 proc sv_cover_url {post_ref} {
-    if {[string first "_" $post_ref] < 0 && ![is_digits $post_ref]} {
+    if {[string first "_" $post_ref] < 0 && ![ig::is_digits $post_ref]} {
         return "https://www.instagram.com/p/$post_ref/"
     }
     return "https://www.instagram.com/"
@@ -204,7 +167,7 @@ proc sv_cover_url {post_ref} {
 # Fetch and parse first-page comments over the policed surface. Returns the same
 # result dict cmd_comments returns, so render_comments renders byte-identically.
 proc sv_cmd_comments {post_ref limit} {
-    if {[catch {resolve_post_ref $post_ref} media_id]} {
+    if {[catch {ig::resolve_post_ref $post_ref} media_id]} {
         return [dict create error $media_id]
     }
     set body [api "/api/v1/media/$media_id/comments/" \
