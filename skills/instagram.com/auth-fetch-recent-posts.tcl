@@ -53,7 +53,7 @@ proc serialiser_run {skillArgs} {
     set user_id $uid
 
     try {
-        set items [ig::sv_fetch_feed $handle $limit]
+        set items [ig::sv_fetch_feed $handle $limit more]
     } trap {IG FEED private} {msg} {
         emit [envelope_ok [dict create result [ig::render_posts_result \
             [dict create handle $handle user_id $user_id is_private true \
@@ -70,9 +70,10 @@ proc serialiser_run {skillArgs} {
         return
     }
     set posts [ig::parse_media_items $items]
+    set stop [expr {[llength $posts] >= $limit ? "limit" : ($more ? "stalled" : "end")}]
     set result [dict create handle $handle user_id $user_id \
-        post_count [llength $posts] posts $posts]
-    emit [envelope_ok [dict create result [ig::render_posts_result $result]]]
+        post_count [llength $posts] stop_reason $stop posts $posts]
+    emit [envelope_ok [dict create hasMore $more result [ig::render_posts_result $result]]]
 }
 
 # ---------------------------------------------------------------------------

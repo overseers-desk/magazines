@@ -17,7 +17,13 @@ if {![namespace exists cdp]} {
     catch { ::tcl::tm::path add [file normalize [file join [file dirname [info script]] .. .. .. lib]]; package require cdp }
 }
 
-namespace eval ig { variable LastRaw "" }
+namespace eval ig {
+    variable LastRaw ""
+    # Scrolls in a row that bring no new item before a paging loop gives up
+    # while the connection still reports a next page. A profile grid runs up
+    # to 4 empty scrolls between pages (2 s dwell each), observed 2026-11-05.
+    variable ScrollPatience 8
+}
 
 # ---------------------------------------------------------------------------
 # CDP plumbing built on the shared cdp::Client. eval_js mirrors the Python
@@ -798,7 +804,7 @@ proc ig::sv_fetch_feed {handle limit {moreVar ""}} {
         return {}
     }
     set idle 0
-    while {[llength $items] < $limit && $more && $idle < 3} {
+    while {[llength $items] < $limit && $more && $idle < $::ig::ScrollPatience} {
         eval {window.scrollTo(0, document.body.scrollHeight)}
         dwell 2
         set n [llength $items]
@@ -834,7 +840,7 @@ proc ig::sv_fetch_reels {handle user_id limit since {moreVar ""}} {
         throw {IG REELS missing} "the reels tab of @$handle loaded no reels connection"
     }
     set idle 0
-    while {$more && $idle < 3 && [llength $items] < $limit
+    while {$more && $idle < $::ig::ScrollPatience && [llength $items] < $limit
            && ![ig::reels_past_since $items $since]} {
         eval {window.scrollTo(0, document.body.scrollHeight)}
         dwell 2

@@ -69,7 +69,7 @@ proc audit::fetch_tagged_feed {handle since_ts} {
         return [dict create error "the Tagged tab of @$handle loaded no tagged-post query"]
     }
     set idle 0
-    while {$more && $idle < 3 && [audit::oldest_time $raw] >= $since_ts} {
+    while {$more && $idle < $::ig::ScrollPatience && [audit::oldest_time $raw] >= $since_ts} {
         eval {window.scrollTo(0, document.body.scrollHeight)}
         dwell 2
         set n [llength $raw]

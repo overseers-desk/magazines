@@ -83,6 +83,8 @@ browser-serialiser instagram.com/auth-fetch-recent-posts posts HANDLE --limit 50
 
 Default limit is 12. The posts come from the profile page's own GraphQL timeline query, twelve to a page: the script captures the profile and, when `--limit` exceeds 12, scrolls for further pages until the limit is reached or the timeline reports no next page. The REST feed `/api/v1/feed/user/<user_id>/` answers Instagram's HTML 404 page (observed 2026-10-29).
 
+`stop_reason` says why reading ended: `limit`, `end` (the timeline reported no next page), or `stalled` (scrolling brought nothing new for eight scrolls while a next page was still reported); the envelope's `hasMore` is true for `limit` and `stalled`. A large grid runs up to four empty scrolls between pages, so a read of a few hundred posts takes minutes.
+
 `post_count: 0` means the account has no posts. A private account the session cannot see into returns `is_private: true` with a `note`; a public profile page that loaded no timeline is a fault, not an empty result.
 
 (`--raw-out PATH`, which writes the unparsed feed items to a file, is a direct-tclsh-only option; the serialiser path's safe interpreter has no file access, so the parsed JSON on stdout is the only output there.)
