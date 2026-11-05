@@ -62,7 +62,7 @@ model to run `browser-serialiser`, which resolves through PATH to the installed
 plugin cache, whose tree is pinned at the commit that was installed. Without it
 the model reads the new SKILL.md while the harness runs the old script, and the
 run comes back in the previous output shape as though the change had not been
-made. The override covers delegation too: the serialiser hands an overseer the skill path this checkout resolved, so a delegated run also executes the file being edited.
+made. The override covers delegation too: the serialiser hands an overseer the skill path this checkout resolved, so a delegated run also executes the file being edited. A delegated run returns the envelope alone; the skill's `log` lines stay with the overseer, so a diagnosis that reads them runs while no overseer is up (COMMAND-SURFACE.md, "Studying a site").
 
 Where the plugin is installed at managed scope, `--plugin-dir` does not displace it: the model loads the installed SKILL.md, and `--settings` cannot disable a managed plugin (both observed 2026-11-05). The scripts still come from the working tree through PATH, but a SKILL.md change reaches a `-p` run only once it is pushed and `claude plugin update magazines@overseers-desk` has installed it. Run from outside the checkout, so this file does not load into the test session.
 
