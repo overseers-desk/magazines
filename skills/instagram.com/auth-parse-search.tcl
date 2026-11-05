@@ -143,10 +143,9 @@ proc main {path} {
 }
 
 # ---------------------------------------------------------------------------
-# Serialiser entry: the policed-surface path. nav to the topsearch endpoint and
-# dump the JSON body (the page wraps it in <pre>), then run the identical
-# parse+report logic. Emits the report (or the diagnostic text on a non-JSON
-# body, so the failure mode is the same as the file path).
+# Serialiser entry: the policed-surface path. Types the terms into the search
+# page's box, captures the type-ahead query the page issues, and runs the same
+# parse+report logic as the file path.
 #
 # Invoked by reference through the serialiser (see SKILL.md §1-2):
 #     browser-serialiser instagram.com/auth-parse-search <search terms>

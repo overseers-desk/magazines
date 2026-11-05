@@ -36,10 +36,10 @@
 # the caller may raise --grid-limit. grid_count and grid_oldest_iso are reported
 # for context.
 #
-# This file sources auth-fetch-recent-posts.tcl for the ig:: library: handle->user_id
+# The ig:: library supplies handle->user_id
 # resolution (ig::sv_resolve_user_id), grid paging (ig::sv_fetch_feed), media
 # parsing (ig::parse_media_items), and the typed-JSON emitters (ig::jenc /
-# ig::n_*). No detection logic is duplicated from the keystone.
+# ig::n_*).
 
 source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
 
@@ -256,75 +256,4 @@ proc serialiser_run {skillArgs} {
     }
 
     emit [envelope_ok [dict create result [ca_render $handle [llength $gridPosts] $gridOldest $gridComplete $rows]]]
-}
-
-# ---------------------------------------------------------------------------
-# Direct-tclsh entry (parity with the serialiser path; uses the legacy cdp
-# package the sourced keystone provides via ig::). Kept so the script runs under
-# `tclsh auth-check-archived.tcl ...` for development, mirroring its siblings.
-# ---------------------------------------------------------------------------
-
-proc main {} {
-    global argv
-    set positional {}
-    set grid_limit 5000
-    for {set i 0} {$i < [llength $argv]} {incr i} {
-        set a [lindex $argv $i]
-        switch -- $a {
-            --grid-limit { incr i; set grid_limit [lindex $argv $i] }
-            default { lappend positional $a }
-        }
-    }
-    set handle [lindex $positional 0]
-    set codes [ca_parse_shortcodes [lindex $positional 1]]
-    if {$handle eq "" || ![llength $codes]} {
-        puts "Usage: auth-check-archived.tcl <handle> <shortcode>\[,<shortcode>...\] \[--grid-limit N\]"
-        exit 1
-    }
-    if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser instagram.com/auth-check-archived ..."
-        exit 1
-    }
-
-    set c [cdp::connect]
-    $c cdp Page.enable
-    ig::navigate_and_wait $c "https://www.instagram.com/" 3
-    if {![ig::check_logged_in $c]} {
-        puts [ig::render_flat [dict create error "Not logged in to Instagram. Log in via Chromium first."]]
-        exit 1
-    }
-
-    set uid [ig::resolve_user_id $c $handle]
-    if {[ig::dget $uid error ""] ne ""} {
-        puts [ig::render_flat $uid]
-        $c close
-        exit 1
-    }
-    after 2000
-    set gridItems [ig::fetch_user_feed_paginated $c $uid $grid_limit]
-    set gridPosts [ig::parse_media_items $gridItems]
-    set gi [ca_grid_index $gridPosts]
-    set gridIdx [dict get $gi set]
-    set gridOldest [dict get $gi oldest]
-    set gridComplete [expr {[llength $gridItems] < $grid_limit}]
-
-    set rows {}
-    foreach code $codes {
-        ig::navigate_and_wait $c "https://www.instagram.com/reel/$code/" 5
-        set html [ig::scalar [ig::eval_js $c "document.documentElement.outerHTML"]]
-        set v [ca_verdict $code $gridIdx $gridOldest $html]
-        if {[dict get $v archived] == 1 && !$gridComplete} {
-            dict set v archived ""
-            dict set v reason "permalink renders but absent from a grid capped at $grid_limit (oldest $gridOldest); raise --grid-limit to confirm archived"
-        }
-        lappend rows $v
-    }
-    puts [ca_render $handle [llength $gridPosts] $gridOldest $gridComplete $rows]
-    $c close
-}
-
-if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
-    fconfigure stdout -encoding utf-8
-    fconfigure stderr -encoding utf-8
-    main
 }

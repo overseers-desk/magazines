@@ -8,9 +8,9 @@
 
 package require json
 
-# The legacy cdp package, kept for the direct-tclsh path (ig::main and each sibling's
-# own main, which call cdp::connect when run as `tclsh X.tcl ...` outside the
-# serialiser). Sourced only when not already present, so loading this file under
+# The legacy cdp package, for the siblings that keep a direct-tclsh main, which
+# calls cdp::connect when run as `tclsh X.tcl ...` outside the serialiser.
+# Sourced only when not already present, so loading this file under
 # the serialiser harness (where the policed verbs replace raw CDP) is a no-op
 # rather than a re-definition. The harness path uses serialiser_run.
 if {![namespace exists cdp]} {
@@ -329,99 +329,8 @@ proc ig::resolve_user_id {c handle} {
     return [dict create error "Could not determine user_id for @$handle" detail $id_result]
 }
 
-# Fetch one page of /api/v1/feed/user/<user_id>/. Returns the parsed dict (with
-# items, more_available, next_max_id) or {error ...}.
-proc ig::fetch_user_feed_page {c user_id {max_id ""} {count 12}} {
-    set params_parts [list "count=$count"]
-    if {$max_id ne ""} { lappend params_parts "max_id=$max_id" }
-    set params_str [join $params_parts "&"]
-    set js {
-    (async () => {
-        const csrf = document.cookie.match(/csrftoken=([^;]+)/)?.[1] || '';
-        const resp = await fetch('/api/v1/feed/user/@USERID@/?@PARAMS@', {
-            credentials: 'include',
-            headers: {
-                'X-IG-App-ID': '936619743392459',
-                'X-CSRFToken': csrf,
-                'X-Requested-With': 'XMLHttpRequest',
-            }
-        });
-        if (!resp.ok) return JSON.stringify({error: 'HTTP ' + resp.status});
-        return JSON.stringify(await resp.json());
-    })()
-    }
-    set js [string map [list @USERID@ $user_id @PARAMS@ $params_str] $js]
-    return [ig::eval_js $c $js]
-}
-
-# Paginate the user feed until limit items collected or more_available=false.
-# When rawVar is given, it is filled with a list of byte-faithful per-page
-# items-array JSON strings, so --raw-out can reconstruct the unparsed feed bytes.
-proc ig::fetch_user_feed_paginated {c user_id limit {pause_between 2} {rawVar ""}} {
-    if {$rawVar ne ""} { upvar 1 $rawVar rawpages }
-    set rawpages {}
-    set items {}
-    set max_id ""
-    set page_num 0
-    while {[llength $items] < $limit} {
-        incr page_num
-        set page [ig::fetch_user_feed_page $c $user_id $max_id 12]
-        set raw_page [ig::last_raw]
-        if {[ig::dget $page error ""] ne ""} {
-            puts stderr "Page $page_num fetch error: [dict get $page error]"
-            break
-        }
-        set page_items [ig::dget $page items {}]
-        if {![llength $page_items]} {
-            puts stderr "Page $page_num returned no items; stopping."
-            break
-        }
-        foreach it $page_items { lappend items $it }
-        if {$rawVar ne ""} {
-            lappend rawpages [ig::extract_json_array_after_key $raw_page items]
-        }
-        puts stderr "Page $page_num: [llength $page_items] items (cumulative [llength $items])"
-        if {[ig::dget $page more_available false] ne "true"} { break }
-        set max_id [ig::dget $page next_max_id ""]
-        if {$max_id eq ""} { break }
-        if {[llength $items] >= $limit} { break }
-        after [expr {int($pause_between * 1000)}]
-    }
-    if {[llength $items] > $limit} {
-        set items [lrange $items 0 [expr {$limit - 1}]]
-    }
-    return $items
-}
-
-# Fetch recent posts for a handle. Returns the result dict.
-proc ig::cmd_posts {c handle limit {raw_out ""}} {
-    set uid [ig::resolve_user_id $c $handle]
-    if {[ig::dget $uid error ""] ne ""} { return $uid }
-    set user_id $uid
-
-    after 2000
-    if {$raw_out ne ""} {
-        set items [ig::fetch_user_feed_paginated $c $user_id $limit 2 rawpages]
-        if {[catch {ig::write_raw_out $raw_out $handle $user_id $rawpages $limit} err]} {
-            puts stderr "Failed to write --raw-out $raw_out: $err"
-        } else {
-            puts stderr "Raw feed items written to $raw_out"
-        }
-    } else {
-        set items [ig::fetch_user_feed_paginated $c $user_id $limit]
-    }
-    if {![llength $items]} {
-        return [dict create handle $handle user_id $user_id post_count 0 \
-            note "Feed returned no items. Account may be private or feed empty." \
-            posts {}]
-    }
-    set posts [ig::parse_media_items $items]
-    return [dict create handle $handle user_id $user_id \
-        post_count [llength $posts] posts $posts]
-}
-
 # ---------------------------------------------------------------------------
-# Byte-faithful JSON-array extraction/splitting for --raw-out.
+# Byte-faithful JSON-array extraction/splitting (auth-read-seen-thread).
 # ---------------------------------------------------------------------------
 
 # Extract the JSON array text following "<key>": in a JSON document, by a
@@ -488,25 +397,6 @@ proc ig::split_json_array {arr} {
         }
     }
     return $elems
-}
-
-# Write the --raw-out file: {handle, user_id, items: [...]} with the items
-# preserved as the byte-faithful feed-API JSON captured during pagination.
-proc ig::write_raw_out {path handle user_id rawpages limit} {
-    set elems {}
-    foreach arr $rawpages {
-        foreach el [ig::split_json_array $arr] {
-            lappend elems $el
-            if {[llength $elems] >= $limit} { break }
-        }
-        if {[llength $elems] >= $limit} { break }
-    }
-    set items_json "\[[join $elems ,]\]"
-    set out "{\"handle\":[ig::jstr $handle],\"user_id\":[ig::jstr $user_id],\"items\":$items_json}"
-    set f [open $path w]
-    fconfigure $f -encoding utf-8
-    puts -nonewline $f $out
-    close $f
 }
 
 # ---------------------------------------------------------------------------
@@ -737,8 +627,7 @@ proc ig::n_strarr {lst} {
 # ---------------------------------------------------------------------------
 # Serialiser entry: the policed-surface path. The harness sources this file into
 # a safe interp and calls serialiser_run with the skill args; the flow drives
-# the verbs (nav/eval/api/emit) instead of cdp::connect. Parsing and rendering
-# reuse the identical ig:: helpers above, so byte-output matches the legacy path.
+# the verbs (nav/eval/api/emit) instead of cdp::connect.
 # ---------------------------------------------------------------------------
 
 # Standard IG private-API headers, passed to `api`. The CSRF token and

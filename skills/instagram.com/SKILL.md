@@ -20,7 +20,7 @@ If a request redirects to `/accounts/login/` or returns empty JSON, the session 
 
 ## Pacing and walls
 
-The harness owns pacing+jitter on every wire-touching verb and the 429/login backoff, so a script cannot burst. A profile view settles for a few seconds before the page-issued JSON is read; search reads the topsearch endpoint directly. On a 429 the harness backs off (capped) then goes terminal `rate-limited`; on a login/checkpoint redirect it goes terminal at once. A script never retries a wall.
+The harness owns pacing+jitter on every wire-touching verb and the 429/login backoff, so a script cannot burst. A profile view settles for a few seconds before the page-issued JSON is read; search types into the search box and reads the type-ahead results the page fetches. On a 429 the harness backs off (capped) then goes terminal `rate-limited`; on a login/checkpoint redirect it goes terminal at once. A script never retries a wall.
 
 ## DM read-state policy
 
@@ -87,7 +87,6 @@ Default limit is 12. The posts come from the profile page's own GraphQL timeline
 
 `post_count: 0` means the account has no posts. A private account the session cannot see into returns `is_private: true` with a `note`; a public profile page that loaded no timeline is a fault, not an empty result.
 
-(`--raw-out PATH`, which writes the unparsed feed items to a file, is a direct-tclsh-only option; the serialiser path's safe interpreter has no file access, so the parsed JSON on stdout is the only output there.)
 
 Each post entry includes:
 
@@ -127,7 +126,7 @@ browser-serialiser instagram.com/auth-collab-expand expand handle1,handle2,handl
 browser-serialiser instagram.com/auth-collab-expand expand handle1,handle2 --posts-per-handle 36
 ```
 
-Walks a list of input handles, fetches recent posts for each (paginated via §6's helpers), and accumulates the union of `tagged_users`, `coauthors`, `sponsors`, and caption `mentions` across all posts. (The legacy `--from <file>` seed-list option is direct-tclsh-only; pass the CSV positional under the serialiser.) Outputs candidate handles NOT already in the input set, ranked by explicit-collab signal first (tagged + coauthor + sponsor counts) and then by caption-mention count and breadth of source handles.
+Walks a list of input handles, fetches recent posts for each (paginated via §6's helpers), and accumulates the union of `tagged_users`, `coauthors`, `sponsors`, and caption `mentions` across all posts. Outputs candidate handles NOT already in the input set, ranked by explicit-collab signal first (tagged + coauthor + sponsor counts) and then by caption-mention count and breadth of source handles.
 
 Each candidate row carries the four per-signal counts, a `total`, and a sorted `sources` list of input handles whose posts surfaced the candidate. `skipped` lists each input handle whose posts were not read (unresolvable, private, or no timeline loaded) with its `reason`. Multi-source candidates (handles surfaced by several different input accounts) rank higher than single-source ones at equal signal strength.
 
@@ -142,7 +141,7 @@ browser-serialiser instagram.com/auth-fetch-post-comments comments SHORTCODE
 browser-serialiser instagram.com/auth-fetch-post-comments comments POST_ID
 ```
 
-Accepts a shortcode (e.g. `DXsPrn5AvNH`), a full post_id from the feed API (`<media_id>_<user_id>`), or a bare numeric `media_id`. Shortcode-to-media-id conversion is a local base64 decode, so no extra fetch is needed to resolve. Navigates to the post permalink (the covering view), then reads `/api/v1/media/<media_id>/comments/` via the policed `api` verb.
+Accepts a shortcode (e.g. `DXsPrn5AvNH`), a full post_id (`<media_id>_<user_id>`, the `post_id` §6 reports), or a bare numeric `media_id`. Shortcode-to-media-id conversion is a local base64 decode, so no extra fetch is needed to resolve. Navigates to the post permalink (the covering view), then reads `/api/v1/media/<media_id>/comments/` via the policed `api` verb.
 
 Returns the endpoint's first page only, which Instagram ranks by popularity and keeps short: 15 of 145 and 1 of 20 on two reels (2026-11-05); on the second, the post page's own comments query served the same single comment. `has_more` is true whenever fewer comments came back than `comment_count_total`. Paging further (the comments panel's own query, scrolled) is unbuilt.
 
@@ -157,7 +156,7 @@ Plus `username`, `full_name`, `text`, `created_at`, `comment_id`.
 
 Workflow: comment-circle discovery promotes a commenter handle to a sweep candidate only if at least one of (`is_verified`, `text_length_words >= 3`, `has_default_avatar == false`) holds. This drops 80 to 95 percent of typical commenter sets before any profile fetch happens. Surviving handles enter the standard sweep pipeline (ig-profile then fetch-recent-posts), so the per-commenter profile fetch is just sweep doing its normal work, not a dedicated enumeration job. Instagram does not distinguish the request pattern.
 
-The `comment_count_total` field in the response is the live count from this endpoint, which can differ from the cached count in the feed API. Treat the comments endpoint as authoritative.
+The `comment_count_total` field in the response is the live count from this endpoint, which can differ from the cached count §6 reports. Treat the comments endpoint as authoritative.
 
 ## 9. DM thread history reader (seen threads only)
 
@@ -264,6 +263,6 @@ Verified 2026-06-23 against `@example_account` with the grid paged to exhaustion
 ## What this skill does NOT do (by design)
 
 - It does not read an account's join date or age. Instagram's *About This Account* (date joined) is mobile-app-only; the web surface `browser-serialiser` drives does not expose it (a web fetch redirects to login), so it cannot be retrieved here. Estimate from the oldest visible post, or read it in the Instagram mobile app.
-- It does not scrape individual post captions in bulk by opening each permalink. Recent post captions arrive via the feed API in §6; for older posts beyond pagination depth, a permalink fetch would be needed.
-- It does not handle hashtag or place pages, only people search and profiles. The topsearch endpoint already returns hashtags and places for discovery; dedicated pages would be a separate addition.
+- It does not scrape individual post captions in bulk by opening each permalink. Recent post captions arrive with the grid in §6; for older posts beyond pagination depth, a permalink fetch would be needed.
+- It does not handle hashtag or place pages, only people search and profiles. The search type-ahead already returns hashtags and places for discovery; dedicated pages would be a separate addition.
 - It does not attempt to defeat rate limits or checkpoints. Pace requests, a few per minute, not a burst.

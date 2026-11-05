@@ -12,9 +12,8 @@
 source [file join [file dirname [info script]] lib fetch-recent-posts.tcl]
 
 
-# The entry proc the harness calls. Parses the same `posts <handle> [--limit N]`
-# arguments, drives the policed flow, and emits the rendered JSON (byte-identical
-# to the legacy ig::main output for the same feed).
+# The entry proc the harness calls: parses `posts <handle> [--limit N]`, reads the
+# profile grid, and emits the rendered JSON.
 proc serialiser_run {skillArgs} {
     set command ""
     set handle ""
@@ -74,73 +73,4 @@ proc serialiser_run {skillArgs} {
     set result [dict create handle $handle user_id $user_id \
         post_count [llength $posts] stop_reason $stop posts $posts]
     emit [envelope_ok [dict create hasMore $more result [ig::render_posts_result $result]]]
-}
-
-# ---------------------------------------------------------------------------
-# Main entry (skipped when this file is sourced as a library).
-# ---------------------------------------------------------------------------
-
-proc ig::main {} {
-    global argv
-    set args $argv
-    set command ""
-    set handle ""
-    set limit 12
-    set raw_out ""
-
-    if {[llength $args] && [lindex $args 0] eq "posts"} {
-        set command posts
-        set args [lrange $args 1 end]
-        set positional {}
-        for {set i 0} {$i < [llength $args]} {incr i} {
-            set a [lindex $args $i]
-            switch -- $a {
-                --limit { incr i; set limit [lindex $args $i] }
-                --raw-out { incr i; set raw_out [lindex $args $i] }
-                default { lappend positional $a }
-            }
-        }
-        set handle [lindex $positional 0]
-    }
-
-    if {$command eq ""} {
-        puts "Usage: auth-fetch-recent-posts.tcl posts <handle> \[--limit N\] \[--raw-out PATH\]"
-        exit 1
-    }
-
-    if {![info exists ::env(CDP_WS_URL)] || $::env(CDP_WS_URL) eq ""} {
-        puts stderr "ERROR: CDP_WS_URL not set; run via: browser-serialiser instagram.com/auth-fetch-recent-posts posts <handle> \[--limit N\]"
-        exit 1
-    }
-
-    set c [cdp::connect]
-    $c cdp Page.enable
-    ig::navigate_and_wait $c "https://www.instagram.com/" 3
-
-    if {![ig::check_logged_in $c]} {
-        puts [ig::render_flat [dict create error "Not logged in to Instagram. Log in via a Chrome-compatible browser first."]]
-        exit 1
-    }
-
-    after 3000
-
-    if {$command eq "posts"} {
-        set result [ig::cmd_posts $c $handle $limit $raw_out]
-    } else {
-        set result [dict create error "Unknown command: $command"]
-    }
-
-    if {[dict exists $result posts]} {
-        puts [ig::render_posts_result $result]
-    } else {
-        puts [ig::render_flat $result]
-    }
-    $c close
-}
-
-# Run main only when executed directly, not when sourced.
-if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
-    fconfigure stdout -encoding utf-8
-    fconfigure stderr -encoding utf-8
-    ig::main
 }
