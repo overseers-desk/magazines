@@ -155,7 +155,7 @@ proc cmd_comments {c post_ref limit} {
         media_id $media_id \
         comment_count_total $total \
         comment_count_returned [llength $comments] \
-        has_more [ig::truthy [ig::dget $result has_more_comments false]] \
+        has_more [expr {[string is integer -strict $total] && [llength $comments] < $total}] \
         comments $comments]
 }
 
@@ -226,7 +226,7 @@ proc sv_cmd_comments {post_ref limit} {
         media_id $media_id \
         comment_count_total $total \
         comment_count_returned [llength $comments] \
-        has_more [ig::truthy [ig::dget $result has_more_comments false]] \
+        has_more [expr {[string is integer -strict $total] && [llength $comments] < $total}] \
         comments $comments]
 }
 

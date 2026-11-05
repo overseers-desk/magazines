@@ -134,7 +134,7 @@ browser-serialiser instagram.com/auth-fetch-post-comments comments POST_ID
 
 Accepts a shortcode (e.g. `DXsPrn5AvNH`), a full post_id from the feed API (`<media_id>_<user_id>`), or a bare numeric `media_id`. Shortcode-to-media-id conversion is a local base64 decode, so no extra fetch is needed to resolve. Navigates to the post permalink (the covering view), then reads `/api/v1/media/<media_id>/comments/` via the policed `api` verb.
 
-Returns first-page comments only (typically 20-50, occasionally 1-2 if the post is lightly engaged or moderated). The first page is most-recent and has the highest signal for creator-on-creator engagement; older comments add noise. Pagination via `min_id` cursor can be added later if comment-circle yield proves insufficient.
+Returns the endpoint's first page only, which Instagram ranks by popularity and keeps short: 15 of 145 and 1 of 20 on two reels (2026-11-05); on the second, the post page's own comments query served the same single comment. `has_more` is true whenever fewer comments came back than `comment_count_total`. Paging further (the comments panel's own query, scrolled) is unbuilt.
 
 Each comment row carries the four free significance signals:
 
