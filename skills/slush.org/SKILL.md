@@ -24,7 +24,7 @@ Run an action without checking for the credentials first: when a key is unset it
 
 ## Output and exit codes
 
-Every action prints the canonical envelope (`{"result", "identity", "cursor", "hasMore", "fault"}`); `identity` is the signed-in account's Slush `user_id`. Times are venue time (Europe/Helsinki) as `YYYY-MM-DD HH:MM`; the schedule also carries the UTC originals.
+Every action prints the canonical envelope (`{"result", "identity", "cursor", "hasMore", "fault"}`); on a result, `identity` is the signed-in account's Slush `user_id`, and a fault carries none. Times are venue time (Europe/Helsinki) as `YYYY-MM-DD HH:MM`; the schedule also carries the UTC originals.
 
 - 0: result
 - 77: no session: the login was rejected or the platform answered 401 (`fault.shape` `login_wall`, one stderr line naming the account)
@@ -47,8 +47,8 @@ python3 $D/auth-attendees.py <side_event_id> [--company-type vc-investor] [--lim
 
 **auth-meetings**: every meeting request, sent and received. `direction` is who asked: the platform swaps sender and receiver when a request is declined, so the skill reads the original sender. A pending request carries `recipient_seen`, whether the other side has opened it; a declined one carries `declined_by` and any reason or message. Reading never marks a meeting as seen.
 
-**auth-side-events**: the whole catalogue as this account sees it (signed out, the platform shows fewer events), filtered here. `registration` is `open`, `full` or `closed`; `attendee_list_visible` says whether `auth-attendees` can read its attendees. The catalogue carries no per-account registration flag, so it does not say which events the account has registered for.
+**auth-side-events**: the whole catalogue as this account sees it (signed out, the platform shows fewer events), filtered here. `registration` is `open`, `full` or `closed`; `attendee_list_visible` says whether `auth-attendees` can read its attendees.
 
-**auth-attendees**: the visible attendee list of one side event (id from `auth-side-events`): name, title, company, company type, country. `total_registrations` counts every registration; `hasMore` is true when the list stopped at `--limit`.
+**auth-attendees**: the visible attendee list of one side event (id from `auth-side-events`): name, title, company, company type, country. `total_registrations` counts every registration; `--limit` bounds how many are read, before `--company-type` filters them, and `hasMore` is true when fewer were read than the total.
 
-Unbuilt, undecided: sending, accepting or declining meeting requests; registering for side events; browsing the investor directory.
+Unbuilt, undecided: listing the side events the account has registered for; sending, accepting or declining meeting requests; registering for side events; browsing the platform's investor and company profiles to find people to request meetings with.

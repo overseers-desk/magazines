@@ -3,8 +3,8 @@
 received, with status, counterpart, times (venue time) and, for a pending request,
 whether its recipient has opened it.
 
-Read-only: this never calls the platform's meetings/view endpoint, which marks a
-meeting as seen.
+Read-only: this never calls POST /matchmaking/<target>/meetings/view/<meeting_id>,
+which the platform's web app sends when a meeting is opened and which marks it seen.
 """
 
 import argparse

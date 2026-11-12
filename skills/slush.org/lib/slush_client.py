@@ -1,6 +1,6 @@
 """Signed-in reads of the Slush event platform (platform.slush.org) over plain HTTP.
 
-The platform is a single-page app over three JSON services:
+The platform is a single-page app over these JSON services:
 
   auth.slush.org     GET /auth/csrf-token, then POST /auth/login/credentials
                      {email, password, rememberMe} with x-csrf-token and
