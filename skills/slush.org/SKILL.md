@@ -7,7 +7,7 @@ allowed-tools: Bash, Read
 
 # Slush platform (platform.slush.org)
 
-Reads of the signed-in attendee's Slush account over the platform's own JSON API, no browser. Each run signs in once with the account's email and password and reads; nothing is written to the account.
+Reads of the signed-in attendee's Slush account over the platform's own JSON API, no browser. Nothing is written to the account. The platform rate-limits sign-ins, so a run reuses the session token the last sign-in stored in `~/.cache/magazines/slush.org.json` (readable only by the user) and signs in again only when the platform refuses it; deleting that file forces a fresh sign-in.
 
 ## Prerequisites
 
@@ -28,6 +28,7 @@ Every action prints the canonical envelope (`{"result", "identity", "cursor", "h
 
 - 0: result
 - 77: no session: the login was rejected or the platform answered 401 (`fault.shape` `login_wall`, one stderr line naming the account)
+- 75: rate limited (HTTP 429); wait a few minutes before the next run
 - 78: credentials missing from config.ini
 - 65: any other site fault
 
