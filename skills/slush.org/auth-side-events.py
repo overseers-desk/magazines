@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Slush side events as the signed-in account sees them, filtered by day, text,
-category and registration state, in start order with venue times."""
+"""Slush side events as the signed-in account sees them, with the account's own
+registration on each, filtered by day, text, category and registration state, in
+start order with venue times."""
 
 import argparse
 import os
@@ -18,6 +19,8 @@ ap.add_argument("--day", help="venue-time date, YYYY-MM-DD")
 ap.add_argument("--query", help="case-insensitive text in title, organiser, description or keywords")
 ap.add_argument("--category", help="e.g. networking, roundtables, party, stage-session")
 ap.add_argument("--open", action="store_true", help="only events taking registrations and not full")
+ap.add_argument("--registered", action="store_true",
+                help="only events this account holds a registration on, whatever its status")
 ap.add_argument("--limit", type=int, default=0, help="at most this many events (default all)")
 args = ap.parse_args()
 
@@ -42,6 +45,8 @@ for e in body.get("results") or []:
         continue
     if args.open and (e.get("full") or not e.get("registration_active")):
         continue
+    if args.registered and not e.get("is_registered"):
+        continue
     if args.query:
         hay = " ".join(str(e.get(k) or "") for k in ("title", "company_name", "description", "keywords")).lower()
         if args.query.lower() not in hay:
@@ -57,6 +62,7 @@ for e in body.get("results") or []:
         "type": e.get("type"),
         "registration": "full" if e.get("full") else ("open" if e.get("registration_active") else "closed"),
         "registration_closes": sc.local_time(e.get("close_at")),
+        "my_registration": e.get("is_registered"),
         "attendee_list_visible": not e.get("attending_list_hidden"),
         "description": desc[:400] + ("…" if len(desc) > 400 else ""),
     })

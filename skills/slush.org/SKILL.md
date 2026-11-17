@@ -1,6 +1,6 @@
 ---
 name: slush.org
-description: "Slush (Helsinki) attendee account: my meeting requests and their status, my agenda, the side-event catalogue by day or topic, and who is attending a side event."
+description: "Slush (Helsinki) attendee account: my meeting requests and their status, my agenda, side events by day or topic and whether I'm registered, who attends one."
 argument-hint: <whoami | schedule | meetings | side-events | attendees>
 allowed-tools: Bash, Read
 ---
@@ -41,14 +41,14 @@ D=${CLAUDE_PLUGIN_ROOT}/skills/slush.org
 python3 $D/whoami.py                                  # which account the login names
 python3 $D/auth-schedule.py                           # agenda: confirmed meetings and added items, in order
 python3 $D/auth-meetings.py [--status pending|accepted|declined|all]
-python3 $D/auth-side-events.py [--day 2026-11-18] [--query AI] [--category networking] [--open] [--limit N]
+python3 $D/auth-side-events.py [--day 2026-11-18] [--query AI] [--category networking] [--open] [--registered] [--limit N]
 python3 $D/auth-attendees.py <side_event_id> [--company-type vc-investor] [--limit N]
 ```
 
 **auth-meetings**: every meeting request, sent and received. `direction` is who asked: the platform swaps sender and receiver when a request is declined, so the skill reads the original sender. A pending request carries `recipient_seen`, whether the other side has opened it; a declined one carries `declined_by` and any reason or message. Reading never marks a meeting as seen.
 
-**auth-side-events**: the whole catalogue as this account sees it (signed out, the platform shows fewer events), filtered here. `registration` is `open`, `full` or `closed`; `attendee_list_visible` says whether `auth-attendees` can read its attendees.
+**auth-side-events**: the whole catalogue as this account sees it (signed out, the platform shows fewer events), filtered here. `registration` is `open`, `full` or `closed`; `my_registration` is this account's own registration on the event, `accepted`, `pending`, `waitlisted` or `declined`, null when it holds none, and `--registered` keeps only the events where it holds one. `attendee_list_visible` says whether `auth-attendees` can read its attendees.
 
 **auth-attendees**: the visible attendee list of one side event (id from `auth-side-events`): name, title, company, company type, country. `total_registrations` counts every registration; `--limit` bounds how many are read, before `--company-type` filters them, and `hasMore` is true when fewer were read than the total.
 
-Unbuilt, undecided: listing the side events the account has registered for; sending, accepting or declining meeting requests; registering for side events; browsing the platform's investor and company profiles to find people to request meetings with.
+Unbuilt, undecided: sending, accepting or declining meeting requests; registering for side events; browsing the platform's investor and company profiles to find people to request meetings with.
