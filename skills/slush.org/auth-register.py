@@ -29,7 +29,8 @@ questions = [{"id": q.get("id"), "question": q.get("question"), "type": q.get("t
               "options": [o.get("value") for o in q.get("options") or []], "required": bool(q.get("required"))}
              for q in e.get("custom_questions") or []]
 out = {"side_event_id": e["side_event_id"], "title": e.get("title"),
-       "start": sc.local_time(e.get("start_at")), "my_registration": e.get("is_registered"), "sent": False}
+       "start": sc.local_time(e.get("start_at")), "my_registration": e.get("is_registered"),
+       "luma_links": sc.description(e.get("description"))[1], "sent": False}
 
 
 def done(note, **extra):

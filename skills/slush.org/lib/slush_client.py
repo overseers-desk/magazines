@@ -27,6 +27,7 @@ import http.cookiejar
 import json
 import os
 import pathlib
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -70,6 +71,35 @@ def local_time(iso):
     if not iso:
         return None
     return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(VENUE_TZ).strftime("%Y-%m-%d %H:%M")
+
+
+def description(doc):
+    """A side event's description, which the platform keeps as its editor's JSON document
+    (sometimes as plain text), as (plain text, the luma.com / lu.ma pages it links to)."""
+    if isinstance(doc, str):
+        try:
+            parsed = json.loads(doc)
+        except ValueError:
+            parsed = None
+        doc = parsed if isinstance(parsed, (dict, list)) else {"text": doc}
+    parts, luma = [], []
+
+    def walk(node):
+        if isinstance(node, list):
+            for n in node:
+                walk(n)
+        elif isinstance(node, dict):
+            parts.append(node.get("text") or "")
+            hrefs = [(m.get("attrs") or {}).get("href") or "" for m in node.get("marks") or []]
+            for url in hrefs + re.findall(r"https?://\S+", node.get("text") or ""):
+                if re.match(r"https?://(www\.)?(luma\.com|lu\.ma)/", url) and url not in luma:
+                    luma.append(url)
+            if node.get("content") is not None:  # a block: paragraph, heading, list item
+                walk(node["content"])
+                parts.append(" ")
+
+    walk(doc)
+    return " ".join("".join(parts).split()), luma
 
 
 def _call(url, payload=None, headers=None, refused_ok=False):

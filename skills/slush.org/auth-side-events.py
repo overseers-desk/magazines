@@ -51,7 +51,7 @@ for e in body.get("results") or []:
         hay = " ".join(str(e.get(k) or "") for k in ("title", "company_name", "description", "keywords")).lower()
         if args.query.lower() not in hay:
             continue
-    desc = " ".join(str(e.get("description") or "").split())
+    desc, luma = sc.description(e.get("description"))
     rows.append({
         "side_event_id": e.get("side_event_id"),
         "title": e.get("title"),
@@ -65,6 +65,7 @@ for e in body.get("results") or []:
         "my_registration": e.get("is_registered"),
         "attendee_list_visible": not e.get("attending_list_hidden"),
         "description": desc[:400] + ("…" if len(desc) > 400 else ""),
+        "luma_links": luma,
     })
 rows.sort(key=lambda r: r["start"] or "")
 more = bool(args.limit) and len(rows) > args.limit
