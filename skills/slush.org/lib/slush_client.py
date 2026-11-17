@@ -155,6 +155,10 @@ def get(path):
     return _call(ENGINE + path)
 
 
+def post(path, payload):
+    return _call(ENGINE + path, payload)
+
+
 def search(target, path, options, size):
     return _call(SEARCH + path, {"options": dict(options, page={"from": 0, "size": size}),
                                  "target_ids": [target]})

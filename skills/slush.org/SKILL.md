@@ -1,13 +1,13 @@
 ---
 name: slush.org
-description: "Slush (Helsinki) attendee account: my meeting requests and their status, my agenda, side events by day or topic and whether I'm registered, who attends one."
-argument-hint: <whoami | schedule | meetings | side-events | attendees>
+description: "Slush (Helsinki) attendee account: meeting requests and their status, my agenda, side events by day or topic, my registrations, signing me up, who attends."
+argument-hint: <whoami | schedule | meetings | side-events | attendees | register>
 allowed-tools: Bash, Read
 ---
 
 # Slush platform (platform.slush.org)
 
-Reads of the signed-in attendee's Slush account over the platform's own JSON API, no browser. Nothing is written to the account. The platform rate-limits sign-ins, so a run reuses the session token the last sign-in stored in `~/.cache/magazines/slush.org.json` (readable only by the user) and signs in again only when the platform refuses it; deleting that file forces a fresh sign-in.
+The signed-in attendee's Slush account over the platform's own JSON API, no browser. Every action reads, except `auth-register`, which signs the account up for a side event. The platform rate-limits sign-ins, so a run reuses the session token the last sign-in stored in `~/.cache/magazines/slush.org.json` (readable only by the user) and signs in again only when the platform refuses it; deleting that file forces a fresh sign-in.
 
 ## Prerequisites
 
@@ -43,6 +43,7 @@ python3 $D/auth-schedule.py                           # agenda: confirmed meetin
 python3 $D/auth-meetings.py [--status pending|accepted|declined|all]
 python3 $D/auth-side-events.py [--day 2026-11-18] [--query AI] [--category networking] [--open] [--registered] [--limit N]
 python3 $D/auth-attendees.py <side_event_id> [--company-type vc-investor] [--limit N]
+python3 $D/auth-register.py <side_event_id> [--answer QUESTION_ID=VALUE ...] [--hide-from-attendees]
 ```
 
 **auth-meetings**: every meeting request, sent and received. `direction` is who asked: the platform swaps sender and receiver when a request is declined, so the skill reads the original sender. A pending request carries `recipient_seen`, whether the other side has opened it; a declined one carries `declined_by` and any reason or message. Reading never marks a meeting as seen.
@@ -51,4 +52,6 @@ python3 $D/auth-attendees.py <side_event_id> [--company-type vc-investor] [--lim
 
 **auth-attendees**: the visible attendee list of one side event (id from `auth-side-events`): name, title, company, company type, country. `total_registrations` counts every registration; `--limit` bounds how many are read, before `--company-type` filters them, and `hasMore` is true when fewer were read than the total.
 
-Unbuilt, undecided: sending, accepting or declining meeting requests; registering for side events; browsing the platform's investor and company profiles to find people to request meetings with.
+**auth-register**: signs the account up for one side event and reports the status the platform answers (`accepted`, `pending` or `waitlisted`) with `sent` true. Registering shares the account's profile with the organiser, as the platform's own button does. Nothing is sent, and `sent` is false with a `note`, when the account already holds a registration on the event, registration has closed, or the event registers company profiles. An event's custom questions take one `--answer <id>=<value>` each; while a required one is unanswered or a value is not among a question's options, the result lists the event's `questions` (id, text, type, options, required) and nothing is sent.
+
+Unbuilt, undecided: withdrawing a side-event registration; sending, accepting or declining meeting requests; browsing the platform's investor and company profiles to find people to request meetings with.
