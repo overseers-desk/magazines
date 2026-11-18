@@ -12,6 +12,10 @@ The platform is a single-page app over these JSON services:
                      fewer events (316 of 398 on 2026-11-12), so it gets the token.
   notifications.slush.org   the bell's notifications, newest first, paged by
                      offset; mark_seen=false keeps a read from marking them seen.
+  comet.slush.org    chat: /groups lists conversations with their unread counts;
+                     /messages/<group> gives 20 messages, newest first, with
+                     ?sent_at=<oldest> for the next 20. Either messages request
+                     marks the conversation read (observed 2026-11-18).
 
 Each Slush edition is a "target" (slush25, slush26, ...) named in the paths.
 
@@ -46,9 +50,10 @@ AUTH = "https://auth.slush.org"
 ENGINE = "https://engine.slush.org"
 SEARCH = "https://search.slush.org"
 NOTIFICATIONS = "https://notifications.slush.org"
+CHAT = "https://comet.slush.org"
 TARGET = "slush26"
 VENUE_TZ = ZoneInfo("Europe/Helsinki")
-# Tested against auth/engine/search.slush.org on 2026-11-12, notifications.slush.org on 2026-11-18.
+# Tested against auth/engine/search.slush.org on 2026-11-12, notifications/comet.slush.org on 2026-11-18.
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 
 _opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -82,7 +87,9 @@ def local_time(iso):
     """An API timestamp (UTC, ISO 8601) in venue time, e.g. "2026-11-18 17:00"."""
     if not iso:
         return None
-    return datetime.fromisoformat(iso.replace("Z", "+00:00")).astimezone(VENUE_TZ).strftime("%Y-%m-%d %H:%M")
+    # Chat stamps carry 1-6 fractional digits, which fromisoformat takes only from 3.11.
+    iso = re.sub(r"\.\d+", "", iso.replace("Z", "+00:00"))
+    return datetime.fromisoformat(iso).astimezone(VENUE_TZ).strftime("%Y-%m-%d %H:%M")
 
 
 def description(doc):

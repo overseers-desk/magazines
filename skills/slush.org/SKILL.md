@@ -1,7 +1,7 @@
 ---
 name: slush.org
-description: "Slush (Helsinki) attendee account: notifications, meeting requests and their status, my agenda, side events by day or topic, my registrations, signing me up, who attends."
-argument-hint: <whoami | notifications | schedule | meetings | side-events | attendees | register>
+description: "Slush (Helsinki) attendee account: notifications, chats, meeting requests and their status, my agenda, side events by day or topic, registrations, signing up, who attends."
+argument-hint: <whoami | notifications | chats | schedule | meetings | side-events | attendees | register>
 allowed-tools: Bash, Read
 ---
 
@@ -40,6 +40,8 @@ Each edition is a target id (`slush26` for November 2026); every action takes `-
 D=${CLAUDE_PLUGIN_ROOT}/skills/slush.org
 python3 $D/whoami.py                                  # which account the login names
 python3 $D/auth-notifications.py [--since "2026-11-18 08:00"] [--unseen] [--category meeting]
+python3 $D/auth-chats.py [--unread]                   # conversations, latest first
+python3 $D/auth-chats.py <group_id> [--limit N]       # one conversation's messages; marks it read
 python3 $D/auth-schedule.py                           # agenda: confirmed meetings and added items, in order
 python3 $D/auth-meetings.py [--status pending|accepted|declined|all]
 python3 $D/auth-side-events.py [--day 2026-11-18] [--query AI] [--category networking] [--open] [--registered] [--limit N]
@@ -48,6 +50,8 @@ python3 $D/auth-register.py <side_event_id> [--answer QUESTION_ID=VALUE ...] [--
 ```
 
 **auth-notifications**: the platform's bell, newest first: `created`, `category` (`meeting`, `side_event`, `message`, `application` and others), `title`, `content`, `seen`, and a `link` into the platform. `--since` takes a venue time and stops fetching at the first older notification, so a caller that remembers when it last looked downloads only what is new. `--unseen` keeps those not yet opened in the platform; reading never marks one as seen. The platform's emails carry more than the bell: a side-event application is confirmed by an "Application received" email with no bell notification (observed 2026-11-18).
+
+**auth-chats**: with no id, every conversation, latest first: `with` (the other people), `unread`, `last_message` (`sent`, `from`, `kind`, `text`) and a `link`. Listing marks nothing read, so it is the way to see whether someone replied; `--unread` keeps conversations with unread messages. With a conversation id, its messages newest first (`--limit`, default 20), each with `sent`, `from`, `kind` (`text`, `meeting_event`, `deleted`) and `text`, plus `reply_to` and `attachments` where present. Reading a conversation marks it read, as opening it in the platform does; the platform offers no read that leaves it unread (observed 2026-11-18).
 
 **auth-meetings**: every meeting request, sent and received. `direction` is who asked: the platform swaps sender and receiver when a request is declined, so the skill reads the original sender. A pending request carries `recipient_seen`, whether the other side has opened it; a declined one carries `declined_by` and any reason or message. Reading never marks a meeting as seen.
 
@@ -59,4 +63,4 @@ python3 $D/auth-register.py <side_event_id> [--answer QUESTION_ID=VALUE ...] [--
 
 **Registration on Luma.** Some organisers decide admission on their own Luma page and say so in the description (Operators Night and the Valpas hospitality evening at Slush 2026). The Slush application is then not the registration that counts, and `my_registration` says nothing about the Luma one. Both `auth-side-events` and `auth-register` report an event's `luma_links`, so an event carrying one is not reported as registered on the strength of its Slush status alone.
 
-Unbuilt, undecided: reading a chat conversation (a `message` notification carries only its preview); withdrawing a side-event registration; sending, accepting or declining meeting requests; browsing the platform's investor and company profiles to find people to request meetings with.
+Unbuilt, undecided: sending a chat message; withdrawing a side-event registration; sending, accepting or declining meeting requests; browsing the platform's investor and company profiles to find people to request meetings with.
