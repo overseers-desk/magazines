@@ -1,7 +1,7 @@
 ---
 name: slush.org
-description: "Slush (Helsinki) attendee account: meeting requests and their status, my agenda, side events by day or topic, my registrations, signing me up, who attends."
-argument-hint: <whoami | schedule | meetings | side-events | attendees | register>
+description: "Slush (Helsinki) attendee account: notifications, meeting requests and their status, my agenda, side events by day or topic, my registrations, signing me up, who attends."
+argument-hint: <whoami | notifications | schedule | meetings | side-events | attendees | register>
 allowed-tools: Bash, Read
 ---
 
@@ -39,12 +39,15 @@ Each edition is a target id (`slush26` for November 2026); every action takes `-
 ```bash
 D=${CLAUDE_PLUGIN_ROOT}/skills/slush.org
 python3 $D/whoami.py                                  # which account the login names
+python3 $D/auth-notifications.py [--since "2026-11-18 08:00"] [--unseen] [--category meeting]
 python3 $D/auth-schedule.py                           # agenda: confirmed meetings and added items, in order
 python3 $D/auth-meetings.py [--status pending|accepted|declined|all]
 python3 $D/auth-side-events.py [--day 2026-11-18] [--query AI] [--category networking] [--open] [--registered] [--limit N]
 python3 $D/auth-attendees.py <side_event_id> [--company-type vc-investor] [--limit N]
 python3 $D/auth-register.py <side_event_id> [--answer QUESTION_ID=VALUE ...] [--hide-from-attendees]
 ```
+
+**auth-notifications**: the platform's bell, newest first: `created`, `category` (`meeting`, `side_event`, `message`, `application` and others), `title`, `content`, `seen`, and a `link` into the platform. `--since` takes a venue time and stops fetching at the first older notification, so a caller that remembers when it last looked downloads only what is new. `--unseen` keeps those not yet opened in the platform; reading never marks one as seen. The platform's emails carry more than the bell: a side-event application is confirmed by an "Application received" email with no bell notification (observed 2026-11-18).
 
 **auth-meetings**: every meeting request, sent and received. `direction` is who asked: the platform swaps sender and receiver when a request is declined, so the skill reads the original sender. A pending request carries `recipient_seen`, whether the other side has opened it; a declined one carries `declined_by` and any reason or message. Reading never marks a meeting as seen.
 

@@ -10,6 +10,8 @@ The platform is a single-page app over these JSON services:
                      with a "Bearer " prefix it answers 401.
   search.slush.org   the side-event catalogue. Answers signed out too, but with
                      fewer events (316 of 398 on 2026-11-12), so it gets the token.
+  notifications.slush.org   the bell's notifications, newest first, paged by
+                     offset; mark_seen=false keeps a read from marking them seen.
 
 Each Slush edition is a "target" (slush25, slush26, ...) named in the paths.
 
@@ -37,9 +39,10 @@ from zoneinfo import ZoneInfo
 AUTH = "https://auth.slush.org"
 ENGINE = "https://engine.slush.org"
 SEARCH = "https://search.slush.org"
+NOTIFICATIONS = "https://notifications.slush.org"
 TARGET = "slush26"
 VENUE_TZ = ZoneInfo("Europe/Helsinki")
-# Tested against auth/engine/search.slush.org on 2026-11-12.
+# Tested against auth/engine/search.slush.org on 2026-11-12, notifications.slush.org on 2026-11-18.
 UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 
 _opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -181,8 +184,8 @@ def login():
     _store_token()
 
 
-def get(path):
-    return _call(ENGINE + path)
+def get(path, host=ENGINE):
+    return _call(host + path)
 
 
 def post(path, payload):
