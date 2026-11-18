@@ -7,7 +7,7 @@ allowed-tools: Bash, Read
 
 # Slush platform (platform.slush.org)
 
-The signed-in attendee's Slush account over the platform's own JSON API, no browser. Every action reads, except `auth-register`, which signs the account up for a side event. The platform rate-limits sign-ins, so a run reuses the session token the last sign-in stored in `~/.cache/magazines/slush.org.json` (readable only by the user) and signs in again only when the platform refuses it; deleting that file forces a fresh sign-in.
+The signed-in attendee's Slush account over the platform's own JSON API, no browser. Every action reads, except `auth-register`, which signs the account up for a side event. The platform rate-limits sign-ins, so a run reuses the session token the last sign-in stored in `~/.cache/magazines/slush.org.json` (readable only by the user). A token lives 15 minutes, and the run signs in again when the saved one has under two minutes left or the platform refuses it; deleting that file forces a fresh sign-in.
 
 ## Prerequisites
 
@@ -28,7 +28,7 @@ Every action prints the canonical envelope (`{"result", "identity", "cursor", "h
 
 - 0: result
 - 77: no session: the login was rejected or the platform answered 401 (`fault.shape` `login_wall`, one stderr line naming the account)
-- 75: rate limited (HTTP 429); wait a few minutes before the next run
+- 75: try again in a few minutes: the platform rate-limited the run (HTTP 429), was unavailable (502, 503, 504) or timed out
 - 78: credentials missing from config.ini
 - 65: any other site fault
 
@@ -59,4 +59,4 @@ python3 $D/auth-register.py <side_event_id> [--answer QUESTION_ID=VALUE ...] [--
 
 **Registration on Luma.** Some organisers decide admission on their own Luma page and say so in the description (Operators Night and the Valpas hospitality evening at Slush 2026). The Slush application is then not the registration that counts, and `my_registration` says nothing about the Luma one. Both `auth-side-events` and `auth-register` report an event's `luma_links`, so an event carrying one is not reported as registered on the strength of its Slush status alone.
 
-Unbuilt, undecided: withdrawing a side-event registration; sending, accepting or declining meeting requests; browsing the platform's investor and company profiles to find people to request meetings with.
+Unbuilt, undecided: reading a chat conversation (a `message` notification carries only its preview); withdrawing a side-event registration; sending, accepting or declining meeting requests; browsing the platform's investor and company profiles to find people to request meetings with.

@@ -20,17 +20,23 @@ $HOME/.config/magazines/config.ini, read here so they never pass on a command li
 
 The login endpoint answers 429 after a burst of sign-ins (six in about ten seconds
 on 2026-11-12), so a run reuses the token the last login stored in
-$XDG_CACHE_HOME/magazines/slush.org.json (mode 600, keyed by email) and signs in
-again only when the platform refuses it.
+$XDG_CACHE_HOME/magazines/slush.org.json (mode 600, keyed by email). The token is a
+JWT that expires 15 minutes after sign-in. engine and notifications refuse it then,
+but search answers an expired token with the signed-out catalogue and no error
+(362 events instead of 433 on 2026-11-18), so a token near its expiry is replaced
+before a request rather than after a refusal.
 """
 
+import base64
 import configparser
 import http.cookiejar
 import json
 import os
 import pathlib
 import re
+import socket
 import sys
+import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -47,8 +53,11 @@ UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML,
 
 _opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
 _REFUSED = object()  # _call's answer to a 401 when the caller asked to see it
+FRESH_FOR = 120  # seconds a token must have left to be sent
 _token = None
 _email = None
+_password = None
+_signed_at = 0.0  # when this run last signed in
 user = {}
 
 
@@ -105,10 +114,27 @@ def description(doc):
     return " ".join("".join(parts).split()), luma
 
 
+def _expiry(token):
+    """The token's JWT exp (epoch seconds), or None when it carries none."""
+    try:
+        claims = token.split(".")[1]
+        return float(json.loads(base64.urlsafe_b64decode(claims + "=" * (-len(claims) % 4)))["exp"])
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+
+
+def _expiring(token):
+    exp = _expiry(token)
+    return exp is not None and exp - time.time() < FRESH_FOR
+
+
 def _call(url, payload=None, headers=None, refused_ok=False):
     hdrs = {"User-Agent": UA, "Origin": "https://platform.slush.org",
             "Referer": "https://platform.slush.org/", "Content-Type": "application/json",
             "x-auth-transport": "cookie"}
+    if (_token and _password and not url.startswith(AUTH) and _expiring(_token)
+            and time.time() - _signed_at > FRESH_FOR):  # one sign-in per window, whatever the clock says
+        _sign_in()
     if _token:
         hdrs["Authorization"] = _token
     hdrs.update(headers or {})
@@ -123,8 +149,14 @@ def _call(url, payload=None, headers=None, refused_ok=False):
             no_session(f"{url} answered 401")
         if e.code == 429:
             fail(f"{url} answered 429 (rate limited); wait a few minutes and retry", 75)
+        if e.code in (502, 503, 504):
+            fail(f"{url} answered HTTP {e.code} (unavailable); retry in a few minutes", 75)
         fail(f"{url} answered HTTP {e.code}", 65)
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+    except (TimeoutError, socket.timeout) as e:  # socket.timeout is TimeoutError only from 3.10
+        fail(f"{url}: {e}; retry in a few minutes", 75)
+    except urllib.error.URLError as e:
+        fail(f"{url}: {e.reason}", 75 if isinstance(e.reason, (TimeoutError, socket.timeout)) else 65)
+    except ValueError as e:
         fail(f"{url}: {e}", 65)
 
 
@@ -150,34 +182,39 @@ def _store_token():
 
 
 def login():
-    global _token, _email, user
+    global _token, _email, _password, user
     base = pathlib.Path(os.environ.get("XDG_CONFIG_HOME") or pathlib.Path.home() / ".config")
     cp = configparser.ConfigParser(interpolation=None)
     cp.read(base / "magazines" / "config.ini")
     _email = cp.get("slush.org", "email", fallback="")
-    password = cp.get("slush.org", "password", fallback="")
-    missing = [k for k, v in (("email", _email), ("password", password)) if not v]
+    _password = cp.get("slush.org", "password", fallback="")
+    missing = [k for k, v in (("email", _email), ("password", _password)) if not v]
     if missing:
         fail("~/.config/magazines/config.ini has no [slush.org] " + ", ".join(missing), 78)
 
     _token = _cached_token()
-    if _token:
+    if _token and not _expiring(_token):
         me = _call(ENGINE + "/users/me", refused_ok=True)
         if me is not _REFUSED:
             user = (me or {}).get("user") or {}
             if user.get("user_id"):
                 return
-        _token = None
+    _sign_in()
 
+
+def _sign_in():
+    global _token, _signed_at, user
+    _token = None
     csrf = (_call(AUTH + "/auth/csrf-token") or {}).get("csrfToken")
     if not csrf:
         fail("auth.slush.org gave no CSRF token", 65)
     body = _call(AUTH + "/auth/login/credentials",
-                 {"email": _email, "password": password, "rememberMe": False},
+                 {"email": _email, "password": _password, "rememberMe": False},
                  {"x-csrf-token": csrf}) or {}
     if not body.get("success") or not body.get("token"):
         no_session(body.get("message") or "login rejected")
     _token = body["token"]
+    _signed_at = time.time()
     user = (get("/users/me") or {}).get("user") or {}
     if not user.get("user_id"):
         no_session("/users/me named nobody")
