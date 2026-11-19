@@ -393,7 +393,10 @@ proc fbcdp::fetch {c url max_rounds bodies_out} {
     $c cdpBuffered Page.enable
 
     fbcdp::log "navigate $url"
-    $c cdpBuffered Page.navigate [dict create url $url]
+    set nav [$c cdpBuffered Page.navigate [dict create url $url]]
+    if {[dict exists $nav error]} {
+        error "Page.navigate $url refused: [dict get $nav error message]"
+    }
     fbcdp::sleep 4
 
     # Wait for page chrome to render (the Comment action button).

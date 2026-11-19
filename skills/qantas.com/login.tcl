@@ -269,7 +269,10 @@ proc qf::run {check_only debug} {
         }
 
         if {[string first "/my-account" $ma_url] < 0} {
-            $c cdp Page.navigate [dict create url $qf::ACCOUNT_URL]
+            set nav [$c cdp Page.navigate [dict create url $qf::ACCOUNT_URL]]
+            if {[dict exists $nav error]} {
+                return [list 1 [dict create error "Page.navigate $qf::ACCOUNT_URL refused: [dict get $nav error message]"]]
+            }
             after 6000
         }
 

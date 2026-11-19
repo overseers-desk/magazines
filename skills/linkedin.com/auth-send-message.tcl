@@ -190,7 +190,11 @@ proc run_flow {c page_url text dry_run} {
     after 300
 
     puts "Typing message ([cp_length $text] chars)..."
-    $c cdpBuffered Input.insertText [dict create text $text]
+    set ins [$c cdpBuffered Input.insertText [dict create text $text]]
+    if {[dict exists $ins error]} {
+        puts stderr "ERROR: Input.insertText refused: [dict get $ins error message]"
+        exit 1
+    }
     after 500
 
     set typed [js $c "document.querySelector([json::write string $compose_sel]).textContent"]

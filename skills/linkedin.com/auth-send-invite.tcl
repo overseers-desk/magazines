@@ -140,7 +140,11 @@ proc run_flow {c page_url note dry_run} {
         js $c {document.querySelector('#custom-message').focus()}
         after 300
         # Input.insertText simulates a real keyboard paste (triggers Ember input events).
-        $c cdpBuffered Input.insertText [dict create text $note]
+        set ins [$c cdpBuffered Input.insertText [dict create text $note]]
+        if {[dict exists $ins error]} {
+            puts stderr "ERROR: Input.insertText refused: [dict get $ins error message]"
+            exit 1
+        }
         after 500
 
         set typed [js $c {document.querySelector('#custom-message').value}]

@@ -280,7 +280,10 @@ proc ig::resolve_post_ref {post_ref} {
 proc ig::resolve_user_id {c handle} {
     set profile_url "https://www.instagram.com/$handle/"
     puts stderr "Navigating to $profile_url..."
-    $c cdp Page.navigate [dict create url $profile_url]
+    set nav [$c cdp Page.navigate [dict create url $profile_url]]
+    if {[dict exists $nav error]} {
+        return [dict create error "Page.navigate $profile_url refused: [dict get $nav error message]"]
+    }
     after 4000
 
     set current_url [ig::scalar [ig::eval_js $c "window.location.href"]]
