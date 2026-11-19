@@ -569,7 +569,7 @@ proc serialiser::Input {method params} {
 # Paced+jittered. A laid-out element gets a TRUSTED click (a real CDP mouse event
 # at its centre); an in-page e.click() is isTrusted=false and bot-protected
 # widgets (e.g. Gigya) ignore it. A hidden/zero-box element falls back to the
-# synthetic e.click(), preserving prior behaviour. Returns 1 if clicked, else 0.
+# synthetic e.click(). Returns 1 if clicked, else 0.
 #
 # The ["[SEL]"][0] placeholder is a braced literal so Tcl does not command-
 # substitute the inner [SEL] before the string map injects the JSON-quoted
