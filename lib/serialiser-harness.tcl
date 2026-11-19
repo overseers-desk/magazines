@@ -403,7 +403,7 @@ proc serialiser::Verb_nav {url args} {
     }
     set paced [serialiser::Pace nav]
     $Cdp cdp Page.enable
-    $Cdp cdp Page.navigate [dict create url $url]
+    serialiser::Send Page.navigate [dict create url $url]
     serialiser::Sleep [expr {int($wait * 1000)}]
     set landing [serialiser::PageUrl]
     dict set Run lastNavUrl $landing
@@ -443,8 +443,13 @@ proc serialiser::Verb_eval {jsExpr} {
     # Use cdpBuffered so Network.responseReceived events are parked in
     # the EventBuffer while we wait for the JS result.  The reel-comments
     # skill (and any skill that pairs eval with harvest) depends on this.
-    set resp [$Cdp cdpBuffered Runtime.evaluate [dict create \
-        expression $jsExpr awaitPromise true returnByValue true]]
+    # Chrome can refuse with "Execution context was destroyed" after a
+    # script-triggered navigation has already done its work; that is not a failure.
+    if {[catch {serialiser::SendBuffered Runtime.evaluate [dict create \
+            expression $jsExpr awaitPromise true returnByValue true]} resp]} {
+        if {[string match "*Execution context was destroyed*" $resp]} { return "" }
+        error $resp
+    }
     if {![dict exists $resp result]} { return "" }
     set result [dict get $resp result]
     if {[dict exists $result exceptionDetails]} {
@@ -509,8 +514,8 @@ proc serialiser::Verb_capture {navUrl args} {
         }
     }
     set paced [serialiser::Pace nav]
-    $Cdp cdpBuffered Network.enable
-    $Cdp cdpBuffered Page.navigate [dict create url $navUrl]
+    serialiser::SendBuffered Network.enable
+    serialiser::SendBuffered Page.navigate [dict create url $navUrl]
     set landing ""
     $Cdp drainEvents $seconds
     set landing [serialiser::PageUrl]
@@ -545,17 +550,27 @@ proc serialiser::Verb_veto {pattern} {
 # Paced+jittered (human-ish). Returns "".
 proc serialiser::Verb_type {text} {
     serialiser::Pace type
-    serialiser::Input Input.insertText [dict create text $text]
+    serialiser::Send Input.insertText [dict create text $text]
     return ""
 }
 
-# Send one Input-domain command and raise if the browser refuses it. The CDP
-# client returns a refusal as an `error` member of the reply rather than raising,
-# so an input verb that ignored the reply would report an action that never
-# reached the page.
-proc serialiser::Input {method params} {
+# Send one CDP command and raise if the browser refuses it. The CDP client
+# returns a refusal as an `error` member of the reply rather than raising, so a
+# verb that ignored the reply would report an action that never reached the page.
+proc serialiser::Send {method {params {}}} {
     variable Cdp
-    set r [$Cdp cdp $method $params]
+    return [serialiser::Checked $method [$Cdp cdp $method $params]]
+}
+
+# Send, but through cdpBuffered, so events arriving meanwhile are parked for
+# harvest rather than discarded.
+proc serialiser::SendBuffered {method {params {}}} {
+    variable Cdp
+    return [serialiser::Checked $method [$Cdp cdpBuffered $method $params]]
+}
+
+# Raise "<method>: <message> (<data>)" when a CDP reply carries an `error`.
+proc serialiser::Checked {method r} {
     if {[dict exists $r error]} {
         set e [dict get $r error]
         set why [expr {[dict exists $e message] ? [dict get $e message] : "refused"}]
@@ -587,9 +602,9 @@ proc serialiser::Verb_click {selector} {
     if {$box eq ""} { return 0 }
     if {$box ne "ZERO"} {
         lassign [split $box] cx cy
-        serialiser::Input Input.dispatchMouseEvent [dict create type mouseMoved x $cx y $cy]
-        serialiser::Input Input.dispatchMouseEvent [dict create type mousePressed x $cx y $cy button left clickCount 1]
-        serialiser::Input Input.dispatchMouseEvent [dict create type mouseReleased x $cx y $cy button left clickCount 1]
+        serialiser::Send Input.dispatchMouseEvent [dict create type mouseMoved x $cx y $cy]
+        serialiser::Send Input.dispatchMouseEvent [dict create type mousePressed x $cx y $cy button left clickCount 1]
+        serialiser::Send Input.dispatchMouseEvent [dict create type mouseReleased x $cx y $cy button left clickCount 1]
         return 1
     }
     set syn {(function(){var e=document.querySelector(["[SEL]"][0]);if(e){e.click();return true;}return false;})()}
@@ -613,9 +628,9 @@ proc serialiser::Verb_key {keyname} {
         Backspace { set vk 8;  set code Backspace; set text "" }
         default   { error "key: unknown key '$keyname' (known: Enter, Backspace)" }
     }
-    serialiser::Input Input.dispatchKeyEvent [dict create \
+    serialiser::Send Input.dispatchKeyEvent [dict create \
         type keyDown windowsVirtualKeyCode $vk nativeVirtualKeyCode $vk key $keyname code $code text $text]
-    serialiser::Input Input.dispatchKeyEvent [dict create \
+    serialiser::Send Input.dispatchKeyEvent [dict create \
         type keyUp windowsVirtualKeyCode $vk nativeVirtualKeyCode $vk key $keyname code $code]
     return ""
 }

@@ -85,6 +85,10 @@ proc fakecdp {method args} {
             lassign $args cdpMethod params
             if {$cdpMethod eq "Page.navigate"} {
                 set u [dict get $params url]
+                if {$u eq "no-scheme.example"} {
+                    return [dict create error [dict create code -32602 \
+                        message "Cannot navigate to invalid URL"]]
+                }
                 set Url [expr {[dict exists $Redirects $u] ? [dict get $Redirects $u] : $u}]
             }
             return {}
@@ -219,6 +223,13 @@ if {![dict get $r ok] || [dict get $r out] ne "ok https://other.example/away"} {
     fail "3-arg call: want unconfined roam, got $r"
 }
 puts "PASS 3-arg call unchanged (empty site confines nothing)"
+
+# --- A refused Page.navigate raises; the old page is not reported as the landing.
+set r [runprobe nav-each {} {no-scheme.example}]
+if {[dict get $r ok] || [string first "Page.navigate: Cannot navigate to invalid URL" [dict get $r out]] < 0} {
+    fail "refused navigate did not raise: $r"
+}
+puts "PASS a refused Page.navigate raises"
 
 # --- 4-arg, landings on the granted site: exact host and www. sibling both
 # --- fold to the grant, and a caller-spelled www. grant folds too.
