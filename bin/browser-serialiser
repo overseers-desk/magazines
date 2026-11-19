@@ -405,7 +405,10 @@ proc render_browser_config {} {
 # usable DOM): a deadman timeout, then emit whatever rendered.
 proc render_navigate {cdp url timeoutSecs} {
     $cdp cdp Page.enable
-    $cdp cdp Page.navigate [dict create url $url]
+    set r [$cdp cdp Page.navigate [dict create url $url]]
+    if {[dict exists $r error]} {
+        error "Page.navigate: [dict get $r error message] ($url)" {} {SERIALISER_USAGE 1}
+    }
     set deadline [expr {[clock milliseconds] + $timeoutSecs * 1000}]
     while {[clock milliseconds] < $deadline} {
         set remain [expr {$deadline - [clock milliseconds]}]
@@ -505,6 +508,9 @@ proc render_session {timeoutSecs cfg body {trayLabel ""} {handover ""}} {
         } elseif {[lindex $code 0] eq "SERIALISER_ENV"} {
             puts stderr "browser-serialiser: $err"
             set rc 78
+        } elseif {[lindex $code 0] eq "SERIALISER_USAGE"} {
+            puts stderr "browser-serialiser: $err"
+            set rc 64
         } else {
             puts stderr "browser-serialiser: $err"
             set rc 65
