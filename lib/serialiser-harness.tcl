@@ -544,10 +544,25 @@ proc serialiser::Verb_veto {pattern} {
 # type <text>  -- insert text into the focused element via Input.insertText.
 # Paced+jittered (human-ish). Returns "".
 proc serialiser::Verb_type {text} {
-    variable Cdp
     serialiser::Pace type
-    $Cdp cdp Input.insertText [dict create text $text]
+    serialiser::Input Input.insertText [dict create text $text]
     return ""
+}
+
+# Send one Input-domain command and raise if the browser refuses it. The CDP
+# client returns a refusal as an `error` member of the reply rather than raising,
+# so an input verb that ignored the reply would report an action that never
+# reached the page.
+proc serialiser::Input {method params} {
+    variable Cdp
+    set r [$Cdp cdp $method $params]
+    if {[dict exists $r error]} {
+        set e [dict get $r error]
+        set why [expr {[dict exists $e message] ? [dict get $e message] : "refused"}]
+        if {[dict exists $e data]} { append why " ([dict get $e data])" }
+        error "$method: $why"
+    }
+    return $r
 }
 
 # click <selector>  -- click the first element matching a CSS selector.
@@ -564,15 +579,17 @@ proc serialiser::Verb_click {selector} {
     serialiser::Pace click
     # Resolve, scroll into view, report viewport-centre "x y" (""=not found,
     # "ZERO"=no layout box).
-    set locate {(function(){var e=document.querySelector(["[SEL]"][0]);if(!e)return "";e.scrollIntoView({block:"center",inline:"center"});var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)return "ZERO";return (r.left+r.width/2)+" "+(r.top+r.height/2);})()}
+    # The centre is rounded to whole pixels: the CDP client sends a fractional
+    # value as a JSON string, which Input.dispatchMouseEvent refuses.
+    set locate {(function(){var e=document.querySelector(["[SEL]"][0]);if(!e)return "";e.scrollIntoView({block:"center",inline:"center"});var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)return "ZERO";return Math.round(r.left+r.width/2)+" "+Math.round(r.top+r.height/2);})()}
     set locate [string map [list {["[SEL]"][0]} [json::write string $selector]] $locate]
     set box [$Cdp evaluate $locate]
     if {$box eq ""} { return 0 }
     if {$box ne "ZERO"} {
         lassign [split $box] cx cy
-        $Cdp cdp Input.dispatchMouseEvent [dict create type mouseMoved x $cx y $cy]
-        $Cdp cdp Input.dispatchMouseEvent [dict create type mousePressed x $cx y $cy button left clickCount 1]
-        $Cdp cdp Input.dispatchMouseEvent [dict create type mouseReleased x $cx y $cy button left clickCount 1]
+        serialiser::Input Input.dispatchMouseEvent [dict create type mouseMoved x $cx y $cy]
+        serialiser::Input Input.dispatchMouseEvent [dict create type mousePressed x $cx y $cy button left clickCount 1]
+        serialiser::Input Input.dispatchMouseEvent [dict create type mouseReleased x $cx y $cy button left clickCount 1]
         return 1
     }
     set syn {(function(){var e=document.querySelector(["[SEL]"][0]);if(e){e.click();return true;}return false;})()}
@@ -596,9 +613,9 @@ proc serialiser::Verb_key {keyname} {
         Backspace { set vk 8;  set code Backspace; set text "" }
         default   { error "key: unknown key '$keyname' (known: Enter, Backspace)" }
     }
-    $Cdp cdp Input.dispatchKeyEvent [dict create \
+    serialiser::Input Input.dispatchKeyEvent [dict create \
         type keyDown windowsVirtualKeyCode $vk nativeVirtualKeyCode $vk key $keyname code $code text $text]
-    $Cdp cdp Input.dispatchKeyEvent [dict create \
+    serialiser::Input Input.dispatchKeyEvent [dict create \
         type keyUp windowsVirtualKeyCode $vk nativeVirtualKeyCode $vk key $keyname code $code]
     return ""
 }
