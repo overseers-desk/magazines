@@ -222,13 +222,15 @@ browser-serialiser linkedin.com/auth-send-invite VANITY_NAME "note" --dry-run
 browser-serialiser linkedin.com/auth-send-message VANITY_NAME "Message text"
 ```
 
+A drafted message to a known connection takes this one call. Under the overseer a queued run waits its turn, about 45 s per LinkedIn job, so let the call wait rather than wrapping it in a short timeout. Each extra dry run or thread read costs a turn of its own. Read the thread afterwards only when `status` is `uncertain`.
+
 The person must be a first-degree connection. The skill:
 1. `nav` to the profile page `/in/VANITY_NAME/`, scrapes the compose URL, navigates to it
 2. `type` the message into the compose area
-3. `click` the Send button
+3. Sends with a trusted Enter, and clicks a Send button only when the composer does not clear
 4. Confirms via compose-area clearing and/or toast
 
-`--dry-run` types the message but stops before the send click:
+`--dry-run` types the message but stops before sending; it is for a first use or a suspected break:
 ```bash
 browser-serialiser linkedin.com/auth-send-message VANITY_NAME "text" --dry-run
 ```
