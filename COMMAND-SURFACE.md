@@ -116,7 +116,7 @@ with `dwell` instead.
 so the surface reads as: `nav`, `dump`, `eval`, `api`, `capture`(+`harvest`),
 `veto`, `type`, `click`, `key`, `state`, `emit`, `dwell`(+`log`).
 
-`type`, `click` and `key` raise when the browser refuses the input event, so an input that never reached the page ends the run as a fault rather than reading as done.
+`nav`, `capture`, `eval`, `type`, `click` and `key` raise when the browser refuses the command they send, so a navigation or input that never happened ends the run as a fault rather than reading as done. `eval` makes one exception: Chrome's "Execution context was destroyed", which can follow a script that navigated and so did its work, returns "".
 
 `capture` is the only verb that turns the CDP Network domain on, and `harvest`
 reads the buffer that `capture` filled. A skill that reaches a page with `nav`,
