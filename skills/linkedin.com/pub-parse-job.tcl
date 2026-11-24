@@ -187,6 +187,12 @@ proc render_job {html jobId url} {
     # Primary: the guest job-posting fragment (stable class names).
     set title    [job_grab $html {(?is)topcard__title[^>]*?>(.*?)</h}]
     set company  [job_grab $html {(?is)topcard__org-name-link[^>]*?>(.*?)</a>}]
+    # The page the posting hangs from: its display name is free text, the slug is not.
+    set company_url ""
+    if {[regexp {(?is)<a[^>]*topcard__org-name-link[^>]*href="(https://[^"?]*/company/[^"?/]+)} $html -> cu]} {
+        set company_url "$cu/"
+    }
+    set closed [regexp {(?is)<figcaption[^>]*closed-job__flavor--closed[^>]*>} $html]
     set location [job_grab $html {(?is)topcard__flavor--bullet[^>]*?>(.*?)</span>}]
     set posted   [job_grab $html {(?is)posted-time-ago__text[^>]*?>(.*?)</span>}]
     set desc ""
@@ -237,6 +243,8 @@ proc render_job {html jobId url} {
     lappend out "url: [job_yaml_dq $url]"
     lappend out "title: [job_yaml_dq $title]"
     lappend out "company: [job_yaml_dq $company]"
+    if {$company_url ne ""} { lappend out "company_url: [job_yaml_dq $company_url]" }
+    if {$closed}            { lappend out "closed: true" }
     lappend out "location: [job_yaml_dq $location]"
     if {$posted ne ""}     { lappend out "posted: [job_yaml_dq $posted]" }
     if {$seniority ne ""}  { lappend out "seniority: [job_yaml_dq $seniority]" }
