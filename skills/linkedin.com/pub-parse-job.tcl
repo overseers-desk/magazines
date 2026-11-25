@@ -195,6 +195,7 @@ proc render_job {html jobId url} {
     set closed [regexp {(?is)<figcaption[^>]*closed-job__flavor--closed[^>]*>} $html]
     set location [job_grab $html {(?is)topcard__flavor--bullet[^>]*?>(.*?)</span>}]
     set posted   [job_grab $html {(?is)posted-time-ago__text[^>]*?>(.*?)</span>}]
+    set salary   [job_grab $html {(?is)compensation__salary"[^>]*?>(.*?)</div>}]
     set desc ""
     if {[regexp {(?is)show-more-less-html__markup[^>]*?>(.*?)</div>} $html -> raw]} {
         set desc [job_desc_to_text $raw]
@@ -247,6 +248,7 @@ proc render_job {html jobId url} {
     if {$closed}            { lappend out "closed: true" }
     lappend out "location: [job_yaml_dq $location]"
     if {$posted ne ""}     { lappend out "posted: [job_yaml_dq $posted]" }
+    if {$salary ne ""}     { lappend out "salary: [job_yaml_dq $salary]" }
     if {$seniority ne ""}  { lappend out "seniority: [job_yaml_dq $seniority]" }
     if {$employment ne ""} { lappend out "employment_type: [job_yaml_dq $employment]" }
     if {$jobfunc ne ""}    { lappend out "job_function: [job_yaml_dq $jobfunc]" }
