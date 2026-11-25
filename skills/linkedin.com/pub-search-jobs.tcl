@@ -22,8 +22,7 @@ set ::JOBS_LIST_BASE "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPos
 set ::JOBS_POSTED    {day r86400 week r604800 month r2592000}
 set ::JOBS_WORKPLACE {onsite 1 remote 2 hybrid 3}
 
-# Read the caller's argument: a JSON object, or a bare string meaning keywords.
-# Returns {keywords location geoId posted workplace start maxPages}.
+# The caller's argument is a JSON object, or a bare string meaning keywords.
 proc jobs_args {raw} {
     set raw [string trim $raw]
     if {$raw eq ""} { error "no search given: pass keywords, or a JSON object" }
@@ -192,7 +191,6 @@ proc serialiser_run {skillArgs} {
     emit [envelope_ok $r]
 }
 
-# Direct-tclsh entry: parse a saved list fragment, the offline half of the verb.
 # Skipped when sourced as a serialiser skill.
 if {[info exists argv0] && [file tail [info script]] eq [file tail $argv0]} {
     if {[llength $argv] != 1} {

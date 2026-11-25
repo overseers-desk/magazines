@@ -195,6 +195,7 @@ proc render_job {html jobId url} {
     set closed [regexp {(?is)<figcaption[^>]*closed-job__flavor--closed[^>]*>} $html]
     set location [job_grab $html {(?is)topcard__flavor--bullet[^>]*?>(.*?)</span>}]
     set posted   [job_grab $html {(?is)posted-time-ago__text[^>]*?>(.*?)</span>}]
+    # The closing quote keeps the wrapping compensation__salary-range out.
     set salary   [job_grab $html {(?is)compensation__salary"[^>]*?>(.*?)</div>}]
     set desc ""
     if {[regexp {(?is)show-more-less-html__markup[^>]*?>(.*?)</div>} $html -> raw]} {
