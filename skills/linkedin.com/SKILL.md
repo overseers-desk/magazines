@@ -1,6 +1,6 @@
 ---
 name: linkedin
-description: "search people, and search inside named members' connections, read profiles, read a job posting, check keywords, verify connect eligibility, find role/company. Read a member's shared contact info (email, phone, websites). Send connection invites or direct messages to connections. Edit your own profile headline and About. Enumerate the messaging inbox and a thread's messages. Report which account the session is signed in as."
+description: "search people, and search inside named members' connections, read profiles, search jobs by location, read a job posting, check keywords, verify connect eligibility, find role/company. Read a member's shared contact info (email, phone, websites). Send connection invites or direct messages to connections. Edit your own profile headline and About. Enumerate the messaging inbox and a thread's messages. Report which account the session is signed in as."
 argument-hint: <name, URL, or search terms>
 ---
 
@@ -137,6 +137,17 @@ browser-serialiser linkedin.com/pub-parse-job <job-id-or-url>
 ```
 
 `<job-id-or-url>` is a numeric job id, a `/jobs/view/<id>` URL, or any URL carrying `currentJobId=<id>`. The script navigates to the guest job-posting fragment (`jobs-guest/jobs/api/jobPosting/<id>`), whose class names are stable and whose description is the full text — so it does not depend on the logged-in SPA's randomised classes and is not truncated by the "… more" fold. Emits a YAML record: `job_id`, `url` (the human `/jobs/view/` link), `title`, `company` (the display name, which any page owner can set to another firm's name), `company_url` (the `/company/<slug>/` page the posting hangs from, which identifies the publisher), `closed: true` when LinkedIn shows "No longer accepting applications", `location`, `posted`, `salary` (the pay range the poster stated, verbatim, e.g. `$300,000.00/yr - $400,000.00/yr`; absent when none is shown), `seniority`, `employment_type`, `job_function`, `industries`, and the full `description` as a literal block scalar. The record is the envelope's `result`, so a caller saving it to `<id>.yaml` reads that key. Falls back to JobPosting JSON-LD (present on a logged-out full job page) and then to the og:/<title> meta tags when the guest fragment is unavailable.
+
+### Search jobs by keyword and location
+
+```bash
+browser-serialiser linkedin.com/pub-search-jobs "chief AI officer"
+browser-serialiser linkedin.com/pub-search-jobs '{"keywords":"chief AI officer","location":"Spain","posted":"month","maxPages":5}'
+```
+
+Runs signed out against the guest list the public jobs page pages through, which takes a free-text `location` (a country, a city, or a region such as `European Union`); the signed-in search UI has no location control. Keys: `keywords`, `location`, `geoId` (LinkedIn's numeric place id, in place of `location`), `posted` (`day`, `week` or `month`), `workplace` (a list of `onsite`, `remote`, `hybrid`), `start` (a result offset, the `cursor` of an earlier call) and `maxPages` (default 10, of about 10 jobs each). An unknown key is refused.
+
+`result` is `{query, pages, count, results}`; each result carries `job_id`, `url`, `title`, `company`, `company_url`, `location`, `posted` (as LinkedIn words it), `posted_date` (`YYYY-MM-DD`) and `flags` (card badges such as "Be an early applicant", "Actively Hiring"). The list states no total, so `count` is the distinct jobs read; `hasMore` is true when reading stopped on `maxPages`, and `cursor` is then the offset to resume at. A card carries no salary, work mode or closed marker: read the posting with `pub-parse-job` for the salary and `closed`.
 
 ## 2b. Read a member's Contact info
 
