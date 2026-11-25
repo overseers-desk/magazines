@@ -89,7 +89,7 @@ proc render_keyword_search {html keywords} {
     set html [strip_viewer_content $html]
 
     set title "NOT FOUND"
-    if {[regexp {(?s)<title[^>]*>(.*?)</title>} $html -> t]} {
+    if {[regexp {(?s)<title[^>]*?>(.*?)</title>} $html -> t]} {
         set title [string trim $t]
     }
     set out {}

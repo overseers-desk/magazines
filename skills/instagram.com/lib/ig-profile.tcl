@@ -162,7 +162,7 @@ proc parse_count_triple {og_desc} {
 # The recent-post caption snippet from <meta name="description"> ("... on Instagram: "caption"").
 proc parse_recent_caption {meta_description} {
     if {$meta_description eq ""} { return "" }
-    if {[regexp {Instagram:\s*["“](.+?)["”]} $meta_description -> cap]} { return [string trim $cap] }
+    if {[regexp {Instagram:\s*["“](.+)["”]} $meta_description -> cap]} { return [string trim $cap] }
     return ""
 }
 # Python-equivalent code-point length (Tcl 8.6 counts a non-BMP char as 2 units).

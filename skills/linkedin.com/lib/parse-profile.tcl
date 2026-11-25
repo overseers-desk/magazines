@@ -631,7 +631,7 @@ proc yaml_kv {key rendered} {
 # terminal handling.
 proc render_profile {html url_arg} {
     set title ""
-    if {[regexp {(?s)<title[^>]*>(.*?)</title>} $html -> t]} {
+    if {[regexp {(?s)<title[^>]*?>(.*?)</title>} $html -> t]} {
         set title [string trim $t]
     }
     set tl [string tolower $title]

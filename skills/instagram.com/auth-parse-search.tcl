@@ -22,7 +22,7 @@ package require json
 # via the supplied reporter). $raw is the in-memory page/file text.
 proc parse_payload {raw {reporter puts}} {
     # headless --dump-dom of a JSON endpoint wraps the body in <pre>...</pre>
-    if {[regexp {(?s)<pre[^>]*>(.*?)</pre>} $raw -> inner]} {
+    if {[regexp {(?s)<pre[^>]*?>(.*?)</pre>} $raw -> inner]} {
         set body $inner
     } else {
         set body $raw

@@ -64,7 +64,7 @@ proc extract_counts {html} {
 proc render_li_profile {main_html exp_html profileUrnArg slug} {
     # name off the title, as parse-profile does.
     set name ""
-    if {[regexp {(?s)<title[^>]*>(.*?)</title>} $main_html -> t]} {
+    if {[regexp {(?s)<title[^>]*?>(.*?)</title>} $main_html -> t]} {
         set title [string trim $t]
         if {[string first "| LinkedIn" $title] >= 0} {
             set name [string trim [string map {" | LinkedIn" ""} $title]]

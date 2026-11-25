@@ -342,7 +342,7 @@ proc parse_search_card {card} {
 # rather than prose, so the check holds whatever language the account renders in.
 proc search_page_state {html} {
     set title ""
-    regexp {(?s)<title[^>]*>(.*?)</title>} $html -> title
+    regexp {(?s)<title[^>]*?>(.*?)</title>} $html -> title
     set tl [string tolower [string trim $title]]
     foreach marker {"sign in" "log in" "iniciar" "registrarse"} {
         if {[string first $marker $tl] >= 0} { return login }
@@ -369,7 +369,7 @@ proc search_total_of {html} {
 # parsed cards in page order.
 proc parse_people_search {html} {
     set title ""
-    regexp {(?s)<title[^>]*>(.*?)</title>} $html -> title
+    regexp {(?s)<title[^>]*?>(.*?)</title>} $html -> title
     set state [search_page_state $html]
     set results {}
     if {$state ne "login"} {

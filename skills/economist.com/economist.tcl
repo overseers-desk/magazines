@@ -21,7 +21,7 @@ namespace eval economist {}
 # Chromium error page or a login wall, a browser-side fetch failure, not an
 # Economist response to reason about.
 proc economist::nextdata {html} {
-    set m [regexp -inline {(?s)<script id="__NEXT_DATA__"[^>]*>(.*?)</script>} $html]
+    set m [regexp -inline {(?s)<script id="__NEXT_DATA__"[^>]*?>(.*?)</script>} $html]
     if {[llength $m] < 2} {
         set snippet [string trim [regsub -all {\s+} [string range $html 0 159] " "]]
         return -code error "no __NEXT_DATA__ in page (browser error or login wall, not an\

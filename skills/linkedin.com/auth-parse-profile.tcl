@@ -41,7 +41,7 @@ proc serialiser_run {skillArgs} {
         skills not_fetched about not_fetched]
     # Owner name (for filtering it out of the skills chrome), from the title.
     set pname ""
-    if {[regexp {(?s)<title[^>]*>(.*?)</title>} $main_html -> _t]} {
+    if {[regexp {(?s)<title[^>]*?>(.*?)</title>} $main_html -> _t]} {
         set pname [string trim [string map {" | LinkedIn" ""} [string trim $_t]]]
     }
 

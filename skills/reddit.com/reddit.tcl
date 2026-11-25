@@ -39,7 +39,7 @@ proc reddit::load {path} {
     fconfigure $fh -encoding utf-8
     set text [read $fh]
     close $fh
-    set m [regexp -inline {(?s)<pre[^>]*>(.*?)</pre>} $text]
+    set m [regexp -inline {(?s)<pre[^>]*?>(.*?)</pre>} $text]
     if {[llength $m] >= 2} {
         set raw [reddit::HtmlUnescape [lindex $m 1]]
         set had_pre 1

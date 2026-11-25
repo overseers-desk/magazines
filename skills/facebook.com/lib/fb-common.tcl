@@ -159,7 +159,7 @@ proc fb::unescape {s} {
 proc fb::main_region {html} {
     if {[regexp -indices {<[a-z]+[^>]*\srole="main"} $html at]} {
         set main [string range $html [lindex $at 0] end]
-        return [regsub -all {(?s)<script[\s>][^>]*>.*?</script>} $main ""]
+        return [regsub -all {(?s)<script\M[^>]*?>.*?</script>} $main ""]
     }
     return $html
 }

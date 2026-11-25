@@ -99,7 +99,7 @@ proc parse_activity_html {html} {
 # not in it is reported by number, and its permalink URL identifies the group.
 proc group_name_map {html} {
     set map [dict create]
-    set re {groups\\/(\d+)\\/","__isNode":"Group".{0,250}?"text":"[^"]*posted in ([^"]+?)\."}
+    set re {groups\\/(\d+?)\\/","__isNode":"Group".{0,250}?"text":"[^"]*?posted in ([^"]+)\."}
     foreach {whole gid name} [regexp -all -inline -- $re $html] {
         set name [string map {\\/ /} $name]
         if {![dict exists $map $gid]} { dict set map $gid [fb::unescape $name] }
