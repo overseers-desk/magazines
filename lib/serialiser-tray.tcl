@@ -88,9 +88,26 @@ proc ::tray::Usable {} {
         && !([info exists ::env(WAYLAND_DISPLAY)] && $::env(WAYLAND_DISPLAY) ne "")} {
         return 0
     }
+    if {$::tcl_platform(os) eq "Darwin" && [catch {::tray::KeepOutput}]} { return 0 }
     if {[catch {package require Tk 9}]} { return 0 }
     catch {wm withdraw .}
     return 1
+}
+
+# Keep the run's stdout and stderr through Tk's macOS startup. Loaded by a
+# script whose stdin is no terminal and is a character device or closed, Tk
+# takes the process for an app opened from Finder and points both streams at
+# /dev/null (TkpInit, tkMacOSXInit.c): the run then completes, exits 0 and
+# prints nothing. /dev/null is the stdin an agent's shell gives a command. An
+# empty pipe reads the same, end of file at once, and is not a character
+# device, so such a stdin is swapped for one before Tk loads: closing stdin
+# frees descriptor 0, and Tcl makes the next channel created the new stdin.
+proc ::tray::KeepOutput {} {
+    if {![catch {chan configure stdin -mode}]} return   ;# only a terminal has -mode
+    if {![catch {file stat /dev/fd/0 st}] && $st(type) ne "characterSpecial"} return
+    catch {close stdin}
+    lassign [chan pipe] r w
+    close $w
 }
 
 # Desktop notification; used for the login-wall message, since the icon dies
